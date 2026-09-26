@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example
+.manager/
+runtime/
+servers/
+*.log
+*.jar
+*.zip
+*.tar
+*.gz
+!tests/fixtures/**
