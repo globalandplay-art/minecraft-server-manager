@@ -1,4 +1,5 @@
 node_modules/
+.cache/
 dist/
 coverage/
 playwright-report/
@@ -10,6 +11,7 @@ test-results/
 runtime/
 servers/
 *.log
+*.tsbuildinfo
 *.jar
 *.zip
 *.tar

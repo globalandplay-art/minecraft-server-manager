@@ -1,6 +1,6 @@
 # Minecraft Java Server Manager — API 合约
 
-状态：设计 v1，尚未实现。Phase 1 仅实现 §4 的 GET 端点；其余为后续合约，不创建空操作端点。实现必须与 [ARCHITECTURE.md](./ARCHITECTURE.md) 和 [UI_SPEC.md](./UI_SPEC.md) 一致。
+状态：设计 v1；Phase 1 已在 `packages/contracts` 与 `apps/api` 实现 §4 的四个 GET 端点并通过测试。其余为后续合约，不创建空操作端点；实现必须与 [ARCHITECTURE.md](./ARCHITECTURE.md) 和 [UI_SPEC.md](./UI_SPEC.md) 一致。
 
 ## 1. 连接与责任边界
 

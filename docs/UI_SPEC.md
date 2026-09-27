@@ -1,6 +1,6 @@
 # Minecraft Java Server Manager — UI / UX 规范
 
-状态：设计 v1，尚未实现。第一版为深色 Dashboard；与 [ARCHITECTURE.md](./ARCHITECTURE.md)、[API_SPEC.md](./API_SPEC.md) 同步。所有视觉示例中的服务器和数值均属于 Mock fixture。
+状态：设计 v1；Phase 1 深色 Dashboard 与只读 Servers 已在 `apps/web` 实现并通过三档浏览器验收及 GPT-6 Astra UI Review。后续页面仍为阶段合同；所有 Phase 1 服务器和数值均属于 Mock fixture。与 [ARCHITECTURE.md](./ARCHITECTURE.md)、[API_SPEC.md](./API_SPEC.md) 同步。
 
 ## 1. 信息架构
 

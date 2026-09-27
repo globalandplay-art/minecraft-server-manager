@@ -1,12 +1,12 @@
 # Minecraft Java Server Manager — 系统架构
 
-状态：设计稿 v1；设计 Review 结果见文末。当前交付只有设计文档，不包含可运行应用。
+状态：设计 v1；Phase 1 已在 `apps/api`、`apps/web`、`packages/contracts` 与 `tests/e2e` 实现并通过测试及 GPT-6 Astra UI Review。Phase 2–7 仍为后续设计合同。
 
 ## 1. 需求与第一轮边界
 
 产品是本地优先的 Minecraft Java 服务端管理器。先把浏览器、React、Fastify 和本地 Java 进程之间的闭环做可靠，再扩展远程访问。目标用户是管理已有服务端目录的服主；第一版不自动下载 Java、服务端 JAR 或第三方 Mod，也不替用户接受 Minecraft EULA。
 
-本轮完成系统架构、目录结构、API、统一 Adapter、Dashboard 设计和 Phase 1 实施计划。设计完成后提交用户确认，再开始 Phase 1 编码。每个 Phase 测试与 Review 通过后仍需用户确认，才进入下一阶段。后续阶段只定义边界，不提前实现。
+首轮已完成系统架构、目录结构、API、统一 Adapter、Dashboard 设计和 Phase 1 实施计划。用户现已授权设计完成后开始 Phase 1，并在各阶段测试与 Review 通过后自动连续推进，直到额度限制或用户叫停；无需重复请求阶段确认。测试或 Review 未通过则留在当前阶段修复，不能跳过验收。后续阶段只在进入该阶段后实现。
 
 | 必须满足 | 设计决策 |
 | --- | --- |
@@ -47,7 +47,7 @@ Vite 与 Fastify 都显式绑定 127.0.0.1；Vite strictPort=true，端口占用
 
 - 前端：React + Vite + TypeScript strict；React Router 负责路由，TanStack Query 负责服务端状态；本地交互使用 React state，暂不引入 Redux。
 - UI：CSS variables、CSS Grid / Flex、可访问的基础组件；图标统一使用同一轻量图标库，不引入大型管理后台模板。
-- 后端：Node.js 24 LTS 作为拟定运行基线，Fastify + TypeScript；Phase 1 锁定实际兼容依赖及 lockfile，使用 npm workspaces，避免增加另一套包管理工具。
+- 后端：Fastify + TypeScript，Node.js ≥22.12；本机现有 Node 22.23.1 用于首轮验证，Node 24 LTS 为建议运行时。Phase 1 锁定实际兼容依赖及 lockfile，使用 npm workspaces，避免增加另一套包管理工具。
 - 合约：`packages/contracts` 使用 TypeBox 定义 JSON Schema 并导出静态 TypeScript 类型。它只包含纯合约，不依赖 Node、Fastify、React 或任何秘密配置。Fastify 请求和响应都挂接 schema；前端在网络边界验证响应。
 - 测试：后端 Vitest + Fastify inject；前端 Vitest + Testing Library；关键闭环使用 Playwright。测试多少由阶段风险决定。
 - 日志：Fastify 结构化日志；Minecraft 日志独立流；统一脱敏后才能进入 REST、WebSocket、导出或 Crash Analysis。
@@ -302,7 +302,7 @@ GPT-6 Astra 负责上述架构、UI 规范、复杂决策、安全与高级 Revi
 | 移动端 | 360 起布局；物理手机访问留到远程阶段，无需扩大本地监听 |
 | 可维护性 | 单一合约包、ID 映射、逐阶段目录、组合复用、少量必要测试 |
 
-Review 结论：设计可进入 Phase 1，需用户确认本轮交付。编码完成后必须再次验证实际配置、UI 与测试，不能用设计 Review 替代运行验收。
+Review 结论：设计可进入 Phase 1，用户已授权开始实施并在阶段验收后连续推进。编码完成后必须再次验证实际配置、UI 与测试，不能用设计 Review 替代运行验收。
 
 GPT-5.6 Sol 已做只读文档校验：三份 Markdown 的 fences 成对、相对链接存在、两个 JSON 示例可解析、Phase 1 四个 GET 端点与核心状态字段一致。其发现的 Servers 目录阶段标注与 Settings feature 映射已修正；本地 diff 空白检查通过。本轮没有应用运行测试。
 
