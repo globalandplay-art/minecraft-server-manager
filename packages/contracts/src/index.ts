@@ -280,3 +280,163 @@ export const serverParamsSchema = strictObject({
   serverId: Type.String({ pattern: "^[a-z0-9](?:[a-z0-9-]{0,62})$" })
 });
 export type ServerParams = Static<typeof serverParamsSchema>;
+
+export const operationKindSchema = Type.Union([
+  Type.Literal("start"),
+  Type.Literal("stop"),
+  Type.Literal("restart"),
+  Type.Literal("backup"),
+  Type.Literal("restore"),
+  Type.Literal("rollback"),
+  Type.Literal("world-create"),
+  Type.Literal("world-import"),
+  Type.Literal("world-archive"),
+  Type.Literal("addon-change")
+]);
+export type OperationKind = Static<typeof operationKindSchema>;
+
+export const operationSchema = strictObject({
+  id: Type.String({ minLength: 1, maxLength: 128 }),
+  serverId: Type.String({ pattern: "^[a-z0-9](?:[a-z0-9-]{0,62})$" }),
+  kind: operationKindSchema,
+  state: Type.Union([
+    Type.Literal("queued"),
+    Type.Literal("running"),
+    Type.Literal("succeeded"),
+    Type.Literal("failed"),
+    Type.Literal("interrupted")
+  ]),
+  step: Type.String({ minLength: 1, maxLength: 128 }),
+  progress: Type.Union([Type.Number({ minimum: 0, maximum: 100 }), Type.Null()]),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema,
+  result: Type.Union([
+    strictObject({
+      resourceId: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
+      rollbackAvailable: Type.Boolean()
+    }),
+    Type.Null()
+  ]),
+  error: Type.Union([
+    strictObject({
+      code: Type.String({ minLength: 1, maxLength: 128 }),
+      message: Type.String({ minLength: 1, maxLength: 512 })
+    }),
+    Type.Null()
+  ])
+});
+export type Operation = Static<typeof operationSchema>;
+
+export const logEntrySchema = strictObject({
+  id: Type.String({ minLength: 1, maxLength: 128 }),
+  cursor: Type.String({ minLength: 1, maxLength: 256 }),
+  timestamp: Type.Union([timestampSchema, Type.Null()]),
+  level: Type.Union([
+    Type.Literal("debug"),
+    Type.Literal("info"),
+    Type.Literal("warn"),
+    Type.Literal("error"),
+    Type.Literal("unknown")
+  ]),
+  text: Type.String({ maxLength: 8192 }),
+  source: Type.Union([Type.Literal("latest.log"), Type.Literal("stderr")])
+});
+export type LogEntry = Static<typeof logEntrySchema>;
+
+export const emptyRequestSchema = strictObject({});
+export type EmptyRequest = Static<typeof emptyRequestSchema>;
+
+export const commandRequestSchema = strictObject({
+  command: Type.String({ minLength: 1, maxLength: 1024 })
+});
+export type CommandRequest = Static<typeof commandRequestSchema>;
+
+export const lifecycleActionResponseSchema = strictObject({
+  data: strictObject({ operation: operationSchema }),
+  meta: responseMetaSchema
+});
+export type LifecycleActionResponse = Static<typeof lifecycleActionResponseSchema>;
+
+export const operationResponseSchema = strictObject({
+  data: operationSchema,
+  meta: responseMetaSchema
+});
+export type OperationResponse = Static<typeof operationResponseSchema>;
+
+export const logsResponseSchema = strictObject({
+  data: strictObject({
+    items: Type.Array(logEntrySchema, { maxItems: 500 }),
+    nextCursor: Type.String({ maxLength: 256 }),
+    truncated: Type.Boolean()
+  }),
+  meta: responseMetaSchema
+});
+export type LogsResponse = Static<typeof logsResponseSchema>;
+
+export const commandResponseSchema = strictObject({
+  data: strictObject({
+    status: Type.Union([Type.Literal("executed"), Type.Literal("submitted")]),
+    transport: Type.Union([Type.Literal("rcon"), Type.Literal("stdin")]),
+    output: Type.Union([Type.String({ maxLength: 65536 }), Type.Null()])
+  }),
+  meta: responseMetaSchema
+});
+export type CommandResponse = Static<typeof commandResponseSchema>;
+
+export const operationParamsSchema = strictObject({
+  operationId: Type.String({ minLength: 1, maxLength: 128 })
+});
+export type OperationParams = Static<typeof operationParamsSchema>;
+
+export const logsQuerySchema = strictObject({
+  after: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, default: 200 }))
+});
+export type LogsQuery = Static<typeof logsQuerySchema>;
+
+export const wsQuerySchema = strictObject({
+  streamId: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+  afterSequence: Type.Optional(Type.Integer({ minimum: 0 }))
+});
+export type WsQuery = Static<typeof wsQuerySchema>;
+
+export const wsHelloMessageSchema = strictObject({
+  type: Type.Literal("hello"),
+  streamId: Type.String({ minLength: 1, maxLength: 128 }),
+  latestSequence: Type.Integer({ minimum: 0 })
+});
+export const wsSnapshotMessageSchema = strictObject({
+  type: Type.Literal("snapshot"),
+  sequence: Type.Integer({ minimum: 0 }),
+  status: serverStatusSchema,
+  logs: Type.Array(logEntrySchema, { maxItems: 2000 })
+});
+export const wsLogMessageSchema = strictObject({
+  type: Type.Literal("log"),
+  sequence: Type.Integer({ minimum: 1 }),
+  entry: logEntrySchema
+});
+export const wsStatusMessageSchema = strictObject({
+  type: Type.Literal("status"),
+  sequence: Type.Integer({ minimum: 1 }),
+  status: serverStatusSchema
+});
+export const wsOperationMessageSchema = strictObject({
+  type: Type.Literal("operation"),
+  sequence: Type.Integer({ minimum: 1 }),
+  operation: operationSchema
+});
+export const wsGapMessageSchema = strictObject({
+  type: Type.Literal("gap"),
+  sequence: Type.Integer({ minimum: 0 }),
+  reason: Type.String({ minLength: 1, maxLength: 256 })
+});
+export const wsMessageSchema = Type.Union([
+  wsHelloMessageSchema,
+  wsSnapshotMessageSchema,
+  wsLogMessageSchema,
+  wsStatusMessageSchema,
+  wsOperationMessageSchema,
+  wsGapMessageSchema
+]);
+export type WsMessage = Static<typeof wsMessageSchema>;

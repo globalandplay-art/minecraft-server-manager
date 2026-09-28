@@ -1,6 +1,7 @@
 import {
   apiErrorResponseSchema,
   type Features,
+  type Mode,
   healthResponseSchema,
   type HealthResponse
 } from "@mcsm/contracts";
@@ -24,7 +25,16 @@ export const FEATURES: Features = {
   remoteAccess: { implemented: false, phase: 7 }
 };
 
-export function registerHealthRoute(app: FastifyInstance, clock: Clock): void {
+export function featuresForMode(mode: Mode): Features {
+  if (mode === "mock") return structuredClone(FEATURES);
+  return {
+    ...structuredClone(FEATURES),
+    lifecycle: { implemented: true, phase: 2 },
+    console: { implemented: true, phase: 2 }
+  };
+}
+
+export function registerHealthRoute(app: FastifyInstance, clock: Clock, mode: Mode = "mock"): void {
   app.get<{ Reply: HealthResponse }>(
     "/api/v1/health",
     {
@@ -37,8 +47,8 @@ export function registerHealthRoute(app: FastifyInstance, clock: Clock): void {
       }
     },
     async (request) => ({
-      data: { status: "ok", apiVersion: "1", features: FEATURES },
-      meta: responseMeta(request.id, clock)
+      data: { status: "ok", apiVersion: "1", features: featuresForMode(mode) },
+      meta: responseMeta(request.id, clock, mode)
     })
   );
 }

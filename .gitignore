@@ -8,8 +8,8 @@ test-results/
 .env.*
 !.env.example
 .manager/
-runtime/
-servers/
+/runtime/
+/servers/
 *.log
 *.tsbuildinfo
 *.jar

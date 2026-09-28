@@ -1,4 +1,8 @@
-import type { MinecraftServerAdapter } from "./contract.js";
+import {
+  isLocalAdapter,
+  type LocalMinecraftServerAdapter,
+  type MinecraftServerAdapter
+} from "./contract.js";
 
 export class AdapterRegistry {
   readonly #adapters: Map<string, MinecraftServerAdapter>;
@@ -17,5 +21,18 @@ export class AdapterRegistry {
 
   get(serverId: string): MinecraftServerAdapter | undefined {
     return this.#adapters.get(serverId);
+  }
+
+  getLocal(serverId: string): LocalMinecraftServerAdapter | undefined {
+    const adapter = this.#adapters.get(serverId);
+    return adapter !== undefined && isLocalAdapter(adapter) ? adapter : undefined;
+  }
+
+  async close(): Promise<void> {
+    await Promise.all(
+      [...this.#adapters.values()]
+        .filter(isLocalAdapter)
+        .map((adapter) => adapter.closeObserver())
+    );
   }
 }

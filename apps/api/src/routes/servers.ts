@@ -2,6 +2,7 @@ import {
   apiErrorResponseSchema,
   overviewResponseSchema,
   type OverviewResponse,
+  type Mode,
   serverParamsSchema,
   serverResponseSchema,
   type ServerParams,
@@ -19,12 +20,13 @@ async function sendServerError(
   error: unknown,
   request: FastifyRequest,
   reply: FastifyReply,
-  clock: Clock
+  clock: Clock,
+  mode: Mode
 ): Promise<void> {
   if (error instanceof ServerNotFoundError) {
     await reply
       .code(404)
-      .send(errorResponse(request.id, clock, "SERVER_NOT_FOUND", "未找到指定的服务器实例"));
+      .send(errorResponse(request.id, clock, "SERVER_NOT_FOUND", "未找到指定的服务器实例", mode));
     return;
   }
 
@@ -34,7 +36,8 @@ async function sendServerError(
 export function registerServerRoutes(
   app: FastifyInstance,
   service: ServerService,
-  clock: Clock
+  clock: Clock,
+  mode: Mode = "mock"
 ): void {
   app.get<{ Reply: ServersResponse }>(
     "/api/v1/servers",
@@ -49,7 +52,7 @@ export function registerServerRoutes(
     },
     async (request) => ({
       data: { items: await service.list() },
-      meta: responseMeta(request.id, clock)
+      meta: responseMeta(request.id, clock, mode)
     })
   );
 
@@ -71,10 +74,10 @@ export function registerServerRoutes(
       try {
         return {
           data: await service.get(request.params.serverId),
-          meta: responseMeta(request.id, clock)
+          meta: responseMeta(request.id, clock, mode)
         };
       } catch (error) {
-        await sendServerError(error, request, reply, clock);
+        await sendServerError(error, request, reply, clock, mode);
         return reply;
       }
     }
@@ -98,10 +101,10 @@ export function registerServerRoutes(
       try {
         return {
           data: await service.getOverview(request.params.serverId),
-          meta: responseMeta(request.id, clock)
+          meta: responseMeta(request.id, clock, mode)
         };
       } catch (error) {
-        await sendServerError(error, request, reply, clock);
+        await sendServerError(error, request, reply, clock, mode);
         return reply;
       }
     }

@@ -1,0 +1,231 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+import type { ServerInfo, ServerType } from "@mcsm/contracts";
+import yauzl, { type Entry, type ZipFile } from "yauzl";
+
+import { DomainError } from "./domain-errors.js";
+
+const execFileAsync = promisify(execFile);
+const MAX_JAR_ENTRIES = 100_000;
+const MAX_METADATA_BYTES = 1024 * 1024;
+const INTERESTING_ENTRIES = new Set([
+  "version.json",
+  "META-INF/MANIFEST.MF",
+  "META-INF/versions.list",
+  "fabric-server-launch.properties"
+]);
+
+interface JarMetadata {
+  readonly entries: Set<string>;
+  readonly content: Map<string, string>;
+}
+
+export interface DetectionInput {
+  readonly id: string;
+  readonly name: string;
+  readonly jarPath: string;
+  readonly javaExecutable: string;
+}
+
+function readEntry(zipFile: ZipFile, entry: Entry): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (entry.uncompressedSize > MAX_METADATA_BYTES) {
+      reject(new DomainError(409, "ACTION_UNAVAILABLE", "JAR metadata超过大小限制", "metadata-too-large"));
+      return;
+    }
+    zipFile.openReadStream(entry, (error, stream) => {
+      if (error !== null) {
+        reject(error);
+        return;
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      stream.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > MAX_METADATA_BYTES) {
+          stream.destroy(new Error("metadata-too-large"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      stream.once("error", reject);
+      stream.once("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    });
+  });
+}
+
+function inspectJar(jarPath: string): Promise<JarMetadata> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(
+      jarPath,
+      { lazyEntries: true, strictFileNames: true, validateEntrySizes: true },
+      (openError, zipFile) => {
+        if (openError !== null || zipFile === undefined) {
+          reject(new DomainError(409, "ACTION_UNAVAILABLE", "服务端JAR不是可读取的ZIP", "invalid-jar"));
+          return;
+        }
+
+        const entries = new Set<string>();
+        const content = new Map<string, string>();
+        let count = 0;
+        let settled = false;
+        const fail = (error: unknown) => {
+          if (!settled) {
+            settled = true;
+            zipFile.close();
+            reject(error);
+          }
+        };
+
+        zipFile.once("error", fail);
+        zipFile.on("entry", (entry: Entry) => {
+          count += 1;
+          if (count > MAX_JAR_ENTRIES) {
+            fail(new DomainError(409, "ACTION_UNAVAILABLE", "服务端JAR条目过多", "invalid-jar"));
+            return;
+          }
+          entries.add(entry.fileName);
+          if (!INTERESTING_ENTRIES.has(entry.fileName)) {
+            zipFile.readEntry();
+            return;
+          }
+          void readEntry(zipFile, entry)
+            .then((value) => {
+              content.set(entry.fileName, value);
+              zipFile.readEntry();
+            })
+            .catch(fail);
+        });
+        zipFile.once("end", () => {
+          if (!settled) {
+            settled = true;
+            resolve({ entries, content });
+          }
+        });
+        zipFile.readEntry();
+      }
+    );
+  });
+}
+
+function manifestMainClass(manifest: string | undefined): string | null {
+  if (manifest === undefined) {
+    return null;
+  }
+  const unfolded = manifest.replace(/\r?\n /gu, "");
+  const match = /^Main-Class:\s*(.+)$/imu.exec(unfolded);
+  return match?.[1]?.trim() ?? null;
+}
+
+function detectType(metadata: JarMetadata): ServerType {
+  const mainClass = manifestMainClass(metadata.content.get("META-INF/MANIFEST.MF"));
+  if (
+    metadata.entries.has("fabric-server-launch.properties") ||
+    mainClass?.toLowerCase().includes("fabric") === true
+  ) {
+    return "fabric";
+  }
+  if (
+    mainClass?.toLowerCase().includes("paper") === true ||
+    [...metadata.entries].some((entry) => entry.toLowerCase().includes("paperclip"))
+  ) {
+    return "paper";
+  }
+  if (
+    metadata.entries.has("version.json") &&
+    (mainClass === "net.minecraft.bundler.Main" || mainClass === "net.minecraft.server.Main")
+  ) {
+    return "vanilla";
+  }
+  return "unknown";
+}
+
+export function parseVersionMetadata(raw: string | undefined): {
+  minecraftVersion: string | null;
+  requiredMajor: number | null;
+} {
+  if (raw === undefined) {
+    return { minecraftVersion: null, requiredMajor: null };
+  }
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== "object" || value === null) {
+      return { minecraftVersion: null, requiredMajor: null };
+    }
+    const record = value as Record<string, unknown>;
+    const java = record.java_version;
+    const major =
+      typeof java === "number"
+        ? java
+        : typeof java === "object" && java !== null
+          ? (java as Record<string, unknown>).majorVersion
+          : null;
+    return {
+      minecraftVersion:
+        typeof record.id === "string" && record.id.length <= 64 ? record.id : null,
+      requiredMajor:
+        typeof major === "number" && Number.isInteger(major) && major > 0 && major <= 100
+          ? major
+          : null
+    };
+  } catch {
+    return { minecraftVersion: null, requiredMajor: null };
+  }
+}
+
+async function probeJava(javaExecutable: string): Promise<string | null> {
+  try {
+    const { stdout, stderr } = await execFileAsync(javaExecutable, ["-version"], {
+      timeout: 5_000,
+      maxBuffer: 64 * 1024,
+      windowsHide: true,
+      encoding: "utf8"
+    });
+    const match = /version\s+"([^"]{1,63})"/iu.exec(`${stderr}\n${stdout}`);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
+  const [metadata, runtimeVersion] = await Promise.all([
+    inspectJar(input.jarPath),
+    probeJava(input.javaExecutable)
+  ]);
+  const type = detectType(metadata);
+  const version = parseVersionMetadata(metadata.content.get("version.json"));
+  const evidence = ["jar-manifest"];
+  if (metadata.entries.has("version.json")) {
+    evidence.push("jar-version-json");
+  }
+  if (metadata.entries.has("META-INF/versions.list")) {
+    evidence.push("jar-versions-list");
+  }
+  const warnings: string[] = [];
+  if (type === "unknown") {
+    warnings.push("无法可靠识别服务端类型；仅提供只读信息");
+  } else if (type !== "vanilla") {
+    warnings.push("Phase 2 仅允许 Vanilla 生命周期操作");
+  }
+  if (runtimeVersion === null) {
+    warnings.push("无法验证配置的 Java 运行时版本");
+  }
+  if (version.minecraftVersion === null) {
+    warnings.push("JAR metadata 未提供可靠的 Minecraft 版本");
+  }
+
+  return {
+    id: input.id,
+    name: input.name,
+    type,
+    minecraftVersion: version.minecraftVersion,
+    java: { runtimeVersion, requiredMajor: version.requiredMajor },
+    detection: {
+      confidence: type === "unknown" ? "low" : version.minecraftVersion === null ? "medium" : "high",
+      evidence,
+      warnings
+    }
+  };
+}

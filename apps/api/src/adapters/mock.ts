@@ -21,6 +21,7 @@ export interface MockAdapterFixture {
 
 export class MockAdapter implements MinecraftServerAdapter {
   readonly serverId: string;
+  readonly mode = "mock" as const;
   readonly #fixture: MockAdapterFixture;
   readonly #clock: Clock;
 

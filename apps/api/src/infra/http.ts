@@ -1,4 +1,4 @@
-import type { ApiErrorResponse, ResponseMeta } from "@mcsm/contracts";
+import type { ApiErrorResponse, Mode, ResponseMeta } from "@mcsm/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import type { Clock } from "../clock.js";
@@ -18,33 +18,38 @@ const FORWARDED_HEADERS = [
   "x-forwarded-proto"
 ] as const;
 
-export function responseMeta(requestId: string, clock: Clock): ResponseMeta {
-  return { requestId, generatedAt: clock.now().toISOString(), mode: "mock" };
+export function responseMeta(requestId: string, clock: Clock, mode: Mode = "mock"): ResponseMeta {
+  return { requestId, generatedAt: clock.now().toISOString(), mode };
 }
 
 export function errorResponse(
   requestId: string,
   clock: Clock,
   code: string,
-  message: string
+  message: string,
+  mode: Mode = "mock",
+  reason?: string
 ): ApiErrorResponse {
-  return { error: { code, message }, meta: responseMeta(requestId, clock) };
+  return {
+    error: reason === undefined ? { code, message } : { code, message, details: { reason } },
+    meta: responseMeta(requestId, clock, mode)
+  };
 }
 
-export function installLocalRequestGuard(clock: Clock) {
+export function installLocalRequestGuard(clock: Clock, mode: Mode = "mock") {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const host = request.headers.host?.toLowerCase();
     if (host === undefined || !ALLOWED_HOSTS.has(host)) {
       await reply
         .code(403)
-        .send(errorResponse(request.id, clock, "HOST_REJECTED", "请求 Host 不在本地允许列表中"));
+        .send(errorResponse(request.id, clock, "HOST_REJECTED", "请求 Host 不在本地允许列表中", mode));
       return;
     }
 
     if (FORWARDED_HEADERS.some((header) => request.headers[header] !== undefined)) {
       await reply
         .code(403)
-        .send(errorResponse(request.id, clock, "HOST_REJECTED", "代理转发请求不被允许"));
+        .send(errorResponse(request.id, clock, "HOST_REJECTED", "代理转发请求不被允许", mode));
       return;
     }
 
@@ -52,7 +57,30 @@ export function installLocalRequestGuard(clock: Clock) {
     if (origin !== undefined && !ALLOWED_ORIGINS.has(origin)) {
       await reply
         .code(403)
-        .send(errorResponse(request.id, clock, "ORIGIN_REJECTED", "请求 Origin 不在本地允许列表中"));
+        .send(errorResponse(request.id, clock, "ORIGIN_REJECTED", "请求 Origin 不在本地允许列表中", mode));
+    }
+  };
+}
+
+export function installWriteRequestGuard(clock: Clock, mode: Mode) {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (request.headers.origin === undefined) {
+      await reply
+        .code(403)
+        .send(errorResponse(request.id, clock, "ORIGIN_REJECTED", "写请求必须提供允许的 Origin", mode));
+      return;
+    }
+    if (request.headers["x-manager-intent"] !== "local-ui") {
+      await reply
+        .code(403)
+        .send(errorResponse(request.id, clock, "ORIGIN_REJECTED", "写请求缺少本地操作意图标记", mode));
+      return;
+    }
+    const contentType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
+    if (contentType !== "application/json") {
+      await reply
+        .code(415)
+        .send(errorResponse(request.id, clock, "UNSUPPORTED_FILE_TYPE", "写请求必须使用 application/json", mode));
     }
   };
 }

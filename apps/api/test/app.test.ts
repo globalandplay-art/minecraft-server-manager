@@ -161,8 +161,8 @@ describe("Phase 1 read API", () => {
     expect(missingServer.statusCode).toBe(404);
     expect(Value.Check(apiErrorResponseSchema, missingServer.json())).toBe(true);
     expect(missingServer.json().error.code).toBe("SERVER_NOT_FOUND");
-    expect(futureRoute.statusCode).toBe(404);
-    expect(futureRoute.json().error.code).toBe("RESOURCE_NOT_FOUND");
+    expect(futureRoute.statusCode).toBe(403);
+    expect(futureRoute.json().error.code).toBe("ORIGIN_REJECTED");
   });
 });
 

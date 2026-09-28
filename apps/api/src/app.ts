@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import type { ApiErrorResponse } from "@mcsm/contracts";
+import type { Mode } from "@mcsm/contracts";
+import websocket from "@fastify/websocket";
 import fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 
 import type { MinecraftServerAdapter } from "./adapters/contract.js";
@@ -11,17 +13,26 @@ import { JSON_BODY_LIMIT_BYTES } from "./config/runtime.js";
 import { createMockAdapters } from "./fixtures/servers.js";
 import { errorResponse, installLocalRequestGuard } from "./infra/http.js";
 import { registerHealthRoute } from "./routes/health.js";
+import { registerOperationRoutes } from "./routes/operations.js";
 import { registerServerRoutes } from "./routes/servers.js";
+import { registerWebSocketRoute } from "./routes/websocket.js";
+import { DomainError } from "./services/domain-errors.js";
+import { EventStreamService } from "./services/event-stream-service.js";
+import { OperationService } from "./services/operation-service.js";
+import { MemoryOperationStore, type OperationStore } from "./services/operation-store.js";
 import { ServerService } from "./services/server-service.js";
 
 export interface BuildAppOptions {
   clock?: Clock;
   adapters?: readonly MinecraftServerAdapter[];
   logger?: FastifyServerOptions["logger"];
+  mode?: Mode;
+  operationStore?: OperationStore;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const clock = options.clock ?? systemClock;
+  const mode = options.mode ?? "mock";
   const adapters = options.adapters ?? createMockAdapters(clock);
   const app = fastify({
     logger: options.logger ?? false,
@@ -29,18 +40,37 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     bodyLimit: JSON_BODY_LIMIT_BYTES,
     genReqId: () => randomUUID()
   });
-  const service = new ServerService(new AdapterRegistry(adapters));
+  void app.register(websocket, {
+    options: { maxPayload: 4 * 1024, perMessageDeflate: false, clientTracking: true }
+  });
+  const registry = new AdapterRegistry(adapters);
+  const operations = new OperationService(options.operationStore ?? new MemoryOperationStore(), clock);
+  const service = new ServerService(registry, operations);
+  const streams = new EventStreamService(registry, operations);
 
-  app.addHook("onRequest", installLocalRequestGuard(clock));
-  registerHealthRoute(app, clock);
-  registerServerRoutes(app, service, clock);
+  app.addHook("onRequest", installLocalRequestGuard(clock, mode));
+  app.addHook("onReady", async () => operations.initialize());
+  app.addHook("onClose", async () => {
+    streams.close();
+    await service.close();
+  });
+  registerHealthRoute(app, clock, mode);
+  registerServerRoutes(app, service, clock, mode);
+  registerOperationRoutes(app, service, clock, mode);
+  // @fastify/websocket installs an onRoute hook in its encapsulated scope.
+  // Register WebSocket routes in a following plugin so the hook can replace
+  // the HTTP handler with the upgrade handler before the route is compiled.
+  void app.register(async (websocketRoutes) => {
+    registerWebSocketRoute(websocketRoutes, streams, clock, mode);
+  });
 
   app.setNotFoundHandler(async (request, reply) => {
     const payload: ApiErrorResponse = errorResponse(
       request.id,
       clock,
       "RESOURCE_NOT_FOUND",
-      "请求的 API 资源不存在"
+      "请求的 API 资源不存在",
+      mode
     );
     await reply.code(404).send(payload);
   });
@@ -60,14 +90,21 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (errorCode === "FST_ERR_CTP_BODY_TOO_LARGE") {
       await reply
         .code(413)
-        .send(errorResponse(request.id, clock, "UPLOAD_TOO_LARGE", "请求体超过 64 KiB 限制"));
+        .send(errorResponse(request.id, clock, "UPLOAD_TOO_LARGE", "请求体超过 64 KiB 限制", mode));
       return;
     }
 
     if (hasValidation) {
       await reply
         .code(400)
-        .send(errorResponse(request.id, clock, "VALIDATION_ERROR", "请求参数格式无效"));
+        .send(errorResponse(request.id, clock, "VALIDATION_ERROR", "请求参数格式无效", mode));
+      return;
+    }
+
+    if (error instanceof DomainError) {
+      await reply
+        .code(error.statusCode)
+        .send(errorResponse(request.id, clock, error.code, error.safeMessage, mode, error.reason));
       return;
     }
 
@@ -77,7 +114,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     );
     await reply
       .code(500)
-      .send(errorResponse(request.id, clock, "INTERNAL_ERROR", "服务器处理请求时发生错误"));
+      .send(errorResponse(request.id, clock, "INTERNAL_ERROR", "服务器处理请求时发生错误", mode));
   });
 
   return app;

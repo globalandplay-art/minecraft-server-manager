@@ -1,9 +1,25 @@
 import { buildApp } from "./app.js";
-import { API_HOST, API_PORT, assertMockMode } from "./config/runtime.js";
+import { createLocalAdapters, resolveManagerRoot } from "./config/bootstrap.js";
+import { API_HOST, API_PORT, resolveMode } from "./config/runtime.js";
+import { LocalRuntimeFactory } from "./infra/runtime/index.js";
+import { JsonOperationStore } from "./services/operation-store.js";
 
 async function main(): Promise<void> {
-  assertMockMode(process.env.MCSM_MODE);
-  const app = buildApp({ logger: true });
+  const mode = resolveMode(process.env.MCSM_MODE);
+  const managerRoot = resolveManagerRoot(process.env.MCSM_MANAGER_ROOT);
+  const adapters =
+    mode === "mock" ? undefined : await createLocalAdapters(managerRoot, new LocalRuntimeFactory());
+  const app = buildApp({
+    logger: {
+      level: "info",
+      serializers: {
+        req: (request) => ({ method: request.method })
+      }
+    },
+    mode,
+    ...(adapters === undefined ? {} : { adapters }),
+    operationStore: new JsonOperationStore(managerRoot)
+  });
 
   const close = async () => {
     await app.close();
@@ -14,8 +30,7 @@ async function main(): Promise<void> {
   await app.listen({ host: API_HOST, port: API_PORT });
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "API startup failed";
-  process.stderr.write(`${message}\n`);
+main().catch(() => {
+  process.stderr.write("API startup failed; see safe application diagnostics.\n");
   process.exitCode = 1;
 });
