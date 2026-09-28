@@ -1,6 +1,6 @@
 # Minecraft Java Server Manager
 
-一个本地优先的 Minecraft Java 服务端管理界面。默认的 Mock 模式保留 Phase 1 的受控示例数据；Phase 2 已接入本机 Vanilla 服务端的启动、停止、重启、Console 日志与命令。自动化测试、真实 Vanilla 生命周期和浏览器 WebSocket 联调已通过；最终 Astra Review 仍待签核，因此当前版本尚未完成 Phase 2 验收。
+一个本地优先的 Minecraft Java 服务端管理界面。默认的 Mock 模式保留 Phase 1 的受控示例数据；已签核的 Phase 2 接入本机 Vanilla 服务端的启动、停止、重启、Console 日志与命令。自动化测试、真实 Vanilla 生命周期和浏览器 WebSocket 联调均已通过。直接使用请先阅读 [本地使用指南](./docs/USER_GUIDE.md)；Worlds、Backups 和其他后续功能仍在开发中。
 
 ## 环境要求
 
