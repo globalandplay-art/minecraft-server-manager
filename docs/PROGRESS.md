@@ -46,7 +46,7 @@ Phase 2–7 的边界见 [ARCHITECTURE.md](./ARCHITECTURE.md)、[API_SPEC.md](./
 
 ## Phase 2 当前检查点（2026-09-28）
 
-Phase 2 实现已在 `feature/phase-2-lifecycle-console` 工作区完成主要编码，尚未提交最终 commit。最新 `npm.cmd run check` 以退出码 0 通过：ESLint、三 workspace typecheck、contracts 3 项、API 106 项、Web 29 项测试与生产构建。前端 Console、生命周期确认、WebSocket 重连/gap、命令输入和过期快照保护已实现。
+Phase 2 实现已在 `feature/phase-2-lifecycle-console` 工作区完成主要编码，并分成三笔本地提交：`5429921`（Vanilla 后端与共享契约）、`21679e5`（生命周期控件与 Console）、`07ba0d1`（浏览器测试与文档）。工作区干净；这些提交不代表阶段最终签核。最新 `npm.cmd run check` 以退出码 0 通过：ESLint、三 workspace typecheck、contracts 3 项、API 106 项、Web 29 项测试与生产构建。前端 Console、生命周期确认、WebSocket 重连/gap、命令输入和过期快照保护已实现。
 
 真实 Vanilla 26.3 实例已完成 dry-run 与 apply 测试设置：原 `server.properties` 已备份到私有 `.manager/setup-backups`，仅更新本机监听、RCON 开关、RCON 端口和随机 RCON 密码，密码未输出。后端重新检测到 Vanilla 26.3、Java runtime 25.0.4.1、required Java 25，状态探测可正确识别停服。
 
