@@ -1,7 +1,8 @@
 import type { OverviewResponse } from '@mcsm/contracts';
-import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { InvalidSelection } from './App';
 import { Dashboard } from './pages/Dashboard';
 
@@ -45,6 +46,8 @@ const overview: OverviewResponse['data'] = {
   alerts: [],
 };
 
+afterEach(cleanup);
+
 describe('Dashboard 边界状态', () => {
   it('无效 server query 不会悄悄切换到其他实例', () => {
     render(<MemoryRouter><InvalidSelection /></MemoryRouter>);
@@ -54,11 +57,31 @@ describe('Dashboard 边界状态', () => {
   });
 
   it('快照过期时 Hero 与指标状态同时降级，并保留上次状态', () => {
-    render(<Dashboard overview={overview} generatedAt="2026-09-27T00:00:00.000Z" mode="mock" forceStale refreshing={false} refresh={() => undefined} />);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><Dashboard overview={overview} generatedAt="2026-09-27T00:00:00.000Z" mode="mock" forceStale refreshing={false} refresh={() => undefined} /></QueryClientProvider>);
 
     expect(screen.getAllByText('未知').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('旧数据')).toHaveLength(8);
     expect(screen.getByText(/上次状态：运行中/)).toBeInTheDocument();
     expect(screen.getByText(/不能作为实时状态判断/)).toBeInTheDocument();
+  });
+
+  it('本地模式活动记录不会误标为 Mock fixture', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const localOverview: OverviewResponse['data'] = {
+      ...overview,
+      activity: [{
+        id: 'activity-1',
+        occurredAt: '2026-09-27T00:00:00.000Z',
+        kind: 'info',
+        message: '服务器已停止',
+        operationId: 'operation-1',
+      }],
+    };
+    render(<QueryClientProvider client={client}><Dashboard overview={localOverview} generatedAt="2026-09-27T00:00:00.000Z" mode="local" forceStale={false} refreshing={false} refresh={() => undefined} /></QueryClientProvider>);
+
+    expect(screen.getByText('LOCAL ACTIVITY')).toBeVisible();
+    expect(screen.getByText(/本地管理记录/)).toBeVisible();
+    expect(screen.queryByText('MOCK FIXTURE')).not.toBeInTheDocument();
   });
 });

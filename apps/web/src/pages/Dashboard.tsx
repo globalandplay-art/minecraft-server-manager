@@ -1,7 +1,8 @@
-import type { OverviewResponse } from '@mcsm/contracts';
+import type { HealthResponse, OverviewResponse } from '@mcsm/contracts';
 import { AlertTriangle, Clock3, Cpu, HardDrive, MemoryStick, RefreshCw, Server } from 'lucide-react';
 import { formatBytes, formatLocalTime, formatSource, formatUptime, localTimezoneLabel, statusDescription, statusLabels } from '../format';
 import { MetricCard, MockBanner, PageHeading, StatusBadge } from '../components/Ui';
+import { LifecycleControls } from '../components/LifecycleControls';
 
 type Overview = OverviewResponse['data'];
 type Metric = Overview['metrics'][keyof Overview['metrics']];
@@ -103,10 +104,11 @@ function ServerOverview({ overview }: { overview: Overview }) {
   );
 }
 
-function ActivityList({ activity }: { activity: Overview['activity'] }) {
+function ActivityList({ activity, mode }: { activity: Overview['activity']; mode: 'mock' | 'local' }) {
+  const sourceLabel = mode === 'mock' ? 'Mock 示例' : '本地管理记录';
   return (
     <section className="panel activity-panel">
-      <div className="panel__heading"><div><span className="eyebrow">MOCK FIXTURE</span><h2>最近活动</h2></div><Clock3 size={20} /></div>
+      <div className="panel__heading"><div><span className="eyebrow">{mode === 'mock' ? 'MOCK FIXTURE' : 'LOCAL ACTIVITY'}</span><h2>最近活动</h2></div><Clock3 size={20} /></div>
       {activity.length === 0 ? (
         <div className="compact-empty">当前数据源暂无活动记录。</div>
       ) : (
@@ -114,7 +116,7 @@ function ActivityList({ activity }: { activity: Overview['activity'] }) {
           {activity.slice(0, 5).map((item) => (
             <li key={item.id}>
               <span className={`activity-marker activity-marker--${item.kind}`} aria-hidden="true" />
-              <div><p>{item.message}</p><time dateTime={item.occurredAt}>{formatLocalTime(item.occurredAt)} · Mock 示例</time></div>
+              <div><p>{item.message}</p><time dateTime={item.occurredAt}>{formatLocalTime(item.occurredAt)} · {sourceLabel}</time></div>
             </li>
           ))}
         </ol>
@@ -130,6 +132,7 @@ export function Dashboard({
   forceStale,
   refreshing,
   refresh,
+  lifecycleFeature,
 }: {
   overview: Overview;
   generatedAt: string;
@@ -137,6 +140,7 @@ export function Dashboard({
   forceStale: boolean;
   refreshing: boolean;
   refresh: () => void;
+  lifecycleFeature?: HealthResponse['data']['features']['lifecycle'] | undefined;
 }) {
   const { summary } = overview;
   const heroState = forceStale ? 'unknown' : summary.status.state;
@@ -162,14 +166,7 @@ export function Dashboard({
             {forceStale ? <p className="status-explanation">上次状态：{statusLabels[summary.status.state]} · 当前快照已过期</p> : statusDescription(summary.status.state) ? <p className="status-explanation">{statusDescription(summary.status.state)}</p> : null}
           </div>
         </div>
-        <div className="server-actions" aria-label="生命周期操作暂不可用">
-          <div>
-            <button className="button button--disabled" disabled>启动</button>
-            <button className="button button--disabled" disabled>停止</button>
-            <button className="button button--disabled" disabled>重启</button>
-          </div>
-          <p>Phase 2 接入本地服务器后启用</p>
-        </div>
+        <LifecycleControls summary={summary} mode={mode} feature={lifecycleFeature} stale={forceStale} />
       </section>
       {forceStale ? (
         <div className="stale-banner" role="status"><AlertTriangle size={17} />超过 15 秒未获得成功快照，以下数据仅供回看，不能作为实时状态判断。</div>
@@ -182,7 +179,7 @@ export function Dashboard({
       </div>
       <div className="dashboard-lower">
         <ServerOverview overview={overview} />
-        <ActivityList activity={overview.activity} />
+        <ActivityList activity={overview.activity} mode={mode} />
       </div>
       {overview.alerts.length ? (
         <section className="alerts-panel" aria-label="服务器告警">

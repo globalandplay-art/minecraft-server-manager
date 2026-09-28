@@ -104,9 +104,81 @@ h1, h2, h3, p { margin-top: 0; }
 .status-badge--warning { color: #f9dc9d; border-color: #6b582d; }
 .status-badge--danger { color: #ffc0c0; border-color: #713e47; }
 .badge-divider { padding-left: 7px; border-left: 1px solid currentColor; opacity: .85; }
-.server-actions { flex: 0 0 auto; text-align: right; }
-.server-actions > div { display: flex; gap: 8px; }
+.server-actions { flex: 0 1 490px; text-align: right; }
+.server-actions > div:first-child { display: flex; justify-content: flex-end; gap: 8px; }
 .server-actions p { margin: 7px 0 0; color: #8fa0b6; font-size: 11px; }
+.lifecycle-reasons { display: flex; flex-direction: column; align-items: flex-end; }
+.lifecycle-reasons p { max-width: 470px; }
+.lifecycle-error { display: flex; flex-direction: column; margin-top: 10px; padding: 9px 11px; color: #ffc5c5; background: #321e25; border: 1px solid #6d3845; border-radius: 7px; font-size: 11px; text-align: left; }
+.lifecycle-error .button { align-self: flex-start; min-height: 34px; margin-top: 8px; }
+.operation-panel { min-width: 330px; margin-top: 11px; padding: 11px; color: #cbd6e5; background: #101a28; border: 1px solid #32435a; border-radius: 8px; text-align: left; }
+.operation-panel--succeeded { border-color: #2f6652; }
+.operation-panel--failed, .operation-panel--interrupted { border-color: #713e47; }
+.operation-panel__status { display: flex !important; align-items: center; justify-content: flex-start !important; gap: 9px !important; }
+.operation-panel__status > svg { flex: 0 0 auto; color: var(--accent); }
+.operation-panel--succeeded .operation-panel__status > svg { color: var(--success); }
+.operation-panel--failed .operation-panel__status > svg, .operation-panel--interrupted .operation-panel__status > svg { color: var(--danger); }
+.operation-panel__status > div { display: flex; flex-direction: column; }
+.operation-panel__status strong { font-size: 12px; }
+.operation-panel__status span { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.operation-progress { height: 5px; margin-top: 9px; overflow: hidden; background: #263449; border-radius: 99px; }
+.operation-progress span { display: block; height: 100%; background: var(--accent); }
+.operation-error { color: var(--danger) !important; }
+.operation-query-error { display: flex; align-items: center; gap: 10px; margin-top: 9px; color: #f7d591; font-size: 10px; }
+.operation-query-error span { flex: 1; }
+.operation-query-error .button { flex: 0 0 auto; min-height: 34px; }
+.dialog-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; background: rgba(2, 6, 11, .82); }
+.confirm-dialog { width: min(100%, 470px); padding: 24px; background: #151e2c; border: 1px solid #3a4b63; border-radius: 12px; box-shadow: 0 24px 70px rgba(0, 0, 0, .48); text-align: left; }
+.confirm-dialog__icon { width: 42px; height: 42px; display: grid; place-items: center; margin-bottom: 15px; color: var(--warning); background: #302818; border: 1px solid #68542b; border-radius: 10px; }
+.confirm-dialog h2 { margin: 0 0 8px; font-size: 18px; }
+.confirm-dialog p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.confirm-dialog__actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
+.console-connection { min-height: 32px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; color: #cbd7e7; background: #142033; border: 1px solid #32445d; border-radius: 7px; font-size: 11px; }
+.console-connection--connected { color: #b9ead4; border-color: #2f6652; }
+.console-connection--reconnecting, .console-connection--error { color: #f9dc9d; border-color: #6b582d; }
+.console-page .stale-banner span { min-width: 0; flex: 1; }
+.console-page .stale-banner .button { flex: 0 0 auto; min-height: 34px; }
+.console-panel { position: relative; overflow: hidden; background: #0d141f; border: 1px solid var(--border); border-radius: 12px; }
+.console-toolbar { min-height: 58px; display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.console-search { min-width: 210px; height: 38px; display: flex; flex: 1; align-items: center; gap: 8px; padding: 0 10px; color: #7f91aa; background: #101824; border: 1px solid #314158; border-radius: 7px; }
+.console-search input { min-width: 0; flex: 1; color: var(--text); background: transparent; border: 0; outline: 0; font-size: 12px; }
+.console-search input::placeholder { color: #718198; }
+.console-filter { height: 38px; display: flex; align-items: center; gap: 7px; padding-left: 10px; color: #8fa0b7; background: #101824; border: 1px solid #314158; border-radius: 7px; font-size: 11px; }
+.console-filter select { height: 36px; padding: 0 25px 0 4px; color: #dce5f1; background: #101824; border: 0; outline: 0; font-size: 11px; }
+.auto-scroll { min-height: 38px; display: inline-flex; align-items: center; gap: 7px; color: #b3c0d2; font-size: 11px; white-space: nowrap; }
+.auto-scroll input { width: 16px; height: 16px; accent-color: var(--primary); }
+.console-viewport { height: min(52vh, 570px); min-height: 330px; overflow: auto; padding: 10px 0; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 11px; line-height: 1.65; scrollbar-color: #40516a #111925; }
+.log-line { min-width: max-content; display: grid; grid-template-columns: 132px 56px minmax(500px, 1fr); gap: 10px; padding: 2px 14px; color: #cbd5e3; }
+.log-line:hover { background: #141e2c; }
+.log-line time { color: #708199; font-variant-numeric: tabular-nums; }
+.log-level { color: #8da6c8; font-weight: 800; }
+.log-line--warn .log-level, .log-line--warn .log-text { color: var(--warning); }
+.log-line--error .log-level, .log-line--error .log-text { color: var(--danger); }
+.log-line--debug { color: #8796aa; }
+.log-text { white-space: pre; }
+.console-empty { height: 100%; min-height: 280px; display: flex; align-items: center; justify-content: center; gap: 9px; color: #7688a0; }
+.new-logs-button { position: absolute; right: 18px; bottom: 16px; min-height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; color: #fff; background: var(--primary); border: 1px solid #416dc8; border-radius: 8px; box-shadow: 0 8px 22px rgba(0, 0, 0, .35); cursor: pointer; }
+.console-operation { min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 10px 14px; color: #cbd7e7; background: #131d2b; border: 1px solid #304157; border-radius: 9px; font-size: 11px; }
+.console-operation strong { font-size: 12px; }
+.console-operation span { color: var(--muted); }
+.console-operation--succeeded { border-color: #2f6652; }
+.console-operation--failed, .console-operation--interrupted { border-color: #713e47; }
+.command-panel { padding: 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.command-panel__heading h2 { margin: 0; font-size: 15px; }
+.command-panel__heading p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+.command-panel form { display: flex; gap: 9px; margin-top: 14px; }
+.command-panel form label { min-width: 0; flex: 1; }
+.command-panel form input { width: 100%; height: 40px; padding: 0 12px; color: var(--text); background: #101824; border: 1px solid #34455e; border-radius: 8px; font-family: "SFMono-Regular", Consolas, monospace; }
+.command-panel form input:disabled { color: #7889a0; cursor: not-allowed; }
+.command-help, .command-disabled-reason, .field-error { margin: 7px 0 0; font-size: 10px; }
+.command-help { color: #7f91a9; }
+.command-disabled-reason { color: var(--warning); }
+.field-error { color: var(--danger); }
+.command-result { display: flex; flex-direction: column; margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 11px; }
+.command-result--submitted { color: #c8d6ea; background: #142238; border: 1px solid #31517e; }
+.command-result--executed { color: #c9ecdc; background: #14271f; border: 1px solid #2f6652; }
+.command-result span { margin-top: 3px; color: var(--muted); }
+.command-result pre { max-height: 180px; margin: 8px 0 0; overflow: auto; color: inherit; font: 11px/1.55 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; }
 .metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .metric-card { min-width: 0; min-height: 138px; display: flex; flex-direction: column; justify-content: space-between; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
 .metric-card--stale { border-color: #65532e; }
@@ -229,8 +301,13 @@ h1, h2, h3, p { margin-top: 0; }
   .server-hero__title { align-items: flex-start; flex-direction: column; gap: 6px; }
   .server-hero h2 { max-width: calc(100vw - 110px); font-size: 16px; }
   .server-actions { text-align: left; }
-  .server-actions > div { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .server-actions { flex-basis: auto; }
+  .server-actions > div:first-child { display: grid; grid-template-columns: repeat(3, 1fr); }
   .server-actions .button { min-height: 44px; }
+  .lifecycle-reasons { align-items: flex-start; }
+  .operation-panel { min-width: 0; }
+  .operation-query-error { align-items: stretch; flex-direction: column; }
+  .operation-query-error .button { min-height: 44px; }
   .metrics-grid { gap: 12px; }
   .metric-card { min-height: 128px; padding: 13px; }
   .metric-card__value { font-size: 24px; }
@@ -246,6 +323,16 @@ h1, h2, h3, p { margin-top: 0; }
   .state-actions .button { min-height: 44px; }
   .settings-panel > div { grid-template-columns: 40px minmax(0, 1fr); }
   .settings-panel .phase-badge { grid-column: 2; justify-self: start; }
+  .console-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .console-search { min-width: calc(100% - 120px); min-height: 44px; }
+  .console-filter { min-height: 44px; }
+  .console-filter select { height: 42px; }
+  .auto-scroll { min-height: 44px; }
+  .console-toolbar .status-badge { margin-left: auto; }
+  .console-viewport { height: 48vh; min-height: 300px; }
+  .command-panel form { align-items: stretch; flex-direction: column; }
+  .command-panel form input, .command-panel form .button { min-height: 44px; }
+  .confirm-dialog__actions .button { min-height: 44px; }
 }
 
 @media (max-width: 359px) {

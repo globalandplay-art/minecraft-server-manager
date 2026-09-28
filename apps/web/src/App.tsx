@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import type { HealthResponse } from '@mcsm/contracts';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiClientError, api, errorMessage, shouldRetry } from './api';
@@ -7,6 +8,7 @@ import { ConnectionBanner, EmptyState, ErrorState, MockBanner, PageHeading, Skel
 import { Dashboard } from './pages/Dashboard';
 import { PhasePage, SettingsPage, type PhasePageKind } from './pages/PhasePage';
 import { Servers } from './pages/Servers';
+import { ConsolePage } from './pages/Console';
 
 function interval(visibleMs: number, hiddenMs?: number) {
   return () => document.hidden ? (hiddenMs ?? false) : visibleMs;
@@ -40,6 +42,7 @@ function DashboardRoute({
   mode,
   retryList,
   coreConnectionError,
+  lifecycleFeature,
 }: {
   selectedId?: string | undefined;
   invalidSelection: boolean;
@@ -48,6 +51,7 @@ function DashboardRoute({
   mode?: 'mock' | 'local' | undefined;
   retryList: () => void;
   coreConnectionError: boolean;
+  lifecycleFeature?: HealthResponse['data']['features']['lifecycle'] | undefined;
 }) {
   const overviewQuery = useQuery({
     queryKey: ['overview', selectedId],
@@ -99,6 +103,7 @@ function DashboardRoute({
         forceStale={forceStale}
         refreshing={overviewQuery.isFetching}
         refresh={() => void overviewQuery.refetch()}
+        lifecycleFeature={lifecycleFeature}
       />
     </>
   );
@@ -151,6 +156,11 @@ export function App() {
   const phaseRoute = (kind: PhasePageKind) => invalidSelection
     ? <InvalidSelection />
     : <PhasePage kind={kind} features={healthQuery.data?.data.features} server={selectedServer} />;
+  const consoleRoute = invalidSelection
+    ? <InvalidSelection />
+    : mode === 'local' && selectedServer
+      ? <ConsolePage server={selectedServer} feature={healthQuery.data?.data.features.console} stale={serversStale} />
+      : phaseRoute('console');
 
   return (
     <AppShell
@@ -172,6 +182,7 @@ export function App() {
             mode={mode}
             retryList={() => void serversQuery.refetch()}
             coreConnectionError={Boolean(connectionError)}
+            lifecycleFeature={healthQuery.data?.data.features.lifecycle}
           />
         } />
         <Route path="/servers" element={
@@ -184,7 +195,7 @@ export function App() {
         <Route path="/players" element={phaseRoute('players')} />
         <Route path="/worlds" element={phaseRoute('worlds')} />
         <Route path="/addons" element={phaseRoute('addons')} />
-        <Route path="/console" element={phaseRoute('console')} />
+        <Route path="/console" element={consoleRoute} />
         <Route path="/performance" element={phaseRoute('performance')} />
         <Route path="/backups" element={phaseRoute('backups')} />
         <Route path="/crashes" element={phaseRoute('crashes')} />

@@ -1,10 +1,18 @@
 import {
   healthResponseSchema,
   overviewResponseSchema,
+  lifecycleActionResponseSchema,
+  operationResponseSchema,
+  logsResponseSchema,
+  commandResponseSchema,
   serverResponseSchema,
   serversResponseSchema,
   type HealthResponse,
   type OverviewResponse,
+  type LifecycleActionResponse,
+  type OperationResponse,
+  type LogsResponse,
+  type CommandResponse,
   type ServerResponse,
   type ServersResponse,
 } from '@mcsm/contracts';
@@ -40,21 +48,40 @@ function readError(value: unknown) {
 }
 
 async function getJson<T>(path: string, schema: unknown, signal?: AbortSignal): Promise<T> {
+  return requestJson<T>(path, schema, { signal });
+}
+
+interface RequestOptions {
+  signal?: AbortSignal | undefined;
+  method?: 'GET' | 'POST' | undefined;
+  body?: unknown | undefined;
+  headers?: Record<string, string> | undefined;
+  expectedStatus?: number | undefined;
+}
+
+async function requestJson<T>(path: string, schema: unknown, options: RequestOptions = {}): Promise<T> {
   const timeout = new AbortController();
   const timeoutId = window.setTimeout(() => timeout.abort(), 5_000);
-  const combinedSignal = signal
-    ? AbortSignal.any([signal, timeout.signal])
+  const combinedSignal = options.signal
+    ? AbortSignal.any([options.signal, timeout.signal])
     : timeout.signal;
 
   try {
     let response: Response;
     try {
-      response = await fetch(`/api/v1${path}`, {
-        headers: { Accept: 'application/json' },
+      const requestInit: RequestInit = {
+        method: options.method ?? 'GET',
+        headers: {
+          Accept: 'application/json',
+          ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...options.headers,
+        },
         signal: combinedSignal,
-      });
+      };
+      if (options.body !== undefined) requestInit.body = JSON.stringify(options.body);
+      response = await fetch(`/api/v1${path}`, requestInit);
     } catch (error) {
-      if (signal?.aborted) throw error;
+      if (options.signal?.aborted) throw error;
       throw new ApiClientError(
         error instanceof DOMException && error.name === 'AbortError'
           ? '请求超时，管理器 API 暂时没有响应。'
@@ -78,6 +105,16 @@ async function getJson<T>(path: string, schema: unknown, signal?: AbortSignal): 
         response.status,
         apiError.code,
         apiError.requestId,
+      );
+    }
+
+    if (options.expectedStatus !== undefined && response.status !== options.expectedStatus) {
+      throw new ApiClientError(
+        `后端返回了意外的状态码（HTTP ${response.status}）。`,
+        'schema',
+        response.status,
+        'UNEXPECTED_STATUS',
+        readError(payload).requestId,
       );
     }
 
@@ -111,6 +148,58 @@ export const api = {
       overviewResponseSchema,
       signal,
     ),
+  lifecycle: (
+    serverId: string,
+    action: 'start' | 'stop' | 'restart',
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ) => requestJson<LifecycleActionResponse>(
+    `/servers/${encodeURIComponent(serverId)}/actions/${action}`,
+    lifecycleActionResponseSchema,
+    {
+      method: 'POST',
+      body: {},
+      headers: {
+        'X-Manager-Intent': 'local-ui',
+        'Idempotency-Key': idempotencyKey,
+      },
+      expectedStatus: 202,
+      signal,
+    },
+  ),
+  operation: (operationId: string, signal?: AbortSignal) =>
+    getJson<OperationResponse>(`/operations/${encodeURIComponent(operationId)}`, operationResponseSchema, signal),
+  logs: (serverId: string, after?: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ limit: '200' });
+    if (after) query.set('after', after);
+    return getJson<LogsResponse>(`/servers/${encodeURIComponent(serverId)}/logs?${query}`, logsResponseSchema, signal);
+  },
+  command: (serverId: string, command: string, signal?: AbortSignal) =>
+    requestJson<CommandResponse>(
+      `/servers/${encodeURIComponent(serverId)}/commands`,
+      commandResponseSchema,
+      {
+        method: 'POST',
+        body: { command },
+        headers: { 'X-Manager-Intent': 'local-ui' },
+        expectedStatus: 200,
+        signal,
+      },
+    ).then((response) => {
+      const { status, transport, output } = response.data;
+      const isRconResult = status === 'executed' && transport === 'rcon';
+      const isStdinSubmission = status === 'submitted' && transport === 'stdin' && output === null;
+      if (!isRconResult && !isStdinSubmission) {
+        throw new ApiClientError(
+          '后端返回了不一致的命令执行状态。',
+          'schema',
+          200,
+          'SCHEMA_INVALID',
+          response.meta.requestId,
+        );
+      }
+      return response;
+    }),
 };
 
 export function shouldRetry(failureCount: number, error: Error) {
