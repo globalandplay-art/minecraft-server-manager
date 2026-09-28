@@ -17,7 +17,8 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run build --workspace @mcsm/contracts && npm run typecheck --workspaces --if-present",
     "test": "npm run build --workspace @mcsm/contracts && npm run test --workspaces --if-present",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run build --workspace @mcsm/contracts && playwright test",
+    "prepare:local-test": "npm run prepare:local-test --workspace @mcsm/api --",
     "lint": "eslint . --max-warnings=0",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },

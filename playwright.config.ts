@@ -23,10 +23,19 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: 'npm.cmd run dev',
-    url: 'http://127.0.0.1:3000',
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: 'node --import tsx apps/api/src/main.ts',
+      url: 'http://127.0.0.1:8080/api/v1/health',
+      reuseExistingServer: true,
+      timeout: 120_000,
+      env: { MCSM_MODE: 'mock' },
+    },
+    {
+      command: 'node node_modules/vite/bin/vite.js apps/web --config apps/web/vite.config.ts',
+      url: 'http://127.0.0.1:3000',
+      reuseExistingServer: true,
+      timeout: 120_000,
+    },
+  ],
 });
