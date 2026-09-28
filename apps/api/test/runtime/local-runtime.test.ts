@@ -7,6 +7,8 @@ import { join } from "node:path";
 import type { Operation } from "@mcsm/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { LocalJavaAdapter } from "../../src/adapters/local.js";
+import { AdapterRegistry } from "../../src/adapters/registry.js";
 import type {
   RuntimeOperationContext,
   ValidatedLaunchPlan
@@ -17,6 +19,9 @@ import {
   type RuntimeSpawn
 } from "../../src/infra/runtime/local-runtime.js";
 import { encodeRconPacket } from "../../src/infra/runtime/rcon-client.js";
+import { OperationService } from "../../src/services/operation-service.js";
+import { MemoryOperationStore } from "../../src/services/operation-store.js";
+import { ServerService } from "../../src/services/server-service.js";
 
 const directories: string[] = [];
 const children = new Set<ChildProcessWithoutNullStreams>();
@@ -96,6 +101,16 @@ function operation(kind: "start" | "stop" = "start", steps?: string[]): RuntimeO
       } satisfies Operation;
     }
   };
+}
+
+async function serviceFor(runtime: LocalMinecraftRuntime, runtimePlan: ValidatedLaunchPlan): Promise<ServerService> {
+  const adapter = new LocalJavaAdapter({
+    plan: runtimePlan,
+    revalidateBeforeStart: async () => {}
+  }, runtime);
+  const operations = new OperationService(new MemoryOperationStore(), { now: () => new Date() });
+  await operations.initialize();
+  return new ServerService(new AdapterRegistry([adapter]), operations);
 }
 
 async function waitForChild(): Promise<ChildProcessWithoutNullStreams> {
@@ -340,16 +355,111 @@ describe("LocalMinecraftRuntime", () => {
       startTimeoutMs: 300,
       readinessPollMs: 5
     });
+    const states: string[] = [];
+    runtime.subscribe((event) => {
+      if (event.type === "status") states.push(event.status.state);
+    });
     await runtime.initialize();
 
     await expect(runtime.start(operation())).rejects.toMatchObject({ code: "RUNTIME_START_FAILED" });
-    await expect(runtime.snapshot()).resolves.toMatchObject({ status: { state: "crashed" } });
+    expect(states).toContain("crashed");
+    await expect(runtime.snapshot()).resolves.toMatchObject({
+      status: { state: "unknown", ownership: "unknown", recoveryRequired: false }
+    });
     const logs = await runtime.getLogs(undefined, 200);
     expect(logs.items.some((entry) => entry.source === "stderr")).toBe(true);
     expect(logs.items.map((entry) => entry.text).join(" ")).not.toContain(secret);
     expect(logs.items.map((entry) => entry.text).join(" ")).toContain("[REDACTED]");
     await runtime.closeObserver();
   });
+
+  it("allows a manual service start after a crash is authoritatively confirmed stopped", async () => {
+    const root = await fixtureRoot();
+    const runtimePlan = plan(root, childScript());
+    let spawnCount = 0;
+    const spawnProcess: RuntimeSpawn = (executable, argv, options) => {
+      spawnCount += 1;
+      const child = spawn(
+        executable,
+        spawnCount === 1 ? ["-e", childScript({ exitImmediately: true })] : [...argv],
+        options
+      );
+      children.add(child);
+      child.once("exit", () => children.delete(child));
+      return child;
+    };
+    const runtime = new LocalMinecraftRuntime(runtimePlan, {
+      spawnProcess,
+      statusProbe: async () => [...children].some((child) => child.exitCode === null) ? "running" : "stopped",
+      startTimeoutMs: 500,
+      readinessPollMs: 5
+    });
+    await runtime.initialize();
+    const service = await serviceFor(runtime, runtimePlan);
+
+    await expect(runtime.start(operation())).rejects.toMatchObject({ code: "RUNTIME_START_FAILED" });
+    await expect(service.get(runtimePlan.id)).resolves.toMatchObject({
+      status: { state: "stopped", ownership: "none", recoveryRequired: false },
+      readiness: { start: { allowed: true, reason: null } }
+    });
+    expect(spawnCount).toBe(1);
+
+    const created = await service.requestLifecycle(
+      runtimePlan.id,
+      "start",
+      "123e4567-e89b-42d3-a456-426614174010"
+    );
+    await waitForChild();
+    await appendFile(join(root, "logs", "latest.log"), "[Server thread/INFO]: Done (retry)!\n");
+    await vi.waitFor(() => expect(service.getOperation(created.id).state).toBe("succeeded"));
+    await expect(service.get(runtimePlan.id)).resolves.toMatchObject({
+      status: { state: "running", ownership: "managed", recoveryRequired: false }
+    });
+    expect(spawnCount).toBe(2);
+    await service.close();
+  });
+
+  it.each([
+    ["running", "external-process", "running", "external"],
+    ["unknown", "server-state-unknown", "unknown", "unknown"]
+  ] as const)(
+    "blocks a manual service start after a crash when the fresh probe is %s",
+    async (probeResult, reason, state, ownership) => {
+      const root = await fixtureRoot();
+      const runtimePlan = plan(root, childScript({ exitImmediately: true }));
+      let spawnCount = 0;
+      const spawnProcess: RuntimeSpawn = (executable, argv, options) => {
+        spawnCount += 1;
+        const child = spawn(executable, [...argv], options);
+        children.add(child);
+        child.once("exit", () => children.delete(child));
+        return child;
+      };
+      const runtime = new LocalMinecraftRuntime(runtimePlan, {
+        spawnProcess,
+        statusProbe: async () => probeResult,
+        startTimeoutMs: 300,
+        readinessPollMs: 5
+      });
+      await runtime.initialize();
+      const service = await serviceFor(runtime, runtimePlan);
+
+      await expect(runtime.start(operation())).rejects.toMatchObject({ code: "RUNTIME_START_FAILED" });
+      await expect(service.get(runtimePlan.id)).resolves.toMatchObject({
+        status: { state, ownership, recoveryRequired: false },
+        readiness: { start: { allowed: false, reason } }
+      });
+      await expect(service.requestLifecycle(
+        runtimePlan.id,
+        "start",
+        probeResult === "running"
+          ? "123e4567-e89b-42d3-a456-426614174011"
+          : "123e4567-e89b-42d3-a456-426614174012"
+      )).rejects.toMatchObject({ code: "ACTION_UNAVAILABLE", reason });
+      expect(spawnCount).toBe(1);
+      await service.close();
+    }
+  );
 
   it("marks stop timeout unknown and never force-kills the child", async () => {
     const root = await fixtureRoot();
@@ -370,6 +480,10 @@ describe("LocalMinecraftRuntime", () => {
     expect(child.exitCode).toBeNull();
     await expect(runtime.snapshot()).resolves.toMatchObject({
       status: { state: "unknown", ownership: "managed", recoveryRequired: true }
+    });
+    await stopTestChild(child);
+    await expect(runtime.snapshot()).resolves.toMatchObject({
+      status: { state: "stopped", ownership: "none", recoveryRequired: true }
     });
     await runtime.closeObserver();
   });

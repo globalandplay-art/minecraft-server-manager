@@ -192,18 +192,19 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
         if (probe === "running") this.updateStatus("running", "managed", null, false);
         else this.updateStatus("unknown", "managed", null, false, "status-query");
       }
-    } else if (!this.child && this.status.state !== "crashed") {
+    } else if (!this.child) {
       const statusAtProbeStart = this.status;
       const probe = await this.statusProbe(this.plan.statusEndpoint, this.probeTimeoutMs);
       if (this.child === null && this.status === statusAtProbeStart) {
+        const recoveryRequired = statusAtProbeStart.recoveryRequired;
         if (probe === "running") {
           this.knownStopped = false;
-          this.updateStatus("running", "external", null, false, "status-query");
+          this.updateStatus("running", "external", null, recoveryRequired, "status-query");
         } else if (probe === "stopped") {
           this.knownStopped = true;
-          this.updateStatus("stopped", "none", null, false);
+          this.updateStatus("stopped", "none", null, recoveryRequired);
         } else {
-          this.updateStatus("unknown", "unknown", null, this.status.recoveryRequired, "status-query");
+          this.updateStatus("unknown", "unknown", null, recoveryRequired, "status-query");
         }
       }
     }
@@ -417,7 +418,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
         this.updateStatus("stopped", "none", null, false);
       } else {
         this.knownStopped = false;
-        this.updateStatus("crashed", "none", null, false);
+        this.updateStatus("crashed", "none", null, this.status.recoveryRequired);
       }
       this.expectedStop = false;
       resolveExit();
