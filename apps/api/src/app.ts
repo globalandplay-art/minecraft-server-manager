@@ -17,6 +17,7 @@ import { registerOperationRoutes } from "./routes/operations.js";
 import { registerServerRoutes } from "./routes/servers.js";
 import { registerWebSocketRoute } from "./routes/websocket.js";
 import { registerWorldRoutes } from "./routes/worlds.js";
+import { registerBackupRoutes } from "./routes/backups.js";
 import { DomainError } from "./services/domain-errors.js";
 import { EventStreamService } from "./services/event-stream-service.js";
 import { OperationService } from "./services/operation-service.js";
@@ -24,6 +25,7 @@ import { MemoryOperationStore, type OperationStore } from "./services/operation-
 import { ServerService } from "./services/server-service.js";
 import type { TransactionJournalStore } from "./services/transaction-journal.js";
 import type { ActiveWorldStateStore } from "./services/active-world-state-store.js";
+import { BackupService } from "./services/backup-service.js";
 import { WorldInventoryService } from "./services/world-inventory-service.js";
 
 export interface BuildAppOptions {
@@ -33,6 +35,8 @@ export interface BuildAppOptions {
   mode?: Mode;
   operationStore?: OperationStore;
   transactionRecovery?: Pick<TransactionJournalStore, "initialize">;
+  transactionJournal?: TransactionJournalStore;
+  managerRoot?: string;
   activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart">;
 }
 
@@ -72,6 +76,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerServerRoutes(app, service, clock, mode);
   registerOperationRoutes(app, service, clock, mode);
   registerWorldRoutes(app, worlds, clock, mode);
+  if (options.transactionJournal !== undefined && options.managerRoot !== undefined) {
+    registerBackupRoutes(
+      app,
+      new BackupService(registry, operations, options.transactionJournal, options.managerRoot, clock),
+      clock,
+      mode
+    );
+  }
   // @fastify/websocket installs an onRoute hook in its encapsulated scope.
   // Register WebSocket routes in a following plugin so the hook can replace
   // the HTTP handler with the upgrade handler before the route is compiled.

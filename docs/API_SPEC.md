@@ -272,7 +272,7 @@ worldId 指向后端识别出的 world set；包含 dimensions 和 active 状态
 | GET /servers/:id/worlds/:worldId/download | 只下载已完成不可变归档；活动世界无已生成快照则 409，GET 不停服 |
 | POST /servers/:id/worlds/:worldId/archive | `{ allowStop: boolean }`，202 Operation；inactive 世界直接归档，active 世界先一致性快照并停止使用，不能运行中移走目录 |
 | POST /servers/:id/backups | `{ scope: 'world-set' \| 'server-snapshot', label?, allowStop: boolean }`，202 Operation |
-| GET /servers/:id/backups | `{ items: BackupInfo[], nextCursor: string \| null }`，limit 1–100 / cursor |
+| GET /servers/:id/backups | `{ items: BackupInfo[], nextCursor: null }`；当前首版不分页 |
 | GET /servers/:id/backups/:backupId/download | 仅已完成且通过秘密扫描的 world-set attachment；server-snapshot 返回 403 / EXPORT_NOT_SUPPORTED，扫描命中秘密返回 SENSITIVE_ARCHIVE |
 | POST /servers/:id/backups/:backupId/restore | `{ restoreScope: 'world-set', confirmWorldName: string, startAfterRestore: true }`，202 Operation；固定停服 → pre-restore → 恢复世界 → 启动 → 检查 |
 | POST /servers/:id/operations/:operationId/rollback | `{ confirmWorldName: string, startAfterRollback: boolean }`，202 Operation；恢复 rollback / pre-restore，先核对实例状态 |
@@ -282,6 +282,10 @@ worldId 指向后端识别出的 world set；包含 dimensions 和 active 状态
 所有多步写任务用 Idempotency-Key。create / import / archive 同样必须锁实例、停服、pre-change 快照和 journal，再切换布局；失败保留 rollback。create / import 初版完成后保持停止，用户另行启动；archive 当前世界后 active world 标记未设置，start readiness=false，直到用户创建 / 导入世界。不能因删除当前目录而让 MC 下一次意外生成空世界。
 
 `BackupInfo` 必须包含 architecture 指定的 manifest 字段、state=complete、pinned、sizeBytes、checksum、restart / downtime 信息。未完成归档不出现在可恢复列表；不可按前端提供的文件路径恢复。restore 验证同实例或经专门 import 工作流检查布局，不允许任意跨实例覆盖。
+
+备份 readiness 仅在能力支持、状态为 stopped，或为管理器拥有的 running 进程且无活动操作 / 恢复门控时 allowed。运行中创建要求请求 `allowStop=true`。后端先估算所有目标文件的大小，预留至少 128 MiB 或估算大小的 5%（取较大值）；空间不足在停服和复制前失败。实际成功写入的 manifest 同时受 64 MiB 序列化 / 读取上限约束。逐文件数据和 manifest 均同步后才允许提交 journal；Windows Node 不支持目录 fsync 时按事务 journal 既有的平台处理规则执行，所有文件仍需先成功 fsync。
+
+当前代码仅开放 Vanilla 的 GET worlds、GET backups、POST backups 三条路径。world-set 与私有 server-snapshot 都会停服后复制并生成 SHA-256 manifest；server-snapshot 不提供下载。受限 world-set 下载、实际 payload 二次验证、restore、world CRUD 与 backup policy 尚未实现，health feature 继续返回 implemented=false；UI 会明确标注不支持的动作。
 
 Phase 3 恢复范围仅 world-set；从 server-snapshot 选择世界恢复时，只使用 manifest 的世界项，其他文件不切换。完整服务器恢复是后续升级 / Addon batch 工作流的独立设计，当前 API 不接受 restoreScope=server-snapshot，不能用 world-set 结果宣称整服已回滚。
 

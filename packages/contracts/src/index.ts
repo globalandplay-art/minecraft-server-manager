@@ -336,6 +336,42 @@ export const worldsResponseSchema = strictObject({
 });
 export type WorldsResponse = Static<typeof worldsResponseSchema>;
 
+export const backupScopeSchema = Type.Union([Type.Literal("world-set"), Type.Literal("server-snapshot")]);
+export type BackupScope = Static<typeof backupScopeSchema>;
+export const backupInfoSchema = strictObject({
+  id: Type.String({ minLength: 1, maxLength: 128 }),
+  serverId: Type.String({ pattern: "^[a-z0-9](?:[a-z0-9-]{0,62})$" }),
+  scope: backupScopeSchema,
+  kind: Type.Union([Type.Literal("manual"), Type.Literal("auto"), Type.Literal("snapshot")]),
+  label: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
+  state: Type.Literal("complete"),
+  pinned: Type.Boolean(),
+  createdAt: timestampSchema,
+  minecraftVersion: Type.Union([Type.String({ minLength: 1, maxLength: 64 }), Type.Null()]),
+  serverType: serverTypeSchema,
+  includedRoots: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { minItems: 1, maxItems: 64 }),
+  fileCount: Type.Integer({ minimum: 1 }),
+  sizeBytes: Type.Integer({ minimum: 0 }),
+  checksumSha256: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+  wasRunning: Type.Boolean(),
+  restarted: Type.Boolean(),
+  downtimeMs: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])
+});
+export type BackupInfo = Static<typeof backupInfoSchema>;
+
+export const backupCreateRequestSchema = strictObject({
+  scope: backupScopeSchema,
+  label: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+  allowStop: Type.Boolean()
+});
+export type BackupCreateRequest = Static<typeof backupCreateRequestSchema>;
+
+export const backupsResponseSchema = strictObject({
+  data: strictObject({ items: Type.Array(backupInfoSchema, { maxItems: 1000 }), nextCursor: Type.Null() }),
+  meta: responseMetaSchema
+});
+export type BackupsResponse = Static<typeof backupsResponseSchema>;
+
 export const errorDetailsSchema = strictObject({
   fieldErrors: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String()))),
   reason: Type.Optional(Type.String({ minLength: 1, maxLength: 256 }))

@@ -59,7 +59,7 @@ export class OperationNotFoundError extends DomainError {
   }
 }
 
-function statusReason(status: ServerStatus, action: "start" | "stop" | "restart"): string {
+function statusReason(status: ServerStatus, action: "start" | "stop" | "restart" | "backup"): string {
   if (status.ownership === "external") return "external-process";
   if (status.state === "unknown") return "server-state-unknown";
   if (action === "start" && status.state === "running") return "already-running";
@@ -235,6 +235,8 @@ export class ServerService {
     const canStart = blockedReason === null && status.state === "stopped" && adapter.plan.eulaAccepted;
     const canStop = blockedReason === null && status.state === "running" && status.ownership === "managed";
     const canCommand = blockedReason === null && status.state === "running" && commandTransport !== "unavailable";
+    const canBackup = blockedReason === null && capabilities.backup &&
+      (status.state === "stopped" || (status.state === "running" && status.ownership === "managed"));
     const readiness: Readiness = {
       start: canStart ? available() : unavailable(
         blockedReason ?? (!adapter.plan.eulaAccepted ? "eula-not-accepted" : statusReason(status, "start"))
@@ -244,7 +246,9 @@ export class ServerService {
       commands: canCommand ? available() : unavailable(
         blockedReason ?? (commandTransport === "unavailable" ? "transport-unavailable" : statusReason(status, "stop"))
       ),
-      backup: unavailable("feature-not-implemented"),
+      backup: canBackup ? available() : unavailable(
+        !capabilities.backup ? "capability-unsupported" : blockedReason ?? statusReason(status, "backup")
+      ),
       restore: unavailable("feature-not-implemented"),
       worldChanges: unavailable("feature-not-implemented"),
       addonChanges: unavailable("feature-not-implemented"),

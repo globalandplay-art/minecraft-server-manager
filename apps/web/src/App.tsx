@@ -9,6 +9,7 @@ import { Dashboard } from './pages/Dashboard';
 import { PhasePage, SettingsPage, type PhasePageKind } from './pages/PhasePage';
 import { Servers } from './pages/Servers';
 import { ConsolePage } from './pages/Console';
+import { BackupsPage, WorldsPage } from './pages/WorldsBackups';
 
 function interval(visibleMs: number, hiddenMs?: number) {
   return () => document.hidden ? (hiddenMs ?? false) : visibleMs;
@@ -193,11 +194,11 @@ export function App() {
               : <Servers items={servers} mode={mode ?? 'local'} stale={serversStale} />
         } />
         <Route path="/players" element={phaseRoute('players')} />
-        <Route path="/worlds" element={phaseRoute('worlds')} />
+        <Route path="/worlds" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <WorldsPage server={selectedServer} /> : phaseRoute('worlds')} />
         <Route path="/addons" element={phaseRoute('addons')} />
         <Route path="/console" element={consoleRoute} />
         <Route path="/performance" element={phaseRoute('performance')} />
-        <Route path="/backups" element={phaseRoute('backups')} />
+        <Route path="/backups" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <BackupsPage server={selectedServer} /> : phaseRoute('backups')} />
         <Route path="/crashes" element={phaseRoute('crashes')} />
         <Route path="/settings" element={invalidSelection ? <InvalidSelection /> : <SettingsPage features={healthQuery.data?.data.features} />} />
         <Route path="*" element={<Navigate to={`/dashboard${selectedId ? `?server=${encodeURIComponent(selectedId)}` : ''}`} replace />} />

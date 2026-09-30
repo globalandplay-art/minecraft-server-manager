@@ -6,7 +6,9 @@
 
 P3.0 事务基础与只读 Vanilla Worlds 盘点已完成并通过 GPT-6 Astra Review。`npm.cmd run check` 全部通过：contracts 4 项、API 141 项、web 29 项测试，以及 lint、TypeScript 检查和生产构建。Review 确认同实例命令、启停与独占写任务互斥；journal 和活动世界身份持久化在管理器私有目录；Worlds GET 不修改服务器目录；状态不一致或持久化失败时会进入恢复门控。当前 `worlds` feature 仍标记为未实现，因为 P3.1–P3.5 的备份、恢复、世界管理 UI 与验收尚未完成。
 
-下一步：P3.1 手动备份，先交付停服一致性快照、备份列表与受限下载，再完成合成测试和独立测试世界验收。
+P3.1a 手动备份核心已通过 GPT-6 Astra Review。交付包含停服一致性的 Vanilla world-set / 私有 server-snapshot、manifest 校验、停服前空间估算、逐文件 fsync、完整递归目录链同步（Windows 对 Node 不支持的目录 fsync 错误按事务 journal 相同的平台限制处理）、备份列表、同 payload / 同幂等键恢复重试与 24 小时期限、明确拒绝后的 pending 清理、操作轮询、真实 readiness 与 Worlds / Backups 首版页面。世界版本从 level.dat 探测，不可确认时返回 null。最新全仓 `npm.cmd run check` 通过：contracts 4、API 149、web 34，lint、类型检查和三项生产构建均通过。Playwright E2E 本轮未能启动：取得 loopback 权限后，runner 子进程因 `uv_os_get_passwd returned ENOMEM` 在 web server 启动前退出；不得将此记作 E2E 通过。当前工作尚未提交。受限 world-set 下载与秘密扫描单列为 P3.1b，尚未实现；真实独立测试世界验收也尚未执行。
+
+下一步：完成安全的 world-set 导出设计与秘密扫描后，补下载路由 / UI，再做 P3.1 Review 和独立测试世界验收；通过后再进入 P3.2 恢复与显式回滚。不要把当前 P3.1 标记为已完成。
 
 ## 授权与推进方式
 

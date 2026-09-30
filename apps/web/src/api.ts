@@ -5,6 +5,11 @@ import {
   operationResponseSchema,
   logsResponseSchema,
   commandResponseSchema,
+  worldsResponseSchema,
+  backupsResponseSchema,
+  type BackupCreateRequest,
+  type WorldsResponse,
+  type BackupsResponse,
   serverResponseSchema,
   serversResponseSchema,
   type HealthResponse,
@@ -199,6 +204,16 @@ export const api = {
         );
       }
       return response;
+    }),
+  worlds: (serverId: string, signal?: AbortSignal) =>
+    getJson<WorldsResponse>(`/servers/${encodeURIComponent(serverId)}/worlds`, worldsResponseSchema, signal),
+  backups: (serverId: string, signal?: AbortSignal) =>
+    getJson<BackupsResponse>(`/servers/${encodeURIComponent(serverId)}/backups`, backupsResponseSchema, signal),
+  createBackup: (serverId: string, body: BackupCreateRequest, idempotencyKey: string, signal?: AbortSignal) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/backups`, lifecycleActionResponseSchema, {
+      method: 'POST', body,
+      headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': idempotencyKey },
+      expectedStatus: 202, signal,
     }),
 };
 

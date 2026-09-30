@@ -11,11 +11,11 @@
 | Dashboard | /dashboard | 1 | 完整 Mock 页面 |
 | Servers | /servers | 1 只读；2 生命周期 | Mock 列表、切换实例、只读摘要 |
 | Players | /players | 4 | Phase 4 解释页 |
-| Worlds | /worlds | 3 | Phase 3 解释页 |
+| Worlds | /worlds | 3 | Phase 3 首版只读 Vanilla 世界盘点；写操作仍关闭 |
 | Mods / Plugins | /addons | 5 | 阶段占位；只显示支持的子类型 |
 | Console | /console | 2 | Phase 2 解释页，无日志流或输入框 |
 | Performance | /performance | 6 | Phase 6 解释页 |
-| Backups | /backups | 3 | Phase 3 解释页 |
+| Backups | /backups | 3 | Phase 3 手动 world-set 备份与列表；下载 / 恢复仍关闭 |
 | Crash Analysis | /crashes | 6 | Phase 6 解释页 |
 | Settings | /settings | 4；7 远程 | 只读模式 / 本地连接说明；配置编辑未启用 |
 

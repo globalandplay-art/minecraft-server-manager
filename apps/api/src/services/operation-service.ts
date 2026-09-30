@@ -180,6 +180,54 @@ export class OperationService {
     return operation;
   }
 
+  async requestBackup(
+    serverId: string,
+    idempotencyKey: string,
+    requestBody: string,
+    execute: (context: RuntimeOperationContext) => Promise<void>,
+    preflight?: () => Promise<void>
+  ): Promise<Operation> {
+    const fingerprint = createHash("sha256").update(`${serverId}\nbackup\n${requestBody}`).digest("hex");
+    let created = false;
+    const operation = await this.#mutate(async () => {
+      const scope = `${serverId}:backup:${idempotencyKey}`;
+      const existing = this.#idempotency.get(scope);
+      if (existing !== undefined && Date.parse(existing.expiresAt) > this.#clock.now().getTime()) {
+        if (existing.requestFingerprint !== fingerprint) {
+          throw new DomainError(409, "OPERATION_CONFLICT", "Idempotency-Key 已用于不同请求", "idempotency-key-reused");
+        }
+        return structuredClone(existing.operation);
+      }
+      if (this.#recoveryServers.has(serverId)) {
+        throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "recovery-required");
+      }
+      if (this.#exclusiveLocks.has(serverId) || this.#activeByServer.has(serverId)) {
+        throw new DomainError(409, "OPERATION_CONFLICT", "实例当前已有活动操作", "operation-active");
+      }
+      await preflight?.();
+      const timestamp = this.#clock.now();
+      const next: Operation = {
+        id: randomUUID(), serverId, kind: "backup", state: "queued", step: "queued", progress: null,
+        createdAt: timestamp.toISOString(), updatedAt: timestamp.toISOString(), result: null, error: null
+      };
+      const record: StoredOperation = {
+        operation: next,
+        idempotencyKey,
+        requestFingerprint: fingerprint,
+        expiresAt: new Date(timestamp.getTime() + IDEMPOTENCY_WINDOW_MS).toISOString()
+      };
+      await this.#store.save(record);
+      this.#records.set(next.id, record);
+      this.#idempotency.set(scope, record);
+      this.#activeByServer.set(serverId, next.id);
+      created = true;
+      this.#emit(next);
+      return structuredClone(next);
+    });
+    if (created) queueMicrotask(() => void this.#execute(operation.id, execute));
+    return operation;
+  }
+
   async #execute(
     operationId: string,
     execute: (context: RuntimeOperationContext) => Promise<void>

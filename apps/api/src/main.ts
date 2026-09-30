@@ -13,6 +13,7 @@ async function main(): Promise<void> {
   const adapters =
     mode === "mock" ? undefined : await createLocalAdapters(managerRoot, new LocalRuntimeFactory());
   const localAdapters = adapters?.filter(isLocalAdapter) ?? [];
+  const transactionJournal = mode === "local" ? new TransactionJournalStore(managerRoot) : undefined;
   const app = buildApp({
     logger: {
       level: "info",
@@ -24,7 +25,9 @@ async function main(): Promise<void> {
     ...(adapters === undefined ? {} : { adapters }),
     operationStore: new JsonOperationStore(managerRoot),
     ...(mode === "local" ? {
-      transactionRecovery: new TransactionJournalStore(managerRoot),
+      transactionRecovery: transactionJournal!,
+      transactionJournal: transactionJournal!,
+      managerRoot,
       activeWorldState: new ActiveWorldStateStore(managerRoot, localAdapters)
     } : {})
   });

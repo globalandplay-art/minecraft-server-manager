@@ -32,7 +32,7 @@ function createAdapter(initialStatus: ServerStatus, type: ServerType = "vanilla"
     getServerInfo: async () => adapter.plan.serverInfo,
     getCapabilities: async () => ({
       mods: false, plugins: false, rcon: false, console: true,
-      backup: false, worlds: false, properties: false
+      backup: type === "vanilla", worlds: type === "vanilla", properties: false
     }),
     getStatus: async () => status,
     getCommandTransport: async () => "stdin" as const,
@@ -67,6 +67,24 @@ async function createService(
 }
 
 describe("ServerService lifecycle no-op contract", () => {
+  it("reflects backup readiness only for safe stopped or managed Vanilla instances", async () => {
+    const stopped = createAdapter(status("stopped", "none"));
+    const stoppedService = await createService(stopped.adapter);
+    expect((await stoppedService.get("local-test")).readiness.backup).toEqual({ allowed: true, reason: null });
+
+    const managed = createAdapter(status("running", "managed"));
+    const managedService = await createService(managed.adapter);
+    expect((await managedService.get("local-test")).readiness.backup).toEqual({ allowed: true, reason: null });
+
+    const external = createAdapter(status("running", "external"));
+    const externalService = await createService(external.adapter);
+    expect((await externalService.get("local-test")).readiness.backup).toEqual({ allowed: false, reason: "external-process" });
+
+    const paper = createAdapter(status("stopped", "none"), "paper");
+    const paperService = await createService(paper.adapter);
+    expect((await paperService.get("local-test")).readiness.backup).toEqual({ allowed: false, reason: "capability-unsupported" });
+  });
+
   it("sends commands while holding the shared exclusive gate without rejecting itself", async () => {
     const fixture = createAdapter(status("running", "managed"));
     const service = await createService(fixture.adapter);

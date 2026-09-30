@@ -1,6 +1,6 @@
 # Phase 3 实施与验收计划
 
-状态：2026-09-30；P3.0 已通过 GPT-6 Astra Review，Phase 3 尚未完成。本文细化 [ARCHITECTURE.md](./ARCHITECTURE.md)、[API_SPEC.md](./API_SPEC.md) 与 [UI_SPEC.md](./UI_SPEC.md)，不放宽原合同。
+状态：2026-09-30；P3.0 与 P3.1a 已通过 GPT-6 Astra Review；P3.1b 导出、真实独立测试世界验收及后续 P3.2–P3.5 尚未完成，因此 Phase 3 仍未完成。本文细化 [ARCHITECTURE.md](./ARCHITECTURE.md)、[API_SPEC.md](./API_SPEC.md) 与 [UI_SPEC.md](./UI_SPEC.md)，不放宽原合同。
 
 ## 范围与安全默认值
 
@@ -17,7 +17,8 @@
 | 切片 | 交付 | 完成证据 |
 | --- | --- | --- |
 | P3.0 事务基础与布局 | 私有版本化 journal、共享实例写门控、启动恢复扫描、Vanilla WorldInfo、活动世界身份 | 重复/嵌套根目录拒绝；长 seed 精确；未知版本 unavailable；管理器重启后恢复门控仍有效 |
-| P3.1 手动备份 | 停服一致性的 world-set 与私有 server-snapshot、列表、受限下载、初版 Worlds/Backups UI | 包含真实维度的逐文件摘要；停服未确认不复制；原本停止不启动；归档完成后重启失败仍保留 |
+| P3.1a 手动备份核心 | 停服一致性的 world-set 与私有 server-snapshot、列表、初版 Worlds/Backups UI、容量预检、清单 / 文件落盘 | 包含真实维度的逐文件摘要；幂等重试；停服未确认不复制；原本停止不启动；归档完成后重启失败仍保留；Astra Review |
+| P3.1b 受限导出 | world-set 下载、导出前秘密扫描与流式传输；server-snapshot 永不对前端下载 | Secret sentinel 不泄漏；路径与响应头安全；断线可重试；桌面 / 移动端下载 UX |
 | P3.2 恢复与回滚 | 仅 world-set 恢复、pinned pre-restore、启动检查、失败显式回滚 | journal/rename/配置/启动前后故障注入；管理器重启能识别现场；旧世界可恢复 |
 | P3.3 新建、导入、归档 | 新世界计划、受限 ZIP 导入、活动世界归档后持久化无活动世界 | Zip Slip/链接/重复路径/超限/损坏 NBT/跨版本拒绝；管理器重启后不会误生成空世界 |
 | P3.4 调度与保留 | 默认关闭的 IANA 每日计划、revision、并集 retention | DST、跨重启去重、无补积压；pinned/失败现场/事务引用不被删除 |
