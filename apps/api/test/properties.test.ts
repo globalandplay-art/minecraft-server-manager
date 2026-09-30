@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
-import { parseLocalConfigDocument } from "../src/config/local-config.js";
+import {
+  assertSafeRegistrationRoots,
+  loadLocalRegistrations,
+  parseLocalConfigDocument
+} from "../src/config/local-config.js";
 import { parseProperties, updatePropertiesText } from "../src/config/properties.js";
 import { parseVersionMetadata } from "../src/services/detection-service.js";
 
@@ -77,6 +84,43 @@ describe("local config allowlist", () => {
     expect(() =>
       parseLocalConfigDocument(JSON.stringify({ schemaVersion: 1, servers: [server] }))
     ).toThrow("配置无效");
+  });
+
+  it("rejects duplicate and nested canonical server roots", () => {
+    expect(() =>
+      assertSafeRegistrationRoots("C:\\manager", ["C:\\servers\\one", "C:\\servers\\one"])
+    ).toThrow("本地配置无效");
+    expect(() =>
+      assertSafeRegistrationRoots("C:\\manager", ["C:\\servers\\one", "C:\\servers\\one\\child"])
+    ).toThrow("本地配置无效");
+  });
+
+  it("rejects managerRoot inside a registered server root", () => {
+    expect(() =>
+      assertSafeRegistrationRoots("C:\\servers\\one\\.manager", ["C:\\servers\\one"])
+    ).toThrow("本地配置无效");
+  });
+
+  it("does not mistake a contained directory beginning with two dots for an escape", () => {
+    expect(() =>
+      assertSafeRegistrationRoots("C:\\manager", ["C:\\servers\\root", "C:\\servers\\root\\..manager"])
+    ).toThrow();
+  });
+
+  it("does not confuse sibling server roots with nesting", () => {
+    expect(() =>
+      assertSafeRegistrationRoots("C:\\manager", ["C:\\servers\\one", "C:\\servers\\one-copy"])
+    ).not.toThrow();
+  });
+
+  it("keeps a missing manager root equivalent to an empty registration set", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "mcsm-missing-manager-"));
+    const missing = path.join(parent, "not-created");
+    try {
+      await expect(loadLocalRegistrations(missing)).resolves.toEqual([]);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
   });
 });
 

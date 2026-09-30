@@ -14,6 +14,7 @@ function createAdapter(initialStatus: ServerStatus, type: ServerType = "vanilla"
   let status = initialStatus;
   const start = vi.fn(async () => {});
   const stop = vi.fn(async () => {});
+  const command = vi.fn(async () => ({ transport: "stdin" as const, response: "ok" }));
   const adapter = {
     serverId: "local-test",
     mode: "local",
@@ -35,12 +36,13 @@ function createAdapter(initialStatus: ServerStatus, type: ServerType = "vanilla"
     }),
     getStatus: async () => status,
     getCommandTransport: async () => "stdin" as const,
+    command,
     revalidateBeforeStart: vi.fn(async () => {}),
     start,
     stop,
     closeObserver: async () => {}
   } as unknown as LocalMinecraftServerAdapter;
-  return { adapter, start, stop, setStatus: (next: ServerStatus) => { status = next; } };
+  return { adapter, start, stop, command, setStatus: (next: ServerStatus) => { status = next; } };
 }
 
 function status(state: ServerStatus["state"], ownership: ServerStatus["ownership"]): ServerStatus {
@@ -54,13 +56,40 @@ function status(state: ServerStatus["state"], ownership: ServerStatus["ownership
   };
 }
 
-async function createService(adapter: LocalMinecraftServerAdapter, store: OperationStore = new MemoryOperationStore()) {
+async function createService(
+  adapter: LocalMinecraftServerAdapter,
+  store: OperationStore = new MemoryOperationStore(),
+  activeWorldState?: { reconcileAfterStart(serverId: string): Promise<void> }
+) {
   const operations = new OperationService(store, clock);
   await operations.initialize();
-  return new ServerService(new AdapterRegistry([adapter]), operations);
+  return new ServerService(new AdapterRegistry([adapter]), operations, activeWorldState);
 }
 
 describe("ServerService lifecycle no-op contract", () => {
+  it("sends commands while holding the shared exclusive gate without rejecting itself", async () => {
+    const fixture = createAdapter(status("running", "managed"));
+    const service = await createService(fixture.adapter);
+
+    await expect(service.sendCommand("local-test", "list")).resolves.toMatchObject({ response: "ok" });
+    expect(fixture.command).toHaveBeenCalledWith("list");
+  });
+
+  it("requires recovery when a successful start cannot persist its world identity", async () => {
+    const fixture = createAdapter(status("stopped", "none"));
+    const service = await createService(fixture.adapter, new MemoryOperationStore(), {
+      reconcileAfterStart: async () => { throw new Error("state write failed"); }
+    });
+    const operation = await service.requestLifecycle(
+      "local-test", "start", "923e4567-e89b-42d3-a456-426614174000"
+    );
+    await vi.waitFor(() => expect(service.getOperation(operation.id).state).toBe("interrupted"));
+    expect(service.getOperation(operation.id).error?.code).toBe("RECOVERY_REQUIRED");
+    await expect(service.requestLifecycle(
+      "local-test", "stop", "a23e4567-e89b-42d3-a456-426614174000"
+    )).rejects.toMatchObject({ code: "RECOVERY_REQUIRED", reason: "recovery-required" });
+  });
+
   it.each([
     ["start", "running"],
     ["stop", "stopped"]

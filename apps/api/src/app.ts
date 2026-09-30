@@ -16,11 +16,15 @@ import { registerHealthRoute } from "./routes/health.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { registerServerRoutes } from "./routes/servers.js";
 import { registerWebSocketRoute } from "./routes/websocket.js";
+import { registerWorldRoutes } from "./routes/worlds.js";
 import { DomainError } from "./services/domain-errors.js";
 import { EventStreamService } from "./services/event-stream-service.js";
 import { OperationService } from "./services/operation-service.js";
 import { MemoryOperationStore, type OperationStore } from "./services/operation-store.js";
 import { ServerService } from "./services/server-service.js";
+import type { TransactionJournalStore } from "./services/transaction-journal.js";
+import type { ActiveWorldStateStore } from "./services/active-world-state-store.js";
+import { WorldInventoryService } from "./services/world-inventory-service.js";
 
 export interface BuildAppOptions {
   clock?: Clock;
@@ -28,6 +32,8 @@ export interface BuildAppOptions {
   logger?: FastifyServerOptions["logger"];
   mode?: Mode;
   operationStore?: OperationStore;
+  transactionRecovery?: Pick<TransactionJournalStore, "initialize">;
+  activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart">;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -44,12 +50,20 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     options: { maxPayload: 4 * 1024, perMessageDeflate: false, clientTracking: true }
   });
   const registry = new AdapterRegistry(adapters);
-  const operations = new OperationService(options.operationStore ?? new MemoryOperationStore(), clock);
-  const service = new ServerService(registry, operations);
+  const operations = new OperationService(
+    options.operationStore ?? new MemoryOperationStore(),
+    clock,
+    options.transactionRecovery
+  );
+  const service = new ServerService(registry, operations, options.activeWorldState);
+  const worlds = new WorldInventoryService(registry, clock, options.activeWorldState);
   const streams = new EventStreamService(registry, operations);
 
   app.addHook("onRequest", installLocalRequestGuard(clock, mode));
-  app.addHook("onReady", async () => operations.initialize());
+  app.addHook("onReady", async () => {
+    await operations.initialize();
+    operations.requireRecovery(await options.activeWorldState?.initialize() ?? []);
+  });
   app.addHook("onClose", async () => {
     streams.close();
     await service.close();
@@ -57,6 +71,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerHealthRoute(app, clock, mode);
   registerServerRoutes(app, service, clock, mode);
   registerOperationRoutes(app, service, clock, mode);
+  registerWorldRoutes(app, worlds, clock, mode);
   // @fastify/websocket installs an onRoute hook in its encapsulated scope.
   // Register WebSocket routes in a following plugin so the hook can replace
   // the HTTP handler with the upgrade handler before the route is compiled.

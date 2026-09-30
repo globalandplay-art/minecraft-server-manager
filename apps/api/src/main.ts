@@ -3,12 +3,16 @@ import { createLocalAdapters, resolveManagerRoot } from "./config/bootstrap.js";
 import { API_HOST, API_PORT, resolveMode } from "./config/runtime.js";
 import { LocalRuntimeFactory } from "./infra/runtime/index.js";
 import { JsonOperationStore } from "./services/operation-store.js";
+import { TransactionJournalStore } from "./services/transaction-journal.js";
+import { ActiveWorldStateStore } from "./services/active-world-state-store.js";
+import { isLocalAdapter } from "./adapters/contract.js";
 
 async function main(): Promise<void> {
   const mode = resolveMode(process.env.MCSM_MODE);
   const managerRoot = resolveManagerRoot(process.env.MCSM_MANAGER_ROOT);
   const adapters =
     mode === "mock" ? undefined : await createLocalAdapters(managerRoot, new LocalRuntimeFactory());
+  const localAdapters = adapters?.filter(isLocalAdapter) ?? [];
   const app = buildApp({
     logger: {
       level: "info",
@@ -18,7 +22,11 @@ async function main(): Promise<void> {
     },
     mode,
     ...(adapters === undefined ? {} : { adapters }),
-    operationStore: new JsonOperationStore(managerRoot)
+    operationStore: new JsonOperationStore(managerRoot),
+    ...(mode === "local" ? {
+      transactionRecovery: new TransactionJournalStore(managerRoot),
+      activeWorldState: new ActiveWorldStateStore(managerRoot, localAdapters)
+    } : {})
   });
 
   const close = async () => {

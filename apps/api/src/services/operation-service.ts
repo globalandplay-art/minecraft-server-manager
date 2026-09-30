@@ -6,6 +6,7 @@ import type { Clock } from "../clock.js";
 import type { RuntimeOperationContext } from "../infra/runtime-contract.js";
 import { DomainError } from "./domain-errors.js";
 import type { OperationStore, StoredOperation } from "./operation-store.js";
+import type { JournalScanResult } from "./transaction-journal.js";
 
 const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 type LifecycleKind = "start" | "stop" | "restart";
@@ -24,17 +25,28 @@ export class OperationService {
   readonly #activeByServer = new Map<string, string>();
   readonly #recoveryServers = new Set<string>();
   readonly #listeners = new Set<OperationListener>();
+  readonly #exclusiveLocks = new Set<string>();
   #mutationTail: Promise<void> = Promise.resolve();
 
-  constructor(store: OperationStore, clock: Clock) {
+  constructor(
+    store: OperationStore,
+    clock: Clock,
+    private readonly transactionRecovery?: { initialize(): Promise<JournalScanResult> }
+  ) {
     this.#store = store;
     this.#clock = clock;
   }
 
   async initialize(): Promise<void> {
     await this.#store.initialize();
-    const stored = await this.#store.list();
+    const [stored, transactionScan] = await Promise.all([
+      this.#store.list(),
+      this.transactionRecovery?.initialize()
+    ]);
     const now = this.#clock.now();
+    for (const serverId of transactionScan?.recoveryServerIds ?? []) {
+      this.#recoveryServers.add(serverId);
+    }
     for (const record of stored) {
       let current = record;
       if (record.operation.state === "queued" || record.operation.state === "running") {
@@ -75,6 +87,26 @@ export class OperationService {
     };
   }
 
+  requireRecovery(serverIds: Iterable<string>): void {
+    for (const serverId of serverIds) this.#recoveryServers.add(serverId);
+  }
+
+  async runExclusive<T>(serverId: string, action: () => Promise<T>): Promise<T> {
+    await this.#mutate(async () => {
+      if (this.#recoveryServers.has(serverId)) {
+        throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "recovery-required");
+      }
+      if (this.#activeByServer.has(serverId) || this.#exclusiveLocks.has(serverId)) {
+        throw new DomainError(409, "OPERATION_CONFLICT", "实例当前已有活动操作", "operation-active");
+      }
+      this.#exclusiveLocks.add(serverId);
+    });
+    try { return await action(); }
+    finally {
+      await this.#mutate(async () => { this.#exclusiveLocks.delete(serverId); });
+    }
+  }
+
   subscribe(listener: OperationListener): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
@@ -105,6 +137,9 @@ export class OperationService {
       }
       if (this.#recoveryServers.has(serverId)) {
         throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "recovery-required");
+      }
+      if (this.#exclusiveLocks.has(serverId)) {
+        throw new DomainError(409, "OPERATION_CONFLICT", "实例当前已有独占操作", "operation-active");
       }
       if (this.#activeByServer.has(serverId)) {
         throw new DomainError(409, "OPERATION_CONFLICT", "实例已有活动操作", "operation-active");

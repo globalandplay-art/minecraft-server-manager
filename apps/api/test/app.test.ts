@@ -5,6 +5,7 @@ import {
   overviewResponseSchema,
   serverResponseSchema,
   serversResponseSchema,
+  worldsResponseSchema,
   type ServerInfo
 } from "@mcsm/contracts";
 import { afterEach, describe, expect, it } from "vitest";
@@ -36,6 +37,51 @@ afterEach(async () => {
 });
 
 describe("Phase 1 read API", () => {
+  it("serves local Vanilla worlds through the composed app with local guards and recovery startup", async () => {
+    const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+      const root = await mkdtemp(join(tmpdir(), "mcsm-buildapp-worlds-"));
+    try {
+      const world = join(root, "world");
+      await mkdir(world);
+      await writeFile(join(root, "server.properties"), "level-name=world\nview-distance=10\n");
+      const beforeFiles = await import("node:fs/promises").then(({ readdir }) => readdir(root));
+      const adapter = {
+        mode: "local",
+        serverId: "vanilla-integration",
+        plan: { rootPath: root, serverInfo: { type: "vanilla" } },
+        subscribe: () => () => {},
+        closeObserver: async () => {}
+      } as unknown as MinecraftServerAdapter;
+      const app = createApp({
+        mode: "local",
+        adapters: [adapter],
+        transactionRecovery: { initialize: async () => ({
+          records: [], recoveryServerIds: new Set<string>(), issues: []
+        }) },
+        activeWorldState: {
+          initialize: async () => new Set<string>(),
+          isActive: () => true,
+          reconcileAfterStart: async () => {}
+        }
+      });
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/servers/vanilla-integration/worlds",
+        headers: localHeaders
+      });
+      expect(response.statusCode).toBe(200);
+      expect(Value.Check(worldsResponseSchema, response.json())).toBe(true);
+      expect(response.json().data.items[0].active).toBe(true);
+      expect(await import("node:fs/promises").then(({ readdir }) => readdir(root))).toEqual(beforeFiles);
+      expect((await app.inject({ method: "GET", url: "/api/v1/servers/vanilla-integration/worlds" })).statusCode)
+        .toBe(403);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("returns the exact feature map in a valid health envelope", async () => {
     const response = await createApp().inject({
       method: "GET",

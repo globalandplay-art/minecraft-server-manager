@@ -15,6 +15,7 @@ import {
 import { AdapterRegistry } from "../adapters/registry.js";
 import { DomainError } from "./domain-errors.js";
 import type { OperationService } from "./operation-service.js";
+import type { ActiveWorldStateStore } from "./active-world-state-store.js";
 
 const unavailable = (reason: string) => ({ allowed: false as const, reason });
 const available = () => ({ allowed: true as const, reason: null });
@@ -71,7 +72,11 @@ export class ServerService {
   readonly #operations: OperationService;
   readonly #commandAttempts = new Map<string, number[]>();
 
-  constructor(registry: AdapterRegistry, operations: OperationService) {
+  constructor(
+    registry: AdapterRegistry,
+    operations: OperationService,
+    private readonly activeWorldState?: Pick<ActiveWorldStateStore, "reconcileAfterStart">
+  ) {
     this.#registry = registry;
     this.#operations = operations;
   }
@@ -115,12 +120,14 @@ export class ServerService {
         if (kind === "start") {
           await adapter.revalidateBeforeStart();
           await adapter.start(context);
+          await this.activeWorldState?.reconcileAfterStart(serverId);
         } else if (kind === "stop") {
           await adapter.stop(context);
         } else {
           await adapter.stop(context);
           await adapter.revalidateBeforeStart();
           await adapter.start(context);
+          await this.activeWorldState?.reconcileAfterStart(serverId);
         }
       },
       async () => {
@@ -179,22 +186,16 @@ export class ServerService {
     if (this.#containsReservedCommand(normalized)) {
       throw new DomainError(409, "ACTION_UNAVAILABLE", "该命令必须使用专用操作流程", "reserved-command");
     }
-    const state = this.#operations.getServerState(serverId);
-    if (state.activeOperationId !== null || state.recoveryRequired) {
-      throw new DomainError(
-        409, state.recoveryRequired ? "RECOVERY_REQUIRED" : "OPERATION_CONFLICT",
-        "实例当前不能接收命令",
-        state.recoveryRequired ? "recovery-required" : "operation-active"
-      );
-    }
-    const readiness = (await this.#getSummary(serverId)).readiness.commands;
-    if (!readiness.allowed) {
-      throw new DomainError(
-        503, "COMMAND_TRANSPORT_UNAVAILABLE", "当前没有可用的命令传输", readiness.reason
-      );
-    }
-    this.#consumeCommandRate(serverId);
-    return adapter.command(normalized);
+    return this.#operations.runExclusive(serverId, async () => {
+      const readiness = (await this.#getSummary(serverId)).readiness.commands;
+      if (!readiness.allowed) {
+        throw new DomainError(
+          503, "COMMAND_TRANSPORT_UNAVAILABLE", "当前没有可用的命令传输", readiness.reason
+        );
+      }
+      this.#consumeCommandRate(serverId);
+      return adapter.command(normalized);
+    });
   }
 
   async getOverview(serverId: string): Promise<Overview> {

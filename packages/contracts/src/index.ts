@@ -200,6 +200,75 @@ export const metricsSchema = strictObject({
 });
 export type Metrics = Static<typeof metricsSchema>;
 
+export const worldFieldSourceSchema = Type.Union([
+  Type.Literal("level-dat"),
+  Type.Literal("server-properties"),
+  Type.Literal("filesystem"),
+  Type.Null()
+]);
+export type WorldFieldSource = Static<typeof worldFieldSourceSchema>;
+
+export const worldDimensionSchema = strictObject({
+  id: Type.String({
+    minLength: 1,
+    maxLength: 256,
+    pattern: "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
+  }),
+  kind: Type.Union([
+    Type.Literal("overworld"),
+    Type.Literal("nether"),
+    Type.Literal("end"),
+    Type.Literal("custom")
+  ])
+});
+export type WorldDimension = Static<typeof worldDimensionSchema>;
+
+const worldBooleanMetric = metric(Type.Boolean());
+const worldIntegerMetric = metric(Type.Integer({ minimum: 0 }));
+
+export const worldInfoSchema = strictObject({
+  worldId: Type.String({ minLength: 1, maxLength: 128, pattern: "^[a-z0-9-]+$" }),
+  active: Type.Boolean(),
+  dimensions: Type.Array(worldDimensionSchema, { minItems: 1, maxItems: 256 }),
+  name: metric(Type.String({ minLength: 1, maxLength: 128 })),
+  seed: metric(Type.String({
+    minLength: 1,
+    maxLength: 20,
+    pattern: "^-?(?:0|[1-9][0-9]{0,18})$"
+  })),
+  minecraftVersion: metric(Type.String({ minLength: 1, maxLength: 64 })),
+  sizeBytes: worldIntegerMetric,
+  difficulty: metric(Type.Union([
+    Type.Literal("peaceful"),
+    Type.Literal("easy"),
+    Type.Literal("normal"),
+    Type.Literal("hard")
+  ])),
+  gameMode: metric(Type.Union([
+    Type.Literal("survival"),
+    Type.Literal("creative"),
+    Type.Literal("adventure"),
+    Type.Literal("spectator")
+  ])),
+  hardcore: worldBooleanMetric,
+  pvp: worldBooleanMetric,
+  viewDistance: worldIntegerMetric,
+  simulationDistance: worldIntegerMetric,
+  fieldSources: strictObject({
+    name: worldFieldSourceSchema,
+    seed: worldFieldSourceSchema,
+    minecraftVersion: worldFieldSourceSchema,
+    sizeBytes: worldFieldSourceSchema,
+    difficulty: worldFieldSourceSchema,
+    gameMode: worldFieldSourceSchema,
+    hardcore: worldFieldSourceSchema,
+    pvp: worldFieldSourceSchema,
+    viewDistance: worldFieldSourceSchema,
+    simulationDistance: worldFieldSourceSchema
+  })
+});
+export type WorldInfo = Static<typeof worldInfoSchema>;
+
 export const activitySchema = strictObject({
   id: Type.String({ minLength: 1, maxLength: 128 }),
   occurredAt: timestampSchema,
@@ -260,6 +329,12 @@ export const overviewResponseSchema = strictObject({
   meta: responseMetaSchema
 });
 export type OverviewResponse = Static<typeof overviewResponseSchema>;
+
+export const worldsResponseSchema = strictObject({
+  data: strictObject({ items: Type.Array(worldInfoSchema, { maxItems: 1000 }) }),
+  meta: responseMetaSchema
+});
+export type WorldsResponse = Static<typeof worldsResponseSchema>;
 
 export const errorDetailsSchema = strictObject({
   fieldErrors: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String()))),

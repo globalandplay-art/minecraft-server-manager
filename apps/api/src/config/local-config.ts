@@ -166,6 +166,26 @@ function isUnc(input: string): boolean {
 const normalized = (input: string) =>
   process.platform === "win32" ? path.resolve(input).toLowerCase() : path.resolve(input);
 
+function containsPath(parent: string, candidate: string): boolean {
+  const relative = path.relative(normalized(parent), normalized(candidate));
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+export function assertSafeRegistrationRoots(managerRoot: string, serverRoots: readonly string[]): void {
+  for (let left = 0; left < serverRoots.length; left += 1) {
+    const leftRoot = serverRoots[left]!;
+    if (containsPath(leftRoot, managerRoot)) {
+      throw configError("manager-root-inside-server-root");
+    }
+    for (let right = left + 1; right < serverRoots.length; right += 1) {
+      const rightRoot = serverRoots[right]!;
+      if (containsPath(leftRoot, rightRoot) || containsPath(rightRoot, leftRoot)) {
+        throw configError("duplicate-or-nested-server-root");
+      }
+    }
+  }
+}
+
 async function assertCanonicalPath(
   input: string,
   expected: "file" | "directory",
@@ -208,7 +228,7 @@ async function validatePaths(config: RawServerConfig): Promise<{
   );
   const jarCandidate = path.resolve(rootPath, config.jarFile);
   const relative = path.relative(rootPath, jarCandidate);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw configError("jar-outside-root");
   }
   const jarPath = await assertCanonicalPath(jarCandidate, "file", "jar");
@@ -359,6 +379,25 @@ async function validateRegistration(config: RawServerConfig): Promise<ValidatedR
 }
 
 export async function loadLocalRegistrations(managerRoot: string): Promise<ValidatedRegistration[]> {
-  const configs = await loadRawConfig(path.join(managerRoot, "config.json"));
-  return Promise.all(configs.map(validateRegistration));
+  let canonicalManagerRoot: string;
+  try {
+    canonicalManagerRoot = await assertCanonicalPath(managerRoot, "directory", "manager-root");
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return [];
+    }
+    throw error;
+  }
+  const configs = await loadRawConfig(path.join(canonicalManagerRoot, "config.json"));
+  const registrations = await Promise.all(configs.map(validateRegistration));
+  assertSafeRegistrationRoots(
+    canonicalManagerRoot,
+    registrations.map((registration) => registration.plan.rootPath)
+  );
+  return registrations;
 }
