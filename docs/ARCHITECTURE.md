@@ -279,7 +279,7 @@ Upgrade 操作不是当前七阶段的隐含任务。Phase 3 提供 snapshot 基
 
 ## 13. 模型与 Git 工作流
 
-GPT-6 Astra 负责上述架构、UI 规范、复杂决策、安全与高级 Review。GPT-5.6 Sol 负责 Phase 1 起普通实现、测试、重构与文档维护；实际调用时明确 model=gpt-5.6-sol，不用 Astra 默默代替。只有整体架构变更、跨 Adapter 分歧、文件安全 / 恢复事务问题、定位不明的复杂 Bug 或上述 Review 节点升级给 Astra。
+2026-10-01 起，Codex 执行目标为在全部质量、安全、测试和 Review Gate 通过的前提下，最小化到最终 PASS 的总 token / allowance（含推理、测试、返工与上下文成本）。普通工程默认 GPT-6.1 Sol / Medium，简单明确任务用 GPT-6 Luna Low / Medium，默认子智能体预算 0；复杂核心工作按风险升级 Sol High，普通完整 Feature 独立 Review 默认 Sol High。Astra 用于风险 Gate：P3.1 最终 Gate、Import 与 Addons 为 Medium；高后果 Restore / Rollback、数据损失、durability / crash recovery、Auth / Remote、Adapter 最终与正式发布前为 High。P3.1b 不单独默认 Astra，其未来实现 Review 为 Sol High。完整规则见 [CODEX_MODEL_ROUTING.md](./CODEX_MODEL_ROUTING.md)。产品目标、Phase 顺序、工程不变量与验收要求不变；前文已完成阶段的模型分工与签核为历史记录。用户停止使用智能体的限制仍有效，策略不修改账户设置或活动主模型。
 
 五个强制高级 Review 节点：Phase 1 架构确定后（本轮）；Adapter 架构实现完成后（Phase 5 接入前后核对）；Mods / Plugins 完成后；Remote Access 开始前；第一版正式发布前。Adapter 与 Addons 即使同属 Phase 5 也分别记录检查结果。正式发布前再次检查安全、API / adapter 一致性、移动端、真实 MC 验证和测试覆盖，不以本轮设计检查代替。
 

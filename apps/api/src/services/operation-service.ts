@@ -56,11 +56,13 @@ export class OperationService {
           step: "manager-restarted",
           updatedAt: now.toISOString(),
           result: null,
-          error: { code: "RECOVERY_REQUIRED", message: "管理器重启中断了操作，需要人工检查" }
+          error: record.operation.kind === "backup-export"
+            ? { code: "EXPORT_INTERRUPTED", message: "导出被管理器重启中断，可重新请求" }
+            : { code: "RECOVERY_REQUIRED", message: "管理器重启中断了操作，需要人工检查" }
         };
         current = { ...record, operation: interrupted };
         await this.#store.save(current);
-        this.#recoveryServers.add(interrupted.serverId);
+        if (interrupted.kind !== "backup-export") this.#recoveryServers.add(interrupted.serverId);
       }
       if (
         current.operation.state === "interrupted" &&
@@ -185,12 +187,13 @@ export class OperationService {
     idempotencyKey: string,
     requestBody: string,
     execute: (context: RuntimeOperationContext) => Promise<void>,
-    preflight?: () => Promise<void>
+    preflight?: () => Promise<void>,
+    kind: "backup" | "backup-export" = "backup"
   ): Promise<Operation> {
-    const fingerprint = createHash("sha256").update(`${serverId}\nbackup\n${requestBody}`).digest("hex");
+    const fingerprint = createHash("sha256").update(`${serverId}\n${kind}\n${requestBody}`).digest("hex");
     let created = false;
     const operation = await this.#mutate(async () => {
-      const scope = `${serverId}:backup:${idempotencyKey}`;
+      const scope = `${serverId}:${kind}:${idempotencyKey}`;
       const existing = this.#idempotency.get(scope);
       if (existing !== undefined && Date.parse(existing.expiresAt) > this.#clock.now().getTime()) {
         if (existing.requestFingerprint !== fingerprint) {
@@ -207,7 +210,7 @@ export class OperationService {
       await preflight?.();
       const timestamp = this.#clock.now();
       const next: Operation = {
-        id: randomUUID(), serverId, kind: "backup", state: "queued", step: "queued", progress: null,
+        id: randomUUID(), serverId, kind, state: "queued", step: "queued", progress: null,
         createdAt: timestamp.toISOString(), updatedAt: timestamp.toISOString(), result: null, error: null
       };
       const record: StoredOperation = {

@@ -1,6 +1,6 @@
 # Phase 3 实施与验收计划
 
-状态：2026-09-30；P3.0 与 P3.1a 已通过 GPT-6 Astra Review；P3.1b 导出、真实独立测试世界验收及后续 P3.2–P3.5 尚未完成，因此 Phase 3 仍未完成。本文细化 [ARCHITECTURE.md](./ARCHITECTURE.md)、[API_SPEC.md](./API_SPEC.md) 与 [UI_SPEC.md](./UI_SPEC.md)，不放宽原合同。
+状态更新：2026-10-01；P3.0、P3.1a、P3.1b 与 P3.1 最终 Review / 独立真实测试世界验收均已通过；Phase 3 仍 IN PROGRESS，下一项为 P3.2 Restore / Explicit Rollback。原 2026-09-30 状态为历史快照。本文细化 [ARCHITECTURE.md](./ARCHITECTURE.md)、[API_SPEC.md](./API_SPEC.md) 与 [UI_SPEC.md](./UI_SPEC.md)，不放宽原合同。
 
 ## 范围与安全默认值
 

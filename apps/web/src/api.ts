@@ -7,6 +7,8 @@ import {
   commandResponseSchema,
   worldsResponseSchema,
   backupsResponseSchema,
+  backupExportResponseSchema,
+  type BackupExportResponse,
   type BackupCreateRequest,
   type WorldsResponse,
   type BackupsResponse,
@@ -215,6 +217,14 @@ export const api = {
       headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': idempotencyKey },
       expectedStatus: 202, signal,
     }),
+  createBackupExport: (serverId: string, backupId: string, idempotencyKey: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/backups/${encodeURIComponent(backupId)}/exports`, lifecycleActionResponseSchema, {
+      method: 'POST', body: {}, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': idempotencyKey }, expectedStatus: 202,
+    }),
+  backupExport: (serverId: string, backupId: string, signal?: AbortSignal) =>
+    getJson<BackupExportResponse>(`/servers/${encodeURIComponent(serverId)}/backups/${encodeURIComponent(backupId)}/exports`, backupExportResponseSchema, signal),
+  backupDownloadUrl: (serverId: string, backupId: string) =>
+    `/api/v1/servers/${encodeURIComponent(serverId)}/backups/${encodeURIComponent(backupId)}/download`,
 };
 
 export function shouldRetry(failureCount: number, error: Error) {

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ServersResponse } from '@mcsm/contracts';
-import { AlertTriangle, Archive, DatabaseBackup, RefreshCw } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import type { BackupInfo, ServersResponse } from '@mcsm/contracts';
+import { AlertTriangle, Archive, DatabaseBackup, Download, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiClientError, api, errorMessage, shouldRetry } from '../api';
 import { EmptyState, ErrorState, PageHeading } from '../components/Ui';
 
@@ -10,6 +10,57 @@ const metricText = (metric: { status: string; value: unknown }) => metric.status
 const sizeText = (value: number) => value < 1024 ** 3 ? `${(value / 1024 ** 2).toFixed(1)} MB` : `${(value / 1024 ** 3).toFixed(2)} GB`;
 const PENDING_BACKUP_TTL_MS = 24 * 60 * 60 * 1_000;
 type PendingBackup = { key: string; serverId: string; savedAt: number; body: { scope: 'world-set'; allowStop: boolean; label?: string } };
+
+function BackupDownload({ serverId, backup }: { serverId: string; backup: BackupInfo }) {
+  const storageKey = `mcsm.pendingExport.${serverId}.${backup.id}`;
+  const [key, setKey] = useState(() => {
+    const saved = sessionStorage.getItem(storageKey);
+    try {
+      const value = JSON.parse(saved ?? 'null') as { key?: unknown; savedAt?: unknown } | null;
+      if (value && typeof value.key === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value.key) &&
+        typeof value.savedAt === 'number' && Date.now() >= value.savedAt && Date.now() - value.savedAt < PENDING_BACKUP_TTL_MS) return value.key;
+    } catch { /* Invalid UI state never controls a filesystem path. */ }
+    sessionStorage.removeItem(storageKey);
+    return null;
+  });
+  const link = useRef<HTMLAnchorElement>(null);
+  const downloaded = useRef<string | null>(null);
+  const mutation = useMutation({ mutationFn: (requestKey: string) => api.createBackupExport(serverId, backup.id, requestKey) });
+  const operationId = mutation.data?.data.operation.id;
+  const operation = useQuery({ queryKey: ['export-operation', operationId],
+    queryFn: ({ signal }) => api.operation(operationId!, signal), enabled: Boolean(operationId), retry: shouldRetry,
+    refetchInterval: (query) => ['succeeded', 'failed', 'interrupted'].includes(query.state.data?.data.state ?? '') ? false : 500 });
+  const succeeded = operation.data?.data.state === 'succeeded';
+  const status = useQuery({ queryKey: ['backup-export', serverId, backup.id, operationId],
+    queryFn: ({ signal }) => api.backupExport(serverId, backup.id, signal), enabled: succeeded, retry: shouldRetry });
+  const ready = succeeded && status.data?.data.state === 'ready';
+  useEffect(() => {
+    if (ready && operationId && downloaded.current !== operationId && link.current) {
+      downloaded.current = operationId;
+      sessionStorage.removeItem(storageKey);
+      link.current.click();
+    }
+  }, [ready, operationId, storageKey]);
+  if (backup.scope !== 'world-set') return <p className="muted">私有服务端快照禁止下载</p>;
+  const failed = ['failed', 'interrupted'].includes(operation.data?.data.state ?? '');
+  const busy = mutation.isPending || (Boolean(operationId) && !succeeded && !failed && !operation.isError);
+  const message = mutation.isError ? errorMessage(mutation.error) : operation.isError ? errorMessage(operation.error)
+    : status.isError ? errorMessage(status.error) : operation.data?.data.error?.message;
+  const state = message || failed ? 'Failed' : ready ? 'Ready' : operation.data?.data.step === 'scanning' ? 'Scanning' : busy || succeeded ? 'Exporting' : 'Available';
+  const start = () => {
+    const requestKey = succeeded || failed || (mutation.error instanceof ApiClientError && mutation.error.kind === 'http' && mutation.error.code !== 'OPERATION_CONFLICT')
+      ? crypto.randomUUID() : key ?? crypto.randomUUID();
+    setKey(requestKey);
+    sessionStorage.setItem(storageKey, JSON.stringify({ key: requestKey, savedAt: Date.now() }));
+    mutation.mutate(requestKey);
+  };
+  return <div className="page-stack">
+    <span className="phase-badge" role="status">{state}</span>
+    {!ready ? <button className="button button--secondary" disabled={busy} onClick={start}><Download size={15} />{busy ? '正在校验并导出…' : key && !failed ? '用相同请求确认导出' : 'Download World Set'}</button> : null}
+    {ready ? <><a className="button button--secondary" ref={link} href={api.backupDownloadUrl(serverId, backup.id)} download><Download size={15} />下载世界备份</a><p className="muted">Ready 表示导出已校验。下载由浏览器管理，请在下载列表确认完成；页面无法确认传输结果。失败可重新校验后重试。</p><button className="button button--secondary" disabled={busy} onClick={start}><RefreshCw size={15} />重新校验并下载</button></> : null}
+    {message ? <p className="inline-warning" role="alert">{message}</p> : null}
+  </div>;
+}
 
 export function WorldsPage({ server }: { server: Server | undefined }) {
   const query = useQuery({ queryKey: ['worlds', server?.server.id], queryFn: ({ signal }) => api.worlds(server!.server.id, signal), enabled: Boolean(server), retry: shouldRetry });
@@ -125,6 +176,7 @@ export function BackupsPage({ server }: { server: Server | undefined }) {
       <div className="resource-card__heading"><div><span className="eyebrow">BACKUP ARCHIVES</span><h2>备份记录</h2></div><button className="button button--secondary" onClick={() => void list.refetch()} disabled={list.isFetching}><RefreshCw size={15} />刷新</button></div>
     {!server ? <EmptyState title="尚无服务器实例" description="接入本地服务器后显示备份记录。" /> : list.isPending ? <p className="muted">正在读取备份…</p> : list.isError ? <ErrorState description={errorMessage(list.error)} retry={() => void list.refetch()} /> : list.data?.data.items.length ? list.data.data.items.map((backup) => <section className="resource-card backup-row" key={backup.id}>
       <div><span className="eyebrow">{backup.kind === 'snapshot' ? 'PRIVATE SNAPSHOT' : 'MANUAL WORLD SET'}</span><h3>{backup.label ?? new Date(backup.createdAt).toLocaleString()}</h3><p>{backup.minecraftVersion ?? '版本未知'} · {backup.fileCount.toLocaleString()} 个文件 · {sizeText(backup.sizeBytes)}</p></div><span className="phase-badge">SHA-256 已记录</span>
+      <BackupDownload key={`${server.server.id}.${backup.id}`} serverId={server.server.id} backup={backup} />
     </section>) : <EmptyState title="还没有备份" description="成功结束且具有有效清单的备份会显示在这里。" />}
   </div>;
 }

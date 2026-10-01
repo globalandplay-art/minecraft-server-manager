@@ -1,14 +1,58 @@
 # 实施进度
 
-更新时间：2026-09-30
+更新时间：2026-10-01
+
 
 ## Phase 3 当前检查点
 
+### 2026-10-01 P3.1 最终复审 — PASSED
+
+按用户授权执行两次独立只读 Review：GPT-6.1 Sol / High 对 P3.1 修复、导出和下载实现复审 PASS；GPT-6 Astra / Medium P3.1 Final Gate PASS。两位 Reviewer 均确认此前两个 P1 已修复，没有发现阻塞 P3.1 的新问题。独立真实 Vanilla 26.3 / Java 25 测试世界验收及真实浏览器下载报告已核对为 PASS，覆盖 Overworld / Nether / End、manifest 与 ZIP 摘要、server-snapshot 拒绝、管理器重启后持久性及 360px 实际页面下载。具体范围和限制见 Review 报告及上文真实验收记录。
+
+本次复审只读，没有重跑测试或重新启动 Minecraft。过去的全仓 check、lint、typecheck、build 和专项测试结果仍是原有执行记录，不标作本次重跑。边界说明：无法保证抵御拥有相同 OS 写权限的进程在校验后原地改写下载文件；秘密扫描也不覆盖任意 NBT / region 二进制内容。Review 确认二者属于已记录的本地信任边界限制，不阻塞本 Gate。
+
+Phase 3 的 P3.1 已通过既定实现、测试、真实世界验收与独立 Review Gate；当前下一步为 P3.2 Restore / Explicit Rollback 的架构与风险设计。P3.2 涉及文件切换、数据丢失与 crash recovery，核心设计和实现使用 Sol High，且恢复 / 显式回滚必须通过 Astra High 安全 Gate。开始恢复实现前须完成方案、故障状态机、journal/atomic replacement/crash recovery 不变量及测试计划；真实 Restore 只在独立测试世界执行。
+### 2026-10-01 接续 — P3.1 真实验收与一致性修复
+
+用户要求停止使用子智能体，后续没有派发或续用任何智能体。P3.1 整体独立只读 Review 已于本轮执行并发现两项 P1：运行时预检与正式备份之间的实例状态发生变化时，可能把 `unknown` 当成 stopped 复制活动世界；备份复制 / 验证失败后仍可能自动启动。现已加入共享严格状态校验、停服后与复制前双重核验；failure path 保留 stopped + recovery-required journal，不自动启动。新增状态变化、运行实例未停成、复制前变 unknown、运行实例未授权及失败 journal 留存测试。人工交接时定向 API 两个文件 44 项通过。新增 Nether / End 维度文件的离线服务测试。
+
+真实验收首次发现 Vanilla 26.3 实际写入 `dimensions/minecraft/{overworld,the_nether,the_end}` 和 `data/minecraft/*.dat`，原有导出白名单不包含本地验证出的这些结构，已用正向精确结构规则增加支持，并为实际维度 region、namespaced saved data 与 `players/data/*.dat` 增加专项测试。另有两次验收运行因验收脚本对旧版 DIM-1/DIM1 假设及二进制 HTTP 响应的 JSON 读取假设而未通过；均修复后以全新隔离世界重跑，成功报告为 **PASS**。
+
+成功报告位于忽略的本地运行时目录 `.manager/p31-real-f4f4c812-aeaa-4442-8778-ad3b9baa887a/acceptance-report.json`。真实 Vanilla 26.3 / Java 25.0.4.1 由管理器启动，测试使用新建独立世界，未访问原世界目录。验证了：运行中未授权备份被拒绝且服务器继续运行；授权后管理器停服并校验 manifest 中 38 个文件（包含 Overworld / Nether / End），同幂等键重试复用操作，随后重启；ZIP 在独立解析器内逐条对 manifest 校验、SHA-256 及响应头一致，未包含 RCON sentinel；修改活动测试世界不更改既有备份或导出；停服实例备份后仍停服；server-snapshot 导出和下载为 403；重启管理器后备份、操作状态及导出仍有效；源服务端 JAR 和 EULA 哈希不变。管理器最后确认 stopped。报告含服务器私密测试路径，仅留在被忽略的 `.manager`。
+
+最终产品代码全仓 `npm.cmd run check` 退出码 0：contracts 4、API 186、web 39；lint、TypeScript、构建全部通过。`git diff --check` 通过。Astra High 首次整体审查找出的两项 P1 已修复并有针对性回归；因用户明确要求停止使用智能体，本轮不安排独立 Astra 复审，**P3.1 整体 Review Gate 仍待独立签核**。
+
+在第一份 PASS 证据（API注入真实 Minecraft）基础上，修正 Vite 根目录后，再次全新运行真实隔离实例及真实 Chrome 测试。最终 PASS 报告位于 `.manager/p31-real-a2b43d35-d6cc-4209-972a-ea21392f39a5/acceptance-report.json`，除上述真实 API 验证，还通过 360px 浏览器 Backups 页面为真实 26.3 测试世界创建 world-set 导出、自动下载 ZIP，逐文件哈希匹配，且页面无运行时错误、没有水平溢出。两次浏览器初试分别遇到 Playwright headless 无已安装二进制（切换为项目既有 Chrome channel）及 Vite 根目录配置错误，均在最后 PASS 运行前修复。浏览器 API / Vite / Java 进程均在脚本结束时收尾，报告确认 Minecraft stopped。原用户世界未被读取。
+
+（截至下方 P3.1 Final Gate 通过前的历史状态。）Phase 3 / P3.1 当时保持 IN PROGRESS，不能进入 P3.2，原因仅为独立整体复审仍待完成。按本次未来调度迁移，P3.1 Final Gate 默认 Astra Medium；若复审范围出现高后果数据损失、durability / crash recovery 等风险，按 CODEX_MODEL_ROUTING 升级 High 并记录依据。此前 Astra High 首审与 P1 发现仍为历史事实，没有补签修复后的版本。后续必须在用户仍授权的情况下，由非主写入者只读复审本轮 P1 修复；用户已要求不使用智能体，本次不得擅自再启动智能体。没有提交或推送。
+
 P3.0 事务基础与只读 Vanilla Worlds 盘点已完成并通过 GPT-6 Astra Review。`npm.cmd run check` 全部通过：contracts 4 项、API 141 项、web 29 项测试，以及 lint、TypeScript 检查和生产构建。Review 确认同实例命令、启停与独占写任务互斥；journal 和活动世界身份持久化在管理器私有目录；Worlds GET 不修改服务器目录；状态不一致或持久化失败时会进入恢复门控。当前 `worlds` feature 仍标记为未实现，因为 P3.1–P3.5 的备份、恢复、世界管理 UI 与验收尚未完成。
 
-P3.1a 手动备份核心已通过 GPT-6 Astra Review，代码已在 `c2bbc33` 本地提交。交付包含停服一致性的 Vanilla world-set / 私有 server-snapshot、manifest 校验、停服前空间估算、逐文件 fsync、完整递归目录链同步（Windows 对 Node 不支持的目录 fsync 错误按事务 journal 相同的平台限制处理）、备份列表、同 payload / 同幂等键恢复重试与 24 小时期限、明确拒绝后的 pending 清理、操作轮询、真实 readiness 与 Worlds / Backups 首版页面。世界版本从 level.dat 探测，不可确认时返回 null。最新全仓 `npm.cmd run check` 通过：contracts 4、API 149、web 34，lint、类型检查和三项生产构建均通过。Playwright E2E 本轮未能启动：取得 loopback 权限后，runner 子进程因 `uv_os_get_passwd returned ENOMEM` 在 web server 启动前退出；不得将此记作 E2E 通过。受限 world-set 下载与秘密扫描单列为 P3.1b，尚未实现；真实独立测试世界验收也尚未执行。此 worktree 没有配置 Git remote，不能 push 或建 PR。
+P3.1a 手动备份核心已通过 GPT-6 Astra Review，代码已在 `c2bbc33` 本地提交。交付包含停服一致性的 Vanilla world-set / 私有 server-snapshot、manifest 校验、停服前空间估算、逐文件 fsync、完整递归目录链同步（Windows 对 Node 不支持的目录 fsync 错误按事务 journal 相同的平台限制处理）、备份列表、同 payload / 同幂等键恢复重试与 24 小时期限、明确拒绝后的 pending 清理、操作轮询、真实 readiness 与 Worlds / Backups 首版页面。世界版本从 level.dat 探测，不可确认时返回 null。最新全仓 `npm.cmd run check` 通过：contracts 4、API 149、web 34，lint、类型检查和三项生产构建均通过。Playwright E2E 本轮未能启动：取得 loopback 权限后，runner 子进程因 `uv_os_get_passwd returned ENOMEM` 在 web server 启动前退出；不得将此记作 E2E 通过。P3.1a 交付时受限 world-set 下载与秘密扫描尚未实现，单列为 P3.1b；当前进展见下方切片记录。真实独立测试世界验收也尚未执行。此 worktree 没有配置 Git remote，不能 push 或建 PR。
 
-下一步：完成安全的 world-set 导出设计与秘密扫描后，补下载路由 / UI，再做 P3.1 Review 和独立测试世界验收；通过后再进入 P3.2 恢复与显式回滚。不要把当前 P3.1 标记为已完成。
+### P3.1b — Secure World-set Export and Download（切片 Review 已通过）
+
+2026-10-01 续接 Review：实际调用 GPT-6 Astra / Medium 独立只读审查及复审，P3.1b 签核 PASS。首次审查发现 P1：stats / advancements 白名单允许 `.JSON` / `.Json`，但生成与下载复核使用大小写敏感判断，导致秘密扫描被跳过；现两处统一为大小写无关 JSON 扩展名检查，新增初次生成、伪造匹配 CRC / manifest / artifact 摘要的缓存下载与复用回归。P2 下载诊断缺口已补“重新校验并下载”，新幂等键通过既有 operation 重新校验，失败显示原因并移除下载链接。Ready 明确表示导出已校验；浏览器原生下载的传输结果仍由浏览器下载列表确认，页面不声明下载完成。缓存损坏安全拒绝，不自动修复缓存。
+
+修复后完整 `npm.cmd run check` 退出码 0：contracts 4、API 172、web 39；lint、typecheck、build 全通过。导出 API 专项 23 项与页面专项 9 项通过。专用隔离浏览器测试 360 / 768 / 1440 三档断言通过，新增重新校验后的二次下载与原 ZIP 字节一致检查；该测试仍只使用合成世界，不替代真实 Minecraft 验收。Astra 查看过三档截图；本轮仅主任务写入修复，一名 Astra 子任务只读审查，无 commit / push、无真实服务器操作。
+
+专用浏览器测试最终退出码 0（3 passed）；Windows runner 收尾再次等待其自启服务进程，已核实进程命令行后仅关闭本轮合成测试 API / Vite，未操作真实 Minecraft。新增 E2E 重试断言后 lint 再次通过。
+
+本切片 Review 与实现已完成；以下候选版本记录保留作为历史。下一步是 P3.1 整体 Review 和独立真实测试世界验收，两项仍待完成，Phase 3 / P3.1 保持 IN PROGRESS，不进入 P3.2 Restore / Explicit Rollback。
+
+2026-10-01 已实现候选版本：从 P3.1a 不可变备份读取并验证 manifest，正向 allowlist 校验 Vanilla 世界文件、检查 payload 清单与目录的完整对应关系，拒绝 traversal、Windows ADS / 保留名、symlink / junction 和硬链接；不读活动世界，不导出 server-snapshot，不包含服务器配置或原始 manifest。文本仅允许世界 JSON（2 MiB 上限），解析后扫描包括转义 key 在内的 password / secret / token / apikey；properties / yaml / toml / cfg 等不属于导出白名单，直接拒绝。NBT、region 和 player binary 不当作文本扫描；扫描不是任意二进制秘密检测保证。
+
+使用最小新增 backup-export operation kind，复用现有持久化操作记录、幂等键、每实例互斥；只读导出在管理器重启后标记 interrupted / EXPORT_INTERRUPTED，不误触世界恢复门控。备份 journal 与生命周期执行语义保持不变。后台生成受限的 stored ZIP（2 GiB 世界数据、60,000 文件，不支持 ZIP64、datapack 或未知布局），逐文件重新计算 manifest SHA-256，临时文件 fsync / rename 后才发布 ready 元数据。每个 backup 复用一个固定 artifact；无副作用的状态 GET 只读取已完成备份与缓存状态，不生成或停服。下载前在同一文件描述符重新校验 ZIP 固定结构、manifest 文件摘要与文本秘密，拒绝额外条目、注释及尾部数据，不能用伪造缓存 checksum 绕过。默认不压缩以保持流式有界内存；大文件下载前的完整验证会增加等待时间。
+
+API：POST /api/v1/servers/:serverId/backups/:backupId/exports（JSON {} + intent + UUID Idempotency-Key，202）；GET 同路径查询 available / ready；GET /api/v1/operations/:id 查询 scanning / exporting / failed 等；GET /api/v1/servers/:serverId/backups/:backupId/download 流式 ZIP，系统生成 filename、no-store、nosniff、Content-Length 与 X-Archive-SHA256。服务端快照返回 403 / EXPORT_NOT_SUPPORTED，秘密扫描命中返回 SENSITIVE_ARCHIVE，缺失备份 404，未生成导出 409。Backups 页展示导出状态、错误、相同幂等键确认与 ready 后浏览器下载 / 手动重试入口；私有快照没有下载操作。
+
+最终验证：lint、全仓 TypeScript 检查与生产 build 通过；contracts 4、API 169、web 38 项测试通过（API 中导出专项 20 项，包含取消后关闭与重试）。全仓 check 在 API 168 项时通过；新增一项取消测试后，API 全套 169 项、API typecheck 与 lint 重新通过。最终代码的专用 Playwright 360 / 768 / 1440 三档共 3 项通过，真实下载字节 SHA-256 与 artifact 状态一致，截图记录在 test-results/screenshots/phase3-export-*.png。git diff --check 通过。隔离 Playwright 使用 tests/phase3-export.config.ts，真实管理器 API / Vite + 临时合成世界，不执行 Java 或真实 Minecraft；普通默认 Mock E2E 会跳过此专用测试。初次拦截式浏览器 fixture 下载未被拦截，失败已如实记录并改为独立真实 API fixture，未把失败当成通过。
+
+Review 自检：server.properties / RCON 配置不进入 ZIP；使用 allowlist + manifest + 内容检查，不仅靠 blacklist；拒绝越界与链接；复用既有备份与 operation，不改 Restore / Rollback / 生命周期架构。私有管理器存储仍属于可信本地用户边界；不保证抵御拥有同一 OS 权限、在校验后持续原地写入文件的进程，需 Astra 检查文件竞态与下载断线资源释放。测试 runner 在 Windows 结束时可能滞留自启开发进程，本轮仅关闭自己启动并已识别 PID 的测试 API / Vite。
+
+本轮按用户要求单主任务实现，没有创建子智能体、没有调用 Astra、没有 commit / push、没有修改真实服务器数据。当前主任务无法通过工具自切模型，没有虚构 GPT-6.1 Sol / Medium 执行署名。前轮模型策略文件与 ARCHITECTURE 的未提交变更单独保留，不算本切片业务改动。
+
+下一步：GPT-6 Astra / Medium 独立安全 Review，然后 P3.1 整体 Review 与独立真实测试世界验收；全部通过才允许进入 P3.2 Restore / Explicit Rollback。当前 Phase 3 / P3.1 仍 IN PROGRESS，本轮在候选实现和验证后停止。
 
 ## 授权与推进方式
 
@@ -16,7 +60,7 @@ P3.1a 手动备份核心已通过 GPT-6 Astra Review，代码已在 `c2bbc33` �
 
 之前用于续接工作的 heartbeat automation `minecraft-manager` 已按用户要求关闭。本线程由当前任务继续执行，不依赖后台定时任务。
 
-普通实现与测试由 GPT-5.6 Sol 执行；阶段 Review 由主任务显式调用真实 GPT-6 Astra 子任务。当前主任务自身的模型设置不作为 Astra Review 署名或通过证据。
+2026-10-01 Model Routing Policy Migration：普通工程默认 GPT-6.1 Sol / Medium，简单任务用 GPT-6 Luna Low / Medium，默认 subagent budget = 0；普通完整 Feature 的独立 Review 默认 Sol High，Astra Low 仅用于有明确价值的额外独立视角。P3.1b 未来实现 Sol Medium / 0 agents、Review Sol High，不单独默认 Astra；P3.1 Final Gate 为 Astra Medium。P3.2 Restore / Explicit Rollback 最终 Gate、Adapter 最终、Auth / Remote、Phase 3 最终与正式发布前高级安全 Gate 为 Astra High；Import / Addons 等里程碑为 Astra Medium，按实际高后果风险升级。完整规则见 [CODEX_MODEL_ROUTING.md](./CODEX_MODEL_ROUTING.md)，入口见根目录 AGENTS.md。6.1 Sol 不可用时临时 6 Sol / 同 effort，下次选择核验后返回 6.1。用户“不使用智能体”的限制继续有效；不修改账户设置，不声称文件切换主模型，不以自检冒充独立 Review。（策略迁移时的历史检查点：当时未推进产品；其待复审状态已由本文件上方 2026-10-01 P3.1 最终复审记录更新。）
 
 ## Phase 1：Dashboard 与只读 Servers
 

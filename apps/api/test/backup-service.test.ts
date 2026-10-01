@@ -59,7 +59,7 @@ async function fixture(running = false, availableBytes?: (directory: string) => 
   const operations = new OperationService(new MemoryOperationStore(), { now: () => new Date(now) }, journal);
   await operations.initialize();
   const backups = new BackupService(registry, operations, journal, managerRoot, { now: () => new Date(now) }, availableBytes);
-  return { managerRoot, serverRoot, adapter, stop, start, operations, backups };
+  return { managerRoot, serverRoot, adapter, stop, start, operations, backups, journal };
 }
 
 afterEach(async () => {
@@ -74,6 +74,10 @@ async function waitForCompletion(operations: OperationService, id: string) {
 describe("BackupService manual snapshots", () => {
   it("creates a stopped world-set with all dimension files and a verified manifest", async () => {
     const fixtureState = await fixture();
+    for (const dimension of ["DIM-1", "DIM1"]) {
+      await mkdir(path.join(fixtureState.serverRoot, "world", dimension, "region"), { recursive: true });
+      await writeFile(path.join(fixtureState.serverRoot, "world", dimension, "region", "r.0.0.mca"), dimension + " saved region");
+    }
     const operation = await fixtureState.backups.create("vanilla-test", {
       scope: "world-set", allowStop: false, label: "Before changes"
     }, "123e4567-e89b-42d3-a456-426614174000");
@@ -86,7 +90,10 @@ describe("BackupService manual snapshots", () => {
     expect(backup).toMatchObject({ scope: "world-set", kind: "manual", label: "Before changes", state: "complete" });
     const payload = path.join(fixtureState.managerRoot, "backups", "vanilla-test", backup!.id, "payload", "world");
     expect(await readFile(path.join(payload, "region", "r.0.0.mca"), "utf8")).toBe("region fixture");
-    expect(backup!.fileCount).toBe(2);
+    expect(backup!.fileCount).toBe(4);
+    for (const dimension of ["DIM-1", "DIM1"]) {
+      expect(await readFile(path.join(payload, dimension, "region", "r.0.0.mca"), "utf8")).toBe(dimension + " saved region");
+    }
     expect(backup!.checksumSha256).toMatch(/^[0-9a-f]{64}$/u);
   });
 
@@ -119,6 +126,72 @@ describe("BackupService manual snapshots", () => {
     expect(await fixtureState.backups.list("vanilla-test")).toMatchObject([
       { state: "complete", wasRunning: true, restarted: false }
     ]);
+  });
+
+  it.each([
+    { state: "unknown", ownership: "managed", recoveryRequired: false },
+    { state: "running", ownership: "external", recoveryRequired: false },
+    { state: "stopped", ownership: "managed", recoveryRequired: false },
+    { state: "stopped", ownership: "none", recoveryRequired: true }
+  ])("revalidates changed execution status before journaling or copying: %s", async (changed) => {
+    const f = await fixture(true);
+    const original = await f.adapter.getStatus();
+    vi.spyOn(f.adapter, "getStatus").mockResolvedValueOnce(original).mockResolvedValue({ ...original, ...changed } as never);
+    const op = await f.backups.create("vanilla-test", { scope: "world-set", allowStop: true }, "a23e4567-e89b-42d3-a456-426614174000");
+    expect((await waitForCompletion(f.operations, op.id)).error?.code).toBe("ACTION_UNAVAILABLE");
+    expect(f.stop).not.toHaveBeenCalled(); expect(f.start).not.toHaveBeenCalled();
+    expect(await f.backups.list("vanilla-test")).toEqual([]);
+    expect(f.operations.getServerState("vanilla-test").recoveryRequired).toBe(false);
+  });
+
+  it.each(["running", "unknown"])("does not copy or restart when stop is unconfirmed: %s", async (state) => {
+    const f = await fixture(true); const original = await f.adapter.getStatus();
+    vi.spyOn(f.adapter, "getStatus").mockResolvedValueOnce(original).mockResolvedValueOnce(original)
+      .mockResolvedValue({ ...original, state } as never);
+    const op = await f.backups.create("vanilla-test", { scope: "world-set", allowStop: true }, "b23e4567-e89b-42d3-a456-426614174000");
+    expect((await waitForCompletion(f.operations, op.id)).state).toBe("interrupted");
+    expect(f.stop).toHaveBeenCalledTimes(1); expect(f.start).not.toHaveBeenCalled();
+    expect(await f.backups.list("vanilla-test")).toEqual([]);
+    expect(f.operations.getServerState("vanilla-test").recoveryRequired).toBe(true);
+  });
+
+  it("rechecks stop permission when a stopped preflight changes to running", async () => {
+    const f = await fixture(); const original = await f.adapter.getStatus();
+    vi.spyOn(f.adapter, "getStatus").mockResolvedValueOnce(original)
+      .mockResolvedValue({ ...original, state: "running", ownership: "managed" });
+    const op = await f.backups.create("vanilla-test", { scope: "world-set", allowStop: false }, "d23e4567-e89b-42d3-a456-426614174000");
+    expect((await waitForCompletion(f.operations, op.id)).error?.code).toBe("SERVER_MUST_BE_STOPPED");
+    expect(f.stop).not.toHaveBeenCalled(); expect(f.start).not.toHaveBeenCalled();
+    expect(await f.backups.list("vanilla-test")).toEqual([]);
+  });
+
+  it("checks status again immediately before copying an originally stopped world", async () => {
+    const f = await fixture(); const original = await f.adapter.getStatus();
+    vi.spyOn(f.adapter, "getStatus").mockResolvedValueOnce(original).mockResolvedValueOnce(original)
+      .mockResolvedValue({ ...original, state: "unknown", ownership: "managed" });
+    const op = await f.backups.create("vanilla-test", { scope: "world-set", allowStop: false }, "e23e4567-e89b-42d3-a456-426614174000");
+    expect((await waitForCompletion(f.operations, op.id)).state).toBe("interrupted");
+    expect(f.stop).not.toHaveBeenCalled(); expect(f.start).not.toHaveBeenCalled();
+    expect(await f.backups.list("vanilla-test")).toEqual([]);
+    expect(f.operations.getServerState("vanilla-test").recoveryRequired).toBe(true);
+  });
+
+  it("does not restart when copying fails after confirmed stop; retains recovery journal", async () => {
+    const f = await fixture(true);
+    f.stop.mockImplementation(async () => {
+      await symlink(f.managerRoot, path.join(f.serverRoot, "world", "linked-after-stop"), process.platform === "win32" ? "junction" : "dir");
+    });
+    const original = await f.adapter.getStatus();
+    vi.spyOn(f.adapter, "getStatus").mockResolvedValueOnce(original).mockResolvedValueOnce(original)
+      .mockResolvedValue({ ...original, state: "stopped", ownership: "none" });
+    const op = await f.backups.create("vanilla-test", { scope: "world-set", allowStop: true }, "c23e4567-e89b-42d3-a456-426614174000");
+    expect((await waitForCompletion(f.operations, op.id)).state).toBe("interrupted");
+    expect(f.start).not.toHaveBeenCalled(); expect(await f.backups.list("vanilla-test")).toEqual([]);
+    expect(f.operations.getServerState("vanilla-test").recoveryRequired).toBe(true);
+    const scan = await f.journal.scan();
+    expect(scan.records).toHaveLength(1);
+    expect(scan.records[0]!.state).toBe("recovery-required");
+    expect(scan.recoveryServerIds.has("vanilla-test")).toBe(true);
   });
 
   it("keeps server snapshots private and pinned", async () => {

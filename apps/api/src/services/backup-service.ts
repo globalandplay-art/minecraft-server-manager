@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { copyFile, lstat, mkdir, open, opendir, realpath, rename, statfs } from "node:fs/promises";
 import path from "node:path";
 
-import { backupInfoSchema, type BackupCreateRequest, type BackupInfo, type BackupScope, type Operation } from "@mcsm/contracts";
+import { backupInfoSchema, type BackupCreateRequest, type BackupInfo, type BackupScope, type Operation, type ServerStatus } from "@mcsm/contracts";
 import { Value } from "@sinclair/typebox/value";
 import { isLocalAdapter, type LocalMinecraftServerAdapter } from "../adapters/contract.js";
 import type { AdapterRegistry } from "../adapters/registry.js";
@@ -21,7 +21,8 @@ const MAX_BYTES = 250 * 1024 ** 3;
 const MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
 const RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu;
 type FileEntry = { path: string; sizeBytes: number; sha256: string };
-type Manifest = BackupInfo & { schemaVersion: 1; files: FileEntry[] };
+export type BackupManifest = BackupInfo & { schemaVersion: 1; files: FileEntry[] };
+type Manifest = BackupManifest;
 
 function safeSegment(value: string): boolean {
   return value.length > 0 && value.length <= 255 && value !== "." && value !== ".." &&
@@ -32,6 +33,17 @@ function missing(error: unknown): boolean {
 }
 function unsafe(reason: string): DomainError {
   return new DomainError(409, "BACKUP_LAYOUT_UNSAFE", "备份文件布局不安全，已停止操作", reason);
+}
+
+function requireBackupState(state: ServerStatus, allowStop: boolean): void {
+  const stopped = state.state === "stopped" && state.ownership === "none";
+  const running = state.state === "running" && state.ownership === "managed";
+  if (state.recoveryRequired || (!stopped && !running)) {
+    throw new DomainError(409, "ACTION_UNAVAILABLE", "当前实例状态不能安全备份", "server-state-unsafe");
+  }
+  if (running && !allowStop) {
+    throw new DomainError(409, "SERVER_MUST_BE_STOPPED", "运行中的实例需要明确允许管理器停服", "allow-stop-required");
+  }
 }
 
 async function plainDirectory(directory: string): Promise<void> {
@@ -115,6 +127,26 @@ export class BackupService {
     }
   ) {}
 
+  /** Read immutable backup metadata only; never derive export paths from the live world. */
+  async exportSource(serverId: string, backupId: string): Promise<{ manifest: BackupManifest; directory: string }> {
+    this.#adapter(serverId);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(backupId)) throw unsafe("invalid-backup-id");
+    const directory = path.join(this.managerRoot, "backups", serverId, backupId);
+    try {
+      for (const component of [this.managerRoot, path.join(this.managerRoot, "backups"), path.dirname(directory), directory]) {
+        await plainDirectory(component);
+      }
+      const manifestFile = path.join(directory, "manifest.json");
+      const value: unknown = JSON.parse(await readBoundedRegularFile(manifestFile, MAX_MANIFEST_BYTES, "备份清单"));
+      if (!this.#valid(value, serverId, backupId)) throw unsafe("invalid-manifest");
+      if (value.scope !== "world-set") throw new DomainError(403, "EXPORT_NOT_SUPPORTED", "私有服务端快照禁止下载", "private-snapshot");
+      return { manifest: value, directory };
+    } catch (error) {
+      if (missing(error)) throw new DomainError(404, "RESOURCE_NOT_FOUND", "备份不存在", "backup-not-found");
+      throw error;
+    }
+  }
+
   async list(serverId: string): Promise<BackupInfo[]> {
     this.#adapter(serverId);
     const root = path.join(this.managerRoot, "backups", serverId);
@@ -154,12 +186,7 @@ export class BackupService {
           throw new DomainError(501, "CAPABILITY_UNSUPPORTED", "此实例未声明备份能力", "backup-capability-unavailable");
         }
         const state = await adapter.getStatus();
-        if (state.state === "unknown" || state.ownership === "external" || state.recoveryRequired) {
-          throw new DomainError(409, "ACTION_UNAVAILABLE", "当前实例状态不能安全备份", "server-state-unsafe");
-        }
-        if (state.state === "running" && (!body.allowStop || state.ownership !== "managed")) {
-          throw new DomainError(409, "SERVER_MUST_BE_STOPPED", "运行中的实例需要明确允许管理器停服", "allow-stop-required");
-        }
+        requireBackupState(state, body.allowStop);
       });
   }
 
@@ -192,6 +219,7 @@ export class BackupService {
     const staging = path.join(serverBackupRoot, stagingName);
     const completed = path.join(serverBackupRoot, backupId);
     const original = await adapter.getStatus();
+    requireBackupState(original, request.allowStop);
     const wasRunning = original.state === "running";
     const roots = await this.#roots(adapter, request.scope);
     await requireCapacity(serverBackupRoot, await estimateRoots(serverRoot, roots), this.availableBytes);
@@ -213,19 +241,22 @@ export class BackupService {
     await mkdir(staging, { mode: 0o700 });
     await syncDirectory(serverBackupRoot);
     let stopConfirmed = !wasRunning;
-    let restartAttempted = false;
     try {
       await requireCapacity(serverBackupRoot, await estimateRoots(serverRoot, roots), this.availableBytes);
       if (wasRunning) {
         await context.onStep("stopping");
         await adapter.stop(context);
         const afterStop = await adapter.getStatus();
-        if (afterStop.state !== "stopped" || afterStop.ownership === "external") {
+        if (afterStop.state !== "stopped" || afterStop.ownership !== "none" || afterStop.recoveryRequired) {
           throw new DomainError(409, "RECOVERY_REQUIRED", "无法确认服务端已停止", "stop-not-confirmed", true);
         }
         stopConfirmed = true;
       }
       if (!stopConfirmed) throw new Error("Server stop was not confirmed");
+      const beforeCopy = await adapter.getStatus();
+      if (beforeCopy.state !== "stopped" || beforeCopy.ownership !== "none" || beforeCopy.recoveryRequired) {
+        throw new DomainError(409, "RECOVERY_REQUIRED", "复制前无法确认服务端已停止", "stop-not-confirmed", true);
+      }
       await context.onStep("copying-snapshot");
       const files: FileEntry[] = [];
       let total = 0;
@@ -330,7 +361,6 @@ export class BackupService {
       if (wasRunning) {
         await context.onStep("restarting");
         await adapter.revalidateBeforeStart();
-        restartAttempted = true;
         await adapter.start(context);
         const afterStart = await adapter.getStatus();
         if (afterStart.state !== "running" || afterStart.ownership !== "managed") {
@@ -347,15 +377,8 @@ export class BackupService {
       });
       await this.journal.setState(adapter.serverId, journal.transactionId, "committed", this.clock.now().toISOString());
     } catch {
-      if (wasRunning && stopConfirmed && !restartAttempted) {
-        try {
-          await adapter.revalidateBeforeStart();
-          restartAttempted = true;
-          await adapter.start(context);
-          const afterStart = await adapter.getStatus();
-          if (afterStart.state !== "running" || afterStart.ownership !== "managed") throw new Error("restart-not-confirmed");
-        } catch { /* Preserve the original failure and keep the instance gated for manual inspection. */ }
-      }
+      // Preserve failure evidence and leave the server stopped. Only the completed
+      // archive path above may restart a server; failures require manual inspection.
       try { await this.journal.setState(adapter.serverId, journal.transactionId, "recovery-required", this.clock.now().toISOString()); }
       catch { /* The operation layer raises its own recovery gate if journal persistence failed. */ }
       throw new DomainError(409, "RECOVERY_REQUIRED", "备份没有完整结束，实例需要人工检查", "backup-transaction-incomplete", true);

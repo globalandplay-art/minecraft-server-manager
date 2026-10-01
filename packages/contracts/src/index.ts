@@ -372,6 +372,22 @@ export const backupsResponseSchema = strictObject({
 });
 export type BackupsResponse = Static<typeof backupsResponseSchema>;
 
+export const backupParamsSchema = strictObject({
+  serverId: Type.String({ pattern: "^[a-z0-9](?:[a-z0-9-]{0,62})$" }),
+  backupId: Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" })
+});
+export type BackupParams = Static<typeof backupParamsSchema>;
+export const backupExportResponseSchema = strictObject({
+  data: strictObject({
+    backupId: Type.String({ minLength: 1, maxLength: 128 }),
+    state: Type.Union([Type.Literal("available"), Type.Literal("ready")]),
+    sizeBytes: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+    checksumSha256: Type.Union([Type.String({ pattern: "^[0-9a-f]{64}$" }), Type.Null()])
+  }),
+  meta: responseMetaSchema
+});
+export type BackupExportResponse = Static<typeof backupExportResponseSchema>;
+
 export const errorDetailsSchema = strictObject({
   fieldErrors: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String()))),
   reason: Type.Optional(Type.String({ minLength: 1, maxLength: 256 }))
@@ -397,6 +413,7 @@ export const operationKindSchema = Type.Union([
   Type.Literal("stop"),
   Type.Literal("restart"),
   Type.Literal("backup"),
+  Type.Literal("backup-export"),
   Type.Literal("restore"),
   Type.Literal("rollback"),
   Type.Literal("world-create"),

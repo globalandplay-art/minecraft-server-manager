@@ -26,6 +26,7 @@ import { ServerService } from "./services/server-service.js";
 import type { TransactionJournalStore } from "./services/transaction-journal.js";
 import type { ActiveWorldStateStore } from "./services/active-world-state-store.js";
 import { BackupService } from "./services/backup-service.js";
+import { BackupExportService } from "./services/backup-export-service.js";
 import { WorldInventoryService } from "./services/world-inventory-service.js";
 
 export interface BuildAppOptions {
@@ -77,11 +78,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerOperationRoutes(app, service, clock, mode);
   registerWorldRoutes(app, worlds, clock, mode);
   if (options.transactionJournal !== undefined && options.managerRoot !== undefined) {
+    const backups = new BackupService(registry, operations, options.transactionJournal, options.managerRoot, clock);
     registerBackupRoutes(
       app,
-      new BackupService(registry, operations, options.transactionJournal, options.managerRoot, clock),
+      backups,
       clock,
-      mode
+      mode,
+      new BackupExportService(backups, operations)
     );
   }
   // @fastify/websocket installs an onRoute hook in its encapsulated scope.

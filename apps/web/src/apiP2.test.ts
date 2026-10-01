@@ -15,6 +15,13 @@ function response(payload: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('P2 API 客户端写边界', () => {
+  it('导出沿用 intent 和幂等写契约，下载 URL 对标识符编码', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: { operation: { ...operation, kind: 'backup-export' } }, meta }, 202));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.createBackupExport('vanilla-local', 'backup-id', '123e4567-e89b-42d3-a456-426614174000');
+    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'POST', body: '{}', headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': '123e4567-e89b-42d3-a456-426614174000' } });
+    expect(api.backupDownloadUrl('x/y', 'a?b')).toBe('/api/v1/servers/x%2Fy/backups/a%3Fb/download');
+  });
   it('生命周期请求发送 intent、JSON 与指定 UUID 幂等键', async () => {
     const payload: LifecycleActionResponse = { data: { operation }, meta };
     const fetchMock = vi.fn().mockResolvedValue(response(payload, 202));
