@@ -5,7 +5,27 @@
 
 ## Phase 3 当前检查点
 
-### 2026-10-03 P3.3c REAL ACCEPTANCE HARNESS READY
+### 2026-10-03 P3.3c Real Import Acceptance PASS
+
+真实宿主 run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404` 已从结构化报告与 evidence 核验为 **PASS**：result/import/recovery 均 PASS、finalStopped=true、failures=[]。Host preflight（Perflib 10945 项 / Get-Counter）、新隔离 Vanilla 26.3 / Java 25、源/目标世界、API ZIP upload、pinned guard、旧树保留、三维度导入标记哈希、导入后显式启动与 Manager 重启均通过。受控 config-installed 故障触发恢复门控，无自动 retry；显式恢复旧配置/世界引用、保留 8 棵树，再显式启动验证标记通过。4 个受管 launch 均 exit 0、输出管道闭合、无 ERROR/fatal/阻塞或未知 WARN/crash/overflow；1 条精确性能 WARN 在 readiness 证据齐全后分类放行。最终 Manager stopped、无活动操作、恢复门控解除、Java 退出、端口释放，源输入未变。
+
+证据：[验收报告](../.manager/p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404/acceptance-report.json)，SHA-256 `A0E9654D09AEA687424B7B1DA13F3CFAD2CAF2A1CFA913BF732B3AE35BD01B41`；完整范围和历史首次并发 timeout/单 worker 回归结果见 [Harness Review](./P33C_HOST_HARNESS_REVIEW_2026-10-03.md)。修复前 run `p33-import-6a566f55-676b-4019-b674-24673ee9633f` 及其他 BLOCKED 历史均原样保留，未重写。
+
+P3.3c **Real Import Acceptance PASS**，但 Phase 3 尚未完成：P3.3 世界归档尚未实现；P3.4 计划备份与 retention 未实现；P3.5 浏览器端完整备份→修改→恢复→失败→回滚集成验收未完成。故当前不是仅剩 Phase 3 Final Gate，不执行 Phase 3 最终 Review，也不进入 Phase 4。用户要求本轮不使用 Astra；项目主模型未因文档更改。下一步先定义/实现 P3.3 的归档 slice，再按计划推进 P3.4、P3.5 和最终全阶段回归/Review。
+
+以下记录按发生时间保留旧检查点；其中 BLOCKED / NOT RUN / pending 是当时状态，当前状态以本节顶部真实 PASS 记录为准。
+
+### 2026-10-03 P3.3c REAL ACCEPTANCE HARNESS FIX READY（历史检查点）
+
+宿主 run `p33-import-6a566f55-676b-4019-b674-24673ee9633f` 的前置检查和源世界 PASS，目标世界实际启动/RCON/list/世界/双端口具备证据；因一条 3081ms/61 ticks 的性能 WARN 被跨 latest.log/stdout 重复扫描并再次归为未知告警，diagnostics gate BLOCKED，Import/Recovery NOT STARTED，最终停服。原报告及日志保持 BLOCKED/原样。
+
+本轮仅修复 acceptance-only 分类与测试/文档：严格锚定性能警告，结构化摘要完整文本去重并保留来源/occurrence；允许前必须核验完整 managed startup 条件，其他 WARN/ERROR/fatal/overflow 保持阻塞。运行中新捕获和最终关闭后诊断均复核。独立只读 Sol High 发现并复查关闭提前正常退出可沿用历史 readiness 的 P2：永久 prematureExit 标记、明确停服前 owned live child/无提前停止日志核验、最终退出码和管道闭合检查。不改产品、JVM/properties、Windows、原世界，不真实启动、不 commit/push。
+
+完整 npm check 首次 exit 1：已有 Restore 测试超出原 5000ms（其余 API 526 PASS，contracts 5/Web 68 PASS）。保持原 timeout 的第二次单 worker 全套链 exit 0：contracts 5/API 527/Web 68，共 600 PASS，lint/typecheck/build PASS。最后 P2 增量后 203 专项 PASS、lint/两 helper node --check/diff check PASS；完整基线先于该增量，不冒称最终完整 602 已运行。reviewer 独立复审签核代码范围 PASS，历史 6a566 报告 SHA-256 前后相同。见 [工具审查记录](./P33C_HOST_HARNESS_REVIEW_2026-10-03.md)。
+
+本轮达到 **HARNESS FIX READY** 后停止，真实 P3.3c 仍 BLOCKED/IN PROGRESS。下一次必须依 [运行指南](./P33C_HOST_ACCEPTANCE.md) 在宿主普通 64 位 PowerShell 新建 UUID，从源世界到显式恢复全部重验。遵守用户禁用 Astra，不调用或新增 Astra Gate；不进入 P3.4。同一问题连续三次失败即停下并在对话报告问题、错误码、原始错误及下一步。
+
+### 2026-10-03 P3.3c REAL ACCEPTANCE HARNESS READY（历史检查点）
 
 宿主普通 64 位 PowerShell 包装器已就绪：`tests/acceptance/p33c-real-import-acceptance.ps1`，复用 `phase3-import-real.mjs`。本轮仅修改验收工具、合成测试及文档，没有修改产品代码、运行真实 Java、再次探测宿主 Perflib、修复 Windows、访问原世界或执行 commit/push。此前 Codex registry probe 归类为 **environment-unavailable / inconclusive**，不能证明宿主损坏或产品 Import 失败。
 
@@ -15,7 +35,7 @@
 
 下一步由用户依 [宿主运行指南](./P33C_HOST_ACCEPTANCE.md) 手动执行并交回脱敏报告/日志。本轮到此停止。**真实 P3.3c 验收 NOT RUN；P3.3c/Phase 3 仍 IN PROGRESS，强制 Import Final Gate pending**。遵守用户禁用 Astra，不调用或用本次 Sol 工具审查替代该 Gate。
 
-### 2026-10-03 P3.3c 实际 Import 接续 — 验证进行中
+### 2026-10-03 P3.3c 实际 Import 接续 — 验证进行中（历史检查点）
 
 已接通 upload ID 导入预检、内容/版本/revision 重验、明确停服授权、pinned pre-import guard、同卷 staging 和 schema 4 独立 Import journal、活动世界切换与显式旧配置恢复。成功保持停服；不自动启动、回滚或清理。消费暂存不可丢弃；journal 引用在消费标记缺失时仍保护目录。早期中断缺少已验证 guard/配置副本时保留人工恢复锁。
 

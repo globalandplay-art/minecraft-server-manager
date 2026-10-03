@@ -1,6 +1,6 @@
 # P3.3c 宿主机真实导入验收
 
-状态：**P3.3c REAL ACCEPTANCE HARNESS READY**。独立 Sol High 审查通过；真实验收尚未执行。该工具不能自行把 P3.3c 标为 PASS。
+状态：**P3.3c REAL ACCEPTANCE PASS**，真实 run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404`。本指南描述可重复的宿主验收方法；历史 BLOCKED 运行保留原结果。
 
 ## 使用方式
 
@@ -29,8 +29,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\tests\acceptance\p33c
 
 每次运行使用唯一隔离目录，报告位于新 `.manager/<runId>/acceptance-report.json`，原始证据位于该目录的 `evidence/`。这些目录已经 Git ignore，不提交运行配置、秘密、世界或 ZIP。
 
-报告记录宿主检查、环境、源/目标世界、上传、guard、Import、明确启动、失败恢复、最终停止、错误 phase/code/operation ID/日志片段与恢复状态。不会公开 RCON 密码。所有 Java stdout/stderr 和实际 Minecraft 日志保留；除已精确分类的既有 Java 25 兼容性诊断外，ERROR 和未分类告警继续阻塞。所有最终输出在管道关闭后重新核验，不能只相信 HTTP 2xx 或 journal 文本。
+报告记录宿主检查、环境、源/目标世界、上传、guard、Import、明确启动、失败恢复、最终停止、错误 phase/code/operation ID/日志片段与恢复状态。不会公开 RCON 密码。所有 Java stdout/stderr 和实际 Minecraft 日志保留。精确匹配的 `Can't keep up! ... Running <整数>ms or <整数> ticks behind` 归为 `minecraft-cant-keep-up`，只有完整启动证据通过后才允许；同一行摘要去重，保留 sources/occurrences，不重新计入 unclassifiedWarnings。既有两个精确 Java 25 诊断块分类保持。ERROR、fatal、其他 Minecraft WARN、未知 WARNING 和 overflow 继续阻塞。最终输出在管道关闭后重新核验，不能只相信 HTTP 2xx 或 journal 文本。
 
 成功退出 0；宿主前置条件不可用或验收失败退出非零，并分别归类。Codex 上下文的注册表探测失败只表示 environment-unavailable / inconclusive，不代表宿主 Windows 损坏或产品 Import 失败。
 
-完成后请交回终端结果和 acceptance-report.json 的脱敏内容。核对真实证据后才能判断验收；用户禁用 Astra 的强制 Final Gate 仍单独 pending。不会自动提交、推送、发布或进入下一 Phase。
+本 run 的终端结果与完整报告已经交回并核验 PASS。本脚本可用于后续重复验收；Phase 3 整体仍有未完成切片，当前不应据此进入 Phase 4。禁止 Astra 的用户约束继续有效。

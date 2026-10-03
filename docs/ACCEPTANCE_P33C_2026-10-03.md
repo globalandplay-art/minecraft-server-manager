@@ -1,8 +1,28 @@
 # P3.3c Import 验收记录
 
-日期：2026-10-03。当前：**REAL ACCEPTANCE HARNESS READY**；真实验收 **NOT RUN，等待用户宿主执行**。P3.3c 仍 IN PROGRESS。
+日期：2026-10-03。当前：**P3.3c Real Import Acceptance PASS**，真实 run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404`。P3.3c Import 与恢复验收完成；Phase 3 仍 IN PROGRESS。
 
-## 当前交付：宿主验收工具就绪
+## 修复后真实验收 PASS
+
+已核对 [结构化验收报告](../.manager/p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404/acceptance-report.json) 和本地 `evidence/` 下全部原始输出、日志、manager-events、inventory、guards 与 journals。报告 `result/import/recovery=PASS`、`finalStopped=true`，`failures=[]`，sourceInputsUnchanged=true。Host preflight 读取 Counter 10945 项且 Get-Counter 成功；Windows 普通 64 位 PowerShell、Vanilla 26.3、Java 25.0.4.1。
+
+4 个受管 Java 启动均有 fresh Done/RCON/list，出口码 0、无 signal、stdout/stderr 管道关闭，无 ERROR、fatal、阻塞或未知 WARN、无 overflow/crash。第 3 次启动有 1 条精确分类的 `minecraft-cant-keep-up`，其余 diagnostics 满足通过条件。测试使用新隔离 UUID，源/目标/导入世界的三维度 diamond/gold/emerald 标记哈希经导入验证；真实 API ZIP 上传、消费状态与 pinned protection guard 通过，旧目标树保留且导入后明确启动通过。
+
+既有 `config-installed` 受控故障未被误报成功；Manager 重启后门控生效、没有自动重试，显式恢复还原旧配置和活动世界引用、保留 8 棵树，随后明确启动与标记验证通过。最终 manager state stopped/ownership none/recoveryRequired false，无 active operation，Java 子进程均退出、管道关闭、端口释放。原始 BLOCKED runs 均保留；特别是 `p33-import-6a566f55-676b-4019-b674-24673ee9633f` 仍为原始 BLOCKED，未编辑其报告或日志。此次 PASS 报告 SHA-256：`A0E9654D09AEA687424B7B1DA13F3CFAD2CAF2A1CFA913BF732B3AE35BD01B41`。
+
+本次只验证 P3.3c Import/恢复验收，不表示 P3.3 归档或 Phase 3 全部完成；也不替代单独的项目 Final Review。运行参数、逐字段核验及测试基线见 [Harness Review](./P33C_HOST_HARNESS_REVIEW_2026-10-03.md)。
+
+## 宿主验收工具与阻塞历史快照（已完成并被本次 PASS 更新）
+
+### 宿主运行历史与分类修复（2026-10-03）
+
+真实 run `p33-import-6a566f55-676b-4019-b674-24673ee9633f` 保持 **BLOCKED**。Host preflight PASS（Counter 10945 项、Get-Counter PASS），源世界 PASS；目标世界已具备存活 managed Java、fresh Done、RCON/list、正确世界加载与端口证据，但 diagnostics gate BLOCKED。唯一 Minecraft 告警为 `[22:59:37] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 3081ms or 61 ticks behind`；errors/fatalRuntimeDiagnostics 为空，没有 Perflib/crash/premature shutdown。Import/Recovery 均 **NOT STARTED**；finalStopped=true。未修改该运行的 JSON、stdout/stderr/latest.log 或世界。
+
+原分类器把同一行 latest.log/stdout 各算一次，并再次放入 unclassifiedWarnings；四个数组项不代表四次卡顿。修复仅影响下一次新 UUID：严格匹配 Server thread/WARN 的整数毫秒/ticks 性能警告，记录完整文本、来源和每个 capture occurrence；完整文本去重，不合并不同时间戳或数值。仅在 managed process/fresh Done/RCON/list/正确世界/双端口/无 crash 或提前关闭全部核验后允许该分类。ERROR、Windows runtime fatal、其他 Minecraft WARN、未知 Java WARNING、overflow 继续阻塞。最终关闭后的复核保留此前已验证的启动证据，同时重新检查所有晚到诊断。
+
+真实状态仍 **BLOCKED**；本轮不运行 Java、不修改 JVM flags/properties/产品事务/Windows、不 commit/push。工具修复测试与独立只读 Sol High Review 结果见 [工具审查记录](./P33C_HOST_HARNESS_REVIEW_2026-10-03.md)。
+
+分类修复专项最终 203 PASS（诊断 40、宿主边界 11、Import archive/service/upload 合计 152），独立只读 Sol High 复审关闭提前正常退出 P2 并签核范围 PASS。完整单 worker 基线 600 PASS（contracts 5/API 527/Web 68）；最后生命周期增量后专项/lint/两 helper 语法/diff check PASS。完整检查首次并发执行一项已有 Restore 测试超出原 5000ms，第二次保留时限、单 worker 完整回归通过；历史失败结果仍记录，不冒称第一次 npm check PASS。细节见工具审查记录。
 
 普通 64 位 PowerShell 包装器和现有 Node 验收 helper 已完善，并通过独立 Sol High 审查。执行命令、明确恢复授权、安全边界与报告路径见 [宿主运行指南](./P33C_HOST_ACCEPTANCE.md)，具体检查与版本摘要见 [工具审查记录](./P33C_HOST_HARNESS_REVIEW_2026-10-03.md)。
 

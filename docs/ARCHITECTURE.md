@@ -323,6 +323,6 @@ GPT-5.6 Sol 已做只读文档校验：三份 Markdown 的 fences 成对、相�
 
 ### P3.3c 私有暂存生命周期
 
-2026-10-03 实际 Import 事务已接入独立 schema 4 journal、消费暂存归属与内容/版本摘要重验、共享 admission/实例锁、pinned guard、同卷世界安装与配置切换意图、活动世界状态及重启物理核验。导入和显式恢复成功都保持停服；恢复仅恢复旧配置与活动世界引用，保留所有世界树。历史已确认成功允许正常后续游玩，未知终态核验失败保持人工恢复锁。消费标记或 journal 引用阻止暂存丢弃；缺少已验证 guard/配置副本的早期中断不猜测恢复。独立 Sol High 实现 Review PASS，真实验收及完整 Import Gate pending，详见 [Import 审查](./P33C_IMPORT_REVIEW_2026-10-03.md)。原平台耐久性和本地同用户信任边界不变。
+2026-10-03 实际 Import 事务已接入独立 schema 4 journal、消费暂存归属与内容/版本摘要重验、共享 admission/实例锁、pinned guard、同卷世界安装与配置切换意图、活动世界状态及重启物理核验。导入和显式恢复成功都保持停服；恢复仅恢复旧配置与活动世界引用，保留所有世界树。历史已确认成功允许正常后续游玩，未知终态核验失败保持人工恢复锁。消费标记或 journal 引用阻止暂存丢弃；缺少已验证 guard/配置副本的早期中断不猜测恢复。真实隔离 Import/显式恢复 run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404` 已 PASS；报告/evidence 见 [Import 验收](./ACCEPTANCE_P33C_2026-10-03.md)。Import 代码独立 Sol High 实现 Review 与 diagnostics harness Review 通过，但本条真实验收不代表整个 P3.3 或 Phase 3 完成。原平台耐久性和本地同用户信任边界不变。
 
 上传及列表/明确丢弃已接通。新归属绑定注册 root 与随机目录的 canonical/device/inode/birth 身份，按当前实例过滤记录、返回全局配额；旧元数据缺绑定或目录替换时不允许自动丢弃。丢弃使用与上传相同的 admission/实例锁和严格 JSON 写门控，先检查整树，再非递归 unlink/rmdir；私有树外凭证原子发布并同步，在最后目录失败/重启后支持身份匹配的明确重试。没有自动过期或自动恢复。Windows 目录 fsync 和同 OS 写入者边界保持原说明；此生命周期签核不代表实际 Import、断电耐久性或整个 Phase 3 完成。详见 [生命周期报告](./P33C_STAGING_REVIEW_2026-10-02.md)。

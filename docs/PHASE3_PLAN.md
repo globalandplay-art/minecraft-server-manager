@@ -1,6 +1,6 @@
 # Phase 3 实施与验收计划
 
-状态更新：2026-10-02；P3.0、P3.1a、P3.1b 与 P3.1 最终 Review / 独立真实测试世界验收均已通过。P3.2 / P3.3b 在用户普通交互式 PowerShell 中的实际 Manager 启动、Restore、故障注入、显式 Rollback 和新世界生成验收已 PASS；干净启动缺口补齐，460 项完整回归 PASS。既有 Sol High / Astra High 源码审查证据保留；后续独立 GPT-6 Astra / High 已正式签核 P3.2 Final Gate PASS、P3.3b Final Gate PASS，详见 [最终独立 Review](./P32_P33B_FINAL_REVIEW_2026-10-02.md)。Phase 3 / P3.3 整体仍 IN PROGRESS。详见 [PROGRESS.md](./PROGRESS.md) 和 [Acceptance Report](./ACCEPTANCE_P32_P33B_2026-10-02.md)。以前状态为历史快照，保留失败证据，不放宽原合同。
+状态更新：2026-10-03；P3.0、P3.1a、P3.1b、P3.2、P3.3b 与 P3.3c Real Import Acceptance 已分别通过其切片验收。最新真实 Import run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404` 报告与原始 evidence 已核验，见 [P3.3c 验收报告](./ACCEPTANCE_P33C_2026-10-03.md)。Phase 3 仍 IN PROGRESS：P3.3 世界归档、P3.4 调度/保留及 P3.5 集成最终验收/Review 尚未完成。历史失败保留，合同与安全 Gate 不变。
 
 ## 范围与安全默认值
 
@@ -8,7 +8,7 @@
 
 P3.3b 创建首先停服（运行时须显式授权），验证并固定旧世界 guard，保存私有配置副本，再以同卷 rename 更新世界名和 Seed，持久化 pending-generation，默认保持停止。旧世界所有维度原地保留；新世界仅在后续明确 start 时生成。schema-3 journal 绑定注册根目录、前后配置摘要和 guard；非终态或物理核验失败保持人工恢复锁，不自动启动/回滚。已确认历史成功允许后续正常游玩；不确定 committed 必须核验完整磁盘和停止态。Windows 目录 fsync / 断电持久性限制不变。
 
-P3.3c ZIP 校验基础 77 项及上传切片 16 项已通过；原始流上传 API、私有暂存和校验 UI 已接通，独立 Sol High 上传切片 Review PASS，后续列表/明确丢弃及身份绑定切片也已通过独立 Sol High Review，完整 496 项与三种宽度上传/列表/丢弃 E2E PASS。2026-10-03 实际导入事务与确认 UI 已实现，独立 Sol High 实现 Review PASS，552 项基线与 6/6 合成浏览器验收 PASS；真实验收及完整 Import Gate pending，自动过期清理未实现。实现审查见 [Import 审查](./P33C_IMPORT_REVIEW_2026-10-03.md)，此前切片详见 [生命周期报告](./P33C_STAGING_REVIEW_2026-10-02.md)。限制：压缩 128 MiB、展开 512 MiB、单文件 128 MiB、10,000 条目、深度 32、压缩比 100；只接受安全 Vanilla 正向布局及同版本 NBT，先白名单再物化路径前缀；拒绝链接、设备、路径穿越、冲突、ZIP64、加密和异常头/CRC。独占 staging、失败保留 staging 给所属事务处理；该模块的通过不代表 Import 功能或其独立安全 Gate 通过。
+P3.3c 实际 Import/显式恢复真实隔离验收 PASS（run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404`），包含真实 ZIP 上传、pinned guard、世界切换/旧树保留、显式启动、受控故障、Manager 重启恢复门控、显式恢复及再次启动。历史 BLOCKED report 不改写。自动暂存过期清理未实现；P3.3 世界归档也尚未开放，故 P3.3/Phase 3 整体仍未完成。实现与早期切片 review 见 [Import 审查](./P33C_IMPORT_REVIEW_2026-10-03.md)、[生命周期报告](./P33C_STAGING_REVIEW_2026-10-02.md) 与 [真实验收记录](./ACCEPTANCE_P33C_2026-10-03.md)。限制：压缩 128 MiB、展开 512 MiB、单文件 128 MiB、10,000 条目、深度 32、压缩比 100；仅接纳已验证安全 Vanilla 布局和同版本 NBT，拒绝链接、路径穿越、冲突、ZIP64、加密和异常头/CRC。失败 staging 保留供其所属事务处理。
 
 首个可写布局只支持已验证的 Vanilla world set。主世界目录来自后端验证后的 `level-name`；其下的 Nether / End 及其他实际存在的受控文件一同处理，不能只复制主世界表面目录。Paper、Fabric 与插件多世界只保留明确的未支持状态。世界版本无法可靠读取时显示 unavailable，并拒绝恢复或导入的版本兼容性承诺。
 

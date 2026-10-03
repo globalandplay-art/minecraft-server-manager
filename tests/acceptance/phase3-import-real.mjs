@@ -20,6 +20,7 @@ import { TransactionJournalStore } from '../../apps/api/src/services/transaction
 import { allowedWorldImportFile, WORLD_IMPORT_ARCHIVE_LIMITS } from '../../apps/api/src/services/world-import-archive.ts';
 import { WorldImportService } from '../../apps/api/src/services/world-import-service.ts';
 import { WorldImportUploadService } from '../../apps/api/src/services/world-import-upload-service.ts';
+import { classifyDiagnosticText, diagnosticsAllowed, runtimeDiagnostic } from './import-diagnostics.mjs';
 import { inventoryRestoreTree, restoreFilesChecksum, verifyRestoreTree } from '../../apps/api/src/services/restore-files.ts';
 
 if (process.env.MCSM_IMPORT_REAL !== '1') {
@@ -76,9 +77,6 @@ const check = (name) => { report.checks.push(name); console.log(`PASS: ${name}`)
 function recordFailure(code, message, logExcerpt = '', failurePhase = phase, operationId = currentOperationId) {
   report.failures.push({ phase: failurePhase, code, operationId, relevantLogExcerpt: redact(logExcerpt),
     recoveryState: lastRecoveryState, message: redact(message) });
-}
-function runtimeDiagnostic(text) {
-  return /Perflib|HkeyPerformanceDataUtil|Unable to locate English counter names|Win32Exception|ERROR_INVALID_PARAMETER/u.test(text);
 }
 function assertRuntimeHealthy() {
   if (runtimeFailure && phase !== 'final-cleanup') {
@@ -150,7 +148,8 @@ const runtimeFactory = new LocalRuntimeFactory({ spawnProcess(executable, argv, 
     if (runtimeDiagnostic(diagnosticText)) runtimeFailure ??= { launch: report.launches.length, channel, excerpt: redact(diagnosticText) };
     owned.diagnosticTail[channel] = diagnosticText.slice(-4096);
   });
-  child.once('exit', (code, signal) => { owned.exited = true; launch.exitCode = code; launch.exitSignal = signal; });
+  child.once('exit', (code, signal) => { owned.exited = true; launch.exitCode = code; launch.exitSignal = signal;
+    launch.prematureExit = !launch.stopRequestedAt; });
   child.once('close', () => { owned.closed = true; });
   child.once('error', (error) => { launch.spawnError = redact(error.message); });
   child.stdin.on('error', (error) => { launch.stdinError = redact(error.message); });
@@ -208,27 +207,13 @@ async function command(text) {
   const result = await request(`${base}/commands`, { command: text });
   assert.equal(result.transport, 'rcon'); return result.output;
 }
-// Precisely classify the Java 25 JNA/JOML diagnostic blocks; Minecraft WARNs
-// and every ERROR remain blockers. No JVM flags, environment edits or suppression.
+// Classification is pure text; timing warnings require verified launch readiness.
 function classifyDiagnostics(launch, log) {
   const capture = captures.get(launch); launch.stdout = redact(capture.stdout); launch.stderr = redact(capture.stderr);
-  const combined = [log, launch.stdout, launch.stderr].join('\n');
-  launch.errors = combined.split(/\r?\n/u).filter((line) => /\bERROR\b/u.test(line));
-  launch.minecraftWarnings = combined.split(/\r?\n/u).filter((line) => /\[[^\]]*\/WARN\]/u.test(line));
-  let remaining = launch.stderr;
-  launch.classifiedJavaWarnings = [];
-  const blocks = [
-    ['java25-jna-native-access', /WARNING: A restricted method in java\.lang\.System has been called\r?\nWARNING: java\.lang\.System::load has been called by com\.sun\.jna\.Native in an unnamed module \(file:[^\r\n]*\/libraries\/net\/java\/dev\/jna\/jna\/5\.17\.0\/jna-5\.17\.0\.jar\)\r?\nWARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module\r?\nWARNING: Restricted methods will be blocked in a future release unless native access is enabled/gu],
-    ['java25-joml-unsafe-deprecation', /WARNING: A terminally deprecated method in sun\.misc\.Unsafe has been called\r?\nWARNING: sun\.misc\.Unsafe::objectFieldOffset has been called by org\.joml\.MemUtil\$MemUtilUnsafe \(file:[^\r\n]*\/libraries\/org\/joml\/joml\/1\.10\.9\/joml-1\.10\.9\.jar\)\r?\nWARNING: Please consider reporting this to the maintainers of class org\.joml\.MemUtil\$MemUtilUnsafe\r?\nWARNING: sun\.misc\.Unsafe::objectFieldOffset will be removed in a future release/gu]
-  ];
-  for (const [classification, pattern] of blocks) remaining = remaining.replace(pattern, (text) => {
-    launch.classifiedJavaWarnings.push({ classification, text }); return '';
-  });
-  launch.unclassifiedWarnings = [log, launch.stdout, remaining].join('\n').split(/\r?\n/u)
-    .filter((line) => /\bWARN(?:ING)?\b/u.test(line));
-  launch.fatalRuntimeDiagnostics = combined.split(/\r?\n/u).filter(runtimeDiagnostic);
-  return launch.errors.length === 0 && launch.minecraftWarnings.length === 0 && launch.unclassifiedWarnings.length === 0 &&
-    launch.fatalRuntimeDiagnostics.length === 0 && !launch.captureOverflow;
+  const diagnostics = classifyDiagnosticText({ log, stdout: launch.stdout, stderr: launch.stderr, captureOverflow: launch.captureOverflow,
+    prematureExit: launch.prematureExit, shutdownAuthorized: Boolean(launch.stopRequestedAt) });
+  Object.assign(launch, diagnostics);
+  return diagnosticsAllowed(diagnostics, launch.verifiedReadiness);
 }
 async function captureLog() {
   const launch = report.launches.at(-1); if (!launch) return null;
@@ -245,24 +230,44 @@ async function captureLog() {
 async function runningEvidence(label, worldName) {
   await wait(2000); const status = (await request(base)).status;
   assert.equal(status.state, 'running'); assert.equal(status.ownership, 'managed');
-  const evidence = await captureLog(); const { launch, log } = evidence;
+  const evidence = await captureLog(); const { launch } = evidence;
   assert(launch.pid); process.kill(launch.pid, 0);
-  launch.done = launch.stdout.split(/\r?\n/u).find((line) => /Done \(.+\)! For help, type "help"/u.test(line));
+  launch.done = launch.stdout.split(/\r?\n/u).find((line) => /^\[\d{2}:\d{2}:\d{2}\] \[Server thread\/INFO\]: Done \(\d+(?:\.\d+)?s\)! For help, type "help"$/u.test(line));
   assert(launch.done, 'fresh process Done missing');
   launch.rcon = launch.stdout.split(/\r?\n/u).find((line) => line.includes(`RCON running on 127.0.0.1:${report.rconPort}`));
   assert(launch.rcon, 'fresh RCON readiness missing');
   assert(launch.stdout.includes(`Preparing level "${worldName}"`), 'unexpected configured world');
-  assert(!/Encountered an unexpected exception|crash report has been saved|Stopping server/u.test(log), 'fatal startup or premature shutdown');
+  assert(!/Encountered an unexpected exception|crash report has been saved|Stopping server/u.test([evidence.log, launch.stdout, launch.stderr].join('\n')), 'fatal startup or premature shutdown');
   assert(await connected(report.gamePort)); assert(await connected(report.rconPort));
   launch.list = await command('list'); assert.match(launch.list, /There are .* players online/u);
   assert((await request(`${base}/worlds`)).items.some((world) => world.name.value === worldName));
-  assert(evidence.clean, `${label}: ERROR or unclassified WARN; captured unchanged; no repair permitted`);
+  // Re-capture after all probes; warnings/errors may have arrived during RCON.
+  const latest = await captureLog();
+  const combined = [latest.log, launch.stdout, launch.stderr].join('\n');
+  assert(!/Encountered an unexpected exception|crash report has been saved|Stopping server/u.test(combined), 'fatal startup or premature shutdown');
+  const crashes = await readdir(path.join(serverRoot, 'crash-reports')).catch((error) => { if (error.code === 'ENOENT') return []; throw error; });
+  assert.deepEqual(crashes, [], 'crash report present');
+  const owned = ownedChildren.get(launch);
+  assert(owned && !owned.exited && owned.pid === launch.pid && owned.child.pid === launch.pid, 'managed child exited or changed');
+  process.kill(launch.pid, 0);
+  const finalStatus = (await request(base)).status;
+  assert.equal(finalStatus.state, 'running'); assert.equal(finalStatus.ownership, 'managed');
+  assert(await connected(report.gamePort)); assert(await connected(report.rconPort));
+  const finalCapture = await captureLog();
+  assert(!/Encountered an unexpected exception|crash report has been saved|Stopping server/u.test(
+    [finalCapture.log, launch.stdout, launch.stderr].join('\n')), 'fatal startup or premature shutdown');
+  assert(!owned.exited, 'managed child exited during readiness probes');
+  launch.verifiedReadiness = { processAlive: true, managedChild: true, freshDone: true, rconReady: true, listSucceeded: true,
+    expectedWorldLoaded: true, gamePortReady: true, rconPortReady: true, noCrashReport: true, noPrematureShutdown: true };
+  launch.cleanDiagnostics = classifyDiagnostics(launch, finalCapture.log);
+  assert(launch.cleanDiagnostics, `${label}: ERROR or unclassified WARN; captured unchanged; no repair permitted`);
   check(label);
 }
 async function start(worldName, label) {
   await assertFreePorts(); await operation(`${base}/actions/start`, {}); await runningEvidence(label, worldName);
 }
 async function stop() {
+  await authorizeNormalStop();
   await operation(`${base}/actions/stop`, {}); await stopped();
   assert(await waitChildClose(ownedChildren.get(report.launches.at(-1)), 10_000), 'child output pipes did not close after normal stop');
   const evidence = await captureLog(); assert(evidence.clean, 'shutdown ERROR/unclassified WARN');
@@ -413,6 +418,15 @@ function assertOwnedLiveChild(launch, owned) {
   // A liveness check only; termination always uses the captured child handle.
   process.kill(owned.pid, 0);
 }
+async function authorizeNormalStop() {
+  const launch = report.launches.at(-1); const owned = ownedChildren.get(launch);
+  assert(owned, 'normal stop has no owned child'); assertOwnedLiveChild(launch, owned);
+  const evidence = await captureLog();
+  assert(!/Stopping server/u.test([evidence.log, launch.stdout, launch.stderr].join('\n')), 'premature shutdown before explicit stop');
+  assertOwnedLiveChild(launch, owned);
+  // This records explicit authorization, not an atomic proof of causation.
+  launch.stopRequestedAt = new Date().toISOString();
+}
 async function cleanupOwnedProcesses() {
   const cleanup = { managerStop: 'not-needed', children: [] }; report.processCleanup = cleanup;
   if (app) {
@@ -428,6 +442,7 @@ async function cleanupOwnedProcesses() {
           cleanup.managerStop = 'unavailable'; cleanup.managerStopReason = overview.readiness.stop.reason ?? 'active-operation';
         } else {
           cleanup.managerStop = 'requested';
+          await authorizeNormalStop();
           const accepted = (await bounded(() => request(`${base}/actions/stop`, {}), 5000, 'manager cleanup stop request')).operation;
           let outcome;
           const stopDeadline = Date.now() + 20_000;
@@ -727,7 +742,7 @@ try {
     // Recheck every launch after output pipe closure, including warnings that
     // arrived after its startup/stop evidence snapshot. Preserve each saved log.
     launch.cleanDiagnostics = classifyDiagnostics(launch, logSnapshots.get(launch) ?? '');
-    if (!ownedChildren.get(launch)?.closed || !launch.cleanDiagnostics) {
+    if (!ownedChildren.get(launch)?.closed || !launch.cleanDiagnostics || launch.exitCode !== 0 || launch.exitSignal !== null) {
       report.result = 'BLOCKED'; recordFailure('FINAL_LAUNCH_DIAGNOSTIC_FAILED', `launch ${n + 1}: closed output pipes and clean diagnostics required`,
         [launch.errors, launch.minecraftWarnings, launch.unclassifiedWarnings, launch.fatalRuntimeDiagnostics].flat().join('\n'), 'final-launch-diagnostics', null);
     }
