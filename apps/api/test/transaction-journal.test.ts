@@ -161,6 +161,10 @@ describe("TransactionJournalStore", () => {
     expect(scan.issues).toEqual([
       expect.objectContaining({ kind: "duplicate-operation", serverId: "vanilla-other" })
     ]);
+    const operations = new OperationService(new MemoryOperationStore(), { now: () => new Date(later) }, store);
+    await operations.initialize();
+    expect(operations.getServerState("vanilla-local").recoveryRequired).toBe(true);
+    expect(operations.getServerState("vanilla-other").recoveryRequired).toBe(true);
   });
 
   it("rejects absolute, traversing, duplicate-role, and non-UUID intent structures", async () => {
@@ -181,6 +185,24 @@ describe("TransactionJournalStore", () => {
     ]) {
       await expect(store.createIntent(candidate)).rejects.toThrow();
     }
+  });
+
+  it("keeps duplicate ownership locked even when the earlier owner already has an owned restore cause", async () => {
+    const root = await fixtureRoot(); const journal = new TransactionJournalStore(root); await journal.initialize();
+    const first = await journal.createIntent(intent({ paths: [{ role: "target", namespace: "server", relativePath: "world" }], restore: {
+      rootIdentity: "a".repeat(64), backupId: "33333333-3333-4333-8333-333333333333",
+      guardBackupId: "44444444-4444-4444-8444-444444444444", levelName: "world", worldId: "world-" + "d".repeat(24),
+      approvedRevision: "b".repeat(64), backupChecksum: "c".repeat(64), parentTransactionId: null, startAfter: false,
+      workspaceName: ".manager-restore-22222222-2222-4222-8222-222222222222"
+    } }));
+    const second = await journal.createIntent(intent({ serverId: "vanilla-other", transactionId: "66666666-6666-4666-8666-666666666666" }));
+    await journal.setState("vanilla-other", second.transactionId, "committed", later);
+    const operations = new OperationService(new MemoryOperationStore(), { now: () => new Date(later) }, journal);
+    await operations.initialize();
+    await expect(operations.assertRecoveryOwner("vanilla-local", first.intent.operationId)).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" });
+    await journal.setState("vanilla-local", first.transactionId, "rolled-back", later);
+    await operations.resolveOwnedRecovery("vanilla-local", [first.intent.operationId]);
+    expect(operations.getServerState("vanilla-local").recoveryRequired).toBe(true);
   });
 
   it("feeds journal recovery into the per-server operation gate without using Operation.step", async () => {

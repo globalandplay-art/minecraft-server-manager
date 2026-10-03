@@ -5,10 +5,19 @@ import {
   actionAvailabilitySchema,
   healthResponseSchema,
   numberMetricSchema,
-  worldInfoSchema
+  worldInfoSchema,
+  worldImportUploadResponseSchema
 } from "../src/index.js";
 
 describe("shared contract invariants", () => {
+  it("validates an upload result in browser Value.Check without a format registry", () => {
+    const payload = { data: { id: "5babd7fe-c96b-4938-917d-01def3ab4d80", serverId: "test", minecraftVersion: "26.3",
+      fileCount: 1, sizeBytes: 100, checksumSha256: "a".repeat(64), state: "validated", executionAvailable: false },
+      meta: { requestId: "test", generatedAt: "2026-10-02T00:00:00Z", mode: "local" } };
+    expect(Value.Check(worldImportUploadResponseSchema, payload)).toBe(true);
+    expect(Value.Check(worldImportUploadResponseSchema, { ...payload, data: { ...payload.data, id: "../escape" } })).toBe(false);
+    expect(Value.Check(worldImportUploadResponseSchema, { ...payload, data: { ...payload.data, executionAvailable: true } })).toBe(false);
+  });
   it("ties allowed actions to a null reason and denied actions to a reason", () => {
     expect(Value.Check(actionAvailabilitySchema, { allowed: true, reason: null })).toBe(true);
     expect(Value.Check(actionAvailabilitySchema, { allowed: false, reason: "mock-mode" })).toBe(true);

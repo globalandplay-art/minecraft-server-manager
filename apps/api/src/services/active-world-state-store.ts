@@ -5,6 +5,7 @@ import path from "node:path";
 import type { LocalMinecraftServerAdapter } from "../adapters/contract.js";
 import { parseProperties, readBoundedRegularFile, SERVER_PROPERTIES_LIMIT } from "../config/properties.js";
 import { DomainError } from "./domain-errors.js";
+import { syncRestoreDirectory } from "./restore-files.js";
 
 export type ActiveWorldState = {
   schemaVersion: 1;
@@ -29,7 +30,7 @@ export class ActiveWorldStateStore {
     this.#adapters = adapters;
   }
 
-  async initialize(): Promise<ReadonlySet<string>> {
+  async initialize(restoreWorlds: ReadonlyMap<string, string> = new Map(), importWorlds: ReadonlyMap<string, readonly string[]> = new Map()): Promise<ReadonlySet<string>> {
     const managerRoot = path.dirname(this.#directory);
     await mkdir(managerRoot, { recursive: true, mode: 0o700 });
     const managerInfo = await lstat(managerRoot);
@@ -82,8 +83,13 @@ export class ActiveWorldStateStore {
           existing = expected;
         } else if (existing.state === "none") {
           throw new Error("No active world is configured");
+        } else if (importWorlds.get(adapter.serverId)?.includes(levelName) && importWorlds.get(adapter.serverId)?.includes(existing.levelName ?? "")) {
+          // Only an owned unfinished import may have configuration/state between
+          // checkpoints. OperationService keeps its recovery gate; do not infer success.
+          this.#states.set(adapter.serverId,existing);
+          continue;
         } else if (existing.levelName !== expected.levelName || existing.worldId !== expected.worldId ||
-          (existing.state === "active" && expected.state !== "active")) {
+          (existing.state === "active" && expected.state !== "active" && restoreWorlds.get(adapter.serverId) !== levelName)) {
           throw new Error("Active world identity does not match server configuration");
         } else if (existing.state === "pending-generation" && expected.state === "active") {
           await this.#write(file, expected);
@@ -103,6 +109,26 @@ export class ActiveWorldStateStore {
     }
     const state = this.#states.get(serverId);
     return state?.state === "active" && state.worldId === worldId;
+  }
+
+  snapshot(serverId: string): ActiveWorldState | null {
+    const state = this.#states.get(serverId);
+    return state ? structuredClone(state) : null;
+  }
+
+  async prepareGeneration(serverId: string, previousName: string, nextName: string): Promise<void> {
+    if (this.#recovery.has(serverId)) throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "recovery-required");
+    const current = this.#states.get(serverId);
+    const adapter = this.#adapters.find((a) => a.serverId === serverId);
+    if (!adapter || current?.state !== "active" || current.levelName !== previousName || current.worldId !== worldIdentity(serverId, previousName)) {
+      throw new DomainError(409, "WORLD_REVISION_CONFLICT", "活动世界身份已变化", "active-world-changed");
+    }
+    if (!nextName || nextName.length > 64 || path.basename(nextName) !== nextName || /[\\/:\u0000-\u001f]/u.test(nextName)) throw new Error("Invalid pending world name");
+    const props = parseProperties(await readBoundedRegularFile(path.join(adapter.plan.rootPath, "server.properties"), SERVER_PROPERTIES_LIMIT, "server.properties"));
+    if (props.get("level-name") !== nextName || await this.#worldExists(adapter.plan.rootPath, nextName)) throw new Error("Pending world does not match configuration");
+    const next: ActiveWorldState = { schemaVersion: 1, serverId, state: "pending-generation", levelName: nextName, worldId: worldIdentity(serverId, nextName) };
+    await this.#write(path.join(this.#directory, `${serverId}.json`), next);
+    this.#states.set(serverId, next);
   }
 
   async reconcileAfterStart(serverId: string): Promise<void> {
@@ -130,6 +156,17 @@ export class ActiveWorldStateStore {
       this.#recovery.add(serverId);
       throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "active-world-commit-failed", true);
     }
+  }
+
+  /** Transaction writer has validated ownership, configuration and physical tree. */
+  async installImportedWorld(serverId: string, levelName: string): Promise<void> {
+    const adapter = this.#adapters.find((a) => a.serverId === serverId);
+    if (!adapter || !levelName || levelName.length > 128 || path.basename(levelName) !== levelName || /[\\/:\u0000-\u001f]/u.test(levelName)) throw new Error("Invalid imported world state");
+    const props = parseProperties(await readBoundedRegularFile(path.join(adapter.plan.rootPath,"server.properties"),SERVER_PROPERTIES_LIMIT,"server.properties"));
+    if ((props.get("level-name") ?? "world") !== levelName || !await this.#worldExists(adapter.plan.rootPath,levelName)) throw new Error("Imported world does not match configuration");
+    const state: ActiveWorldState = { schemaVersion:1,serverId,state:"active",levelName,worldId:worldIdentity(serverId,levelName) };
+    await this.#write(path.join(this.#directory,`${serverId}.json`),state);
+    this.#states.set(serverId,state); this.#recovery.delete(serverId);
   }
 
   #isState(value: unknown): value is ActiveWorldState {
@@ -172,5 +209,6 @@ export class ActiveWorldStateStore {
     try { await handle.writeFile(`${JSON.stringify(state)}\n`, "utf8"); await handle.sync(); }
     finally { await handle.close(); }
     await rename(temporary, file);
+    await syncRestoreDirectory(this.#directory);
   }
 }

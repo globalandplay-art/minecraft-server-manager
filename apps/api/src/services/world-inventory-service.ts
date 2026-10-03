@@ -1,4 +1,5 @@
 import { lstat, open, opendir, readdir, realpath } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 
@@ -63,11 +64,11 @@ class NbtReader {
 
   constructor(private readonly buffer: Buffer) {}
 
-  parseSelectedRoot(): SelectedCompound {
+  parseSelectedRoot(selection: Selection = LEVEL_SELECTION): SelectedCompound {
     const rootType = this.u8();
     if (rootType !== 10) throw new NbtReadError("root-not-compound");
     this.string();
-    return this.selectedCompound(1, LEVEL_SELECTION);
+    return this.selectedCompound(1, selection);
   }
 
   private ensure(bytes: number): void {
@@ -318,15 +319,15 @@ async function readBoundedBuffer(filePath: string, maximumBytes: number): Promis
   }
 }
 
-async function readLevelData(worldRoot: string): Promise<SelectedCompound | null> {
+async function readLevelData(worldRoot: string, relativeFile = "level.dat", selection = LEVEL_SELECTION): Promise<SelectedCompound | null> {
   try {
     const compressed = await readBoundedBuffer(
-      path.join(worldRoot, "level.dat"),
+      path.join(worldRoot, relativeFile),
       LEVEL_DAT_COMPRESSED_LIMIT
     );
     if (compressed.length < 2 || compressed[0] !== 0x1f || compressed[1] !== 0x8b) return null;
     const decompressed = gunzipSync(compressed, { maxOutputLength: LEVEL_DAT_DECOMPRESSED_LIMIT });
-    return new NbtReader(decompressed).parseSelectedRoot();
+    return new NbtReader(decompressed).parseSelectedRoot(selection);
   } catch (error) {
     if (error instanceof DomainError) throw error;
     return null;
@@ -488,7 +489,16 @@ export async function inspectVanillaWorld(
   const data = compound(levelData?.Data);
   const worldGenSettings = compound(data?.WorldGenSettings);
   const versionData = compound(data?.Version);
-  const rawSeed = worldGenSettings?.seed ?? data?.RandomSeed;
+  const legacySeed = worldGenSettings?.seed ?? data?.RandomSeed;
+  // 26.3 stores generation settings in a separate saved-data compound.
+  // Read the generated world data, never substitute its configured seed.
+  let rawSeed = legacySeed;
+  if (typeof rawSeed !== "bigint") {
+    const savedData = path.join(worldRoot, "data");
+    if (await canonicalDirectory(savedData, true) && await canonicalDirectory(path.join(savedData, "minecraft"), true)) {
+      rawSeed = compound((await readLevelData(worldRoot, "data/minecraft/world_gen_settings.dat", { data: { seed: true } }))?.data)?.seed;
+    }
+  }
   const version = safeVersion(versionData?.Name);
   const difficultyNames = ["peaceful", "easy", "normal", "hard"] as const;
   const gameModeNames = ["survival", "creative", "adventure", "spectator"] as const;
@@ -503,7 +513,7 @@ export async function inspectVanillaWorld(
   const simulationDistance = propertyInteger(properties.get("simulation-distance"));
   const fieldSources: Record<keyof WorldInfo["fieldSources"], WorldFieldSource> = {
     name: configuredLevelName === undefined ? null : "server-properties",
-    seed: typeof rawSeed === "bigint" ? "level-dat" : null,
+    seed: typeof rawSeed === "bigint" ? typeof legacySeed === "bigint" ? "level-dat" : "world-data" : null,
     minecraftVersion: version === null ? null : "level-dat",
     sizeBytes: "filesystem",
     difficulty: difficulty === undefined ? null : "level-dat",
@@ -517,6 +527,7 @@ export async function inspectVanillaWorld(
   const worldId = worldIdentity(serverId, levelName);
   return [{
     worldId,
+    worldRevision: await readWorldRevision(serverId, levelName, worldRoot).catch(() => null),
     active: true,
     dimensions: worldDimensions,
     name: available(levelName, sampledAt),
@@ -545,6 +556,32 @@ export async function inspectVanillaWorld(
       : available(simulationDistance, sampledAt),
     fieldSources
   }];
+}
+
+export async function readWorldRevision(serverId: string, levelName: string, worldRoot: string): Promise<string> {
+  const file = path.join(worldRoot, "level.dat");
+  const info = await lstat(file);
+  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > LEVEL_DAT_COMPRESSED_LIMIT) throw unsafeWorld("invalid-level-data");
+  const handle = await open(file, "r");
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.alloc(LEVEL_DAT_COMPRESSED_LIMIT + 1);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (read.bytesRead === 0) break;
+      offset += read.bytesRead;
+    }
+    if (offset > LEVEL_DAT_COMPRESSED_LIMIT) throw unsafeWorld("invalid-level-data");
+    bytes = bytes.subarray(0, offset);
+  } finally { await handle.close(); }
+  return createHash("sha256").update("world-revision-v1\0").update(worldIdentity(serverId, levelName))
+    .update("\0").update(levelName).update("\0").update(bytes).digest("hex");
+}
+
+export async function readWorldVersion(worldRoot: string): Promise<string | null> {
+  const data = compound((await readLevelData(worldRoot))?.Data);
+  return safeVersion(compound(data?.Version)?.Name);
 }
 
 export class WorldInventoryService {

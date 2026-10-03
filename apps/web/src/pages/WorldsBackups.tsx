@@ -4,6 +4,9 @@ import { AlertTriangle, Archive, DatabaseBackup, Download, RefreshCw } from 'luc
 import { useEffect, useRef, useState } from 'react';
 import { ApiClientError, api, errorMessage, shouldRetry } from '../api';
 import { EmptyState, ErrorState, PageHeading } from '../components/Ui';
+import { RestoreAction, RestoreHistory } from './RestoreAction';
+import { WorldCreatePlan } from './WorldCreatePlan';
+import { WorldImportUpload } from './WorldImportUpload';
 
 type Server = ServersResponse['data']['items'][number];
 const metricText = (metric: { status: string; value: unknown }) => metric.status === 'unavailable' ? '不可用' : String(metric.value);
@@ -70,7 +73,9 @@ export function WorldsPage({ server }: { server: Server | undefined }) {
       <div className="resource-card__heading"><div><span className="eyebrow">{world.active ? 'ACTIVE WORLD' : 'WORLD'}</span><h2>{world.name.status === 'unavailable' ? world.worldId : world.name.value}</h2></div><span className="phase-badge">{world.active ? '当前世界' : '只读'}</span></div>
       <dl className="resource-grid"><div><dt>Minecraft 版本</dt><dd>{metricText(world.minecraftVersion)}</dd></div><div><dt>Seed</dt><dd>{metricText(world.seed)}</dd></div><div><dt>占用空间</dt><dd>{world.sizeBytes.status === 'unavailable' ? '不可用' : sizeText(world.sizeBytes.value as number)}</dd></div><div><dt>难度 / 模式</dt><dd>{metricText(world.difficulty)} / {metricText(world.gameMode)}</dd></div><div><dt>维度</dt><dd>{world.dimensions.map((item) => item.kind).join(' · ')}</dd></div><div><dt>视距 / 模拟距离</dt><dd>{metricText(world.viewDistance)} / {metricText(world.simulationDistance)}</dd></div></dl>
     </section>) : <EmptyState title="未发现可管理的世界" description="后端没有返回可确认的世界目录。" />}
-    <p className="muted">当前支持 Vanilla 世界集盘点。新建、上传、归档和恢复会在后续阶段开放。</p>
+    {server?.capabilities.worlds ? <WorldCreatePlan key={server.server.id} serverId={server.server.id} /> : null}
+    {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldImportUpload key={`import-${server.server.id}`} serverId={server.server.id} /> : null}
+    <p className="muted">当前支持 Vanilla 世界集盘点、新建与 ZIP 导入。上传后需要校验导入计划并明确确认；创建和导入完成后保持停服，由你另行启动。归档尚未开放。</p>
   </div>;
 }
 
@@ -171,12 +176,14 @@ export function BackupsPage({ server }: { server: Server | undefined }) {
         sessionStorage.removeItem(`mcsm.pendingBackup.${pendingSubmission.serverId}`); setPendingSubmission(null);
       }}>放弃未确认请求</button> : null}
       {mutation.data ? <p className="muted">备份操作状态：{operationQuery.data?.data.state ?? mutation.data.data.operation.state}{operationQuery.data?.data.error ? `；${operationQuery.data.data.error.message}` : operationQuery.isError ? `；${errorMessage(operationQuery.error)}` : ''}。页面只查询进度，不会自动重复提交。</p> : null}
-      <p className="muted">服务端快照（含配置与启动文件）和恢复目前未在页面开放；快照内容保留在管理器私有目录。</p>
+      <p className="muted">恢复仅支持同实例、相同版本的 Vanilla 世界备份。服务端快照不能恢复或下载。</p>
     </section>
       <div className="resource-card__heading"><div><span className="eyebrow">BACKUP ARCHIVES</span><h2>备份记录</h2></div><button className="button button--secondary" onClick={() => void list.refetch()} disabled={list.isFetching}><RefreshCw size={15} />刷新</button></div>
     {!server ? <EmptyState title="尚无服务器实例" description="接入本地服务器后显示备份记录。" /> : list.isPending ? <p className="muted">正在读取备份…</p> : list.isError ? <ErrorState description={errorMessage(list.error)} retry={() => void list.refetch()} /> : list.data?.data.items.length ? list.data.data.items.map((backup) => <section className="resource-card backup-row" key={backup.id}>
-      <div><span className="eyebrow">{backup.kind === 'snapshot' ? 'PRIVATE SNAPSHOT' : 'MANUAL WORLD SET'}</span><h3>{backup.label ?? new Date(backup.createdAt).toLocaleString()}</h3><p>{backup.minecraftVersion ?? '版本未知'} · {backup.fileCount.toLocaleString()} 个文件 · {sizeText(backup.sizeBytes)}</p></div><span className="phase-badge">SHA-256 已记录</span>
+      <div><span className="eyebrow">{backup.scope === 'server-snapshot' ? 'PRIVATE SNAPSHOT' : backup.pinned ? 'PROTECTED WORLD SET' : 'MANUAL WORLD SET'}</span><h3>{backup.label ?? new Date(backup.createdAt).toLocaleString()}</h3><p>{backup.minecraftVersion ?? '版本未知'} · {backup.fileCount.toLocaleString()} 个文件 · {sizeText(backup.sizeBytes)}</p></div><span className="phase-badge">SHA-256 已记录</span>
       <BackupDownload key={`${server.server.id}.${backup.id}`} serverId={server.server.id} backup={backup} />
+      {backup.scope === 'world-set' ? <RestoreAction key={`restore.${server.server.id}.${backup.id}`} serverId={server.server.id} resourceId={backup.id} /> : null}
     </section>) : <EmptyState title="还没有备份" description="成功结束且具有有效清单的备份会显示在这里。" />}
+    {server ? <RestoreHistory key={server.server.id} serverId={server.server.id} /> : null}
   </div>;
 }

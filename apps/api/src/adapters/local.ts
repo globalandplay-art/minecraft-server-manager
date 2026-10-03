@@ -88,6 +88,11 @@ export class LocalJavaAdapter implements LocalMinecraftServerAdapter {
     await this.#runtime.stop(context);
   }
 
+  async stopOwnedForRecovery(context: RuntimeOperationContext, ownerOperationId: string): Promise<void> {
+    if (!this.#runtime.stopOwnedForRecovery) throw new Error("Runtime recovery stop is unavailable");
+    await this.#runtime.stopOwnedForRecovery(context, ownerOperationId);
+  }
+
   async command(validatedLine: string): Promise<RuntimeCommandResult> {
     return this.#runtime.command(validatedLine);
   }

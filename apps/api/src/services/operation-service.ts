@@ -24,8 +24,10 @@ export class OperationService {
   readonly #idempotency = new Map<string, StoredOperation>();
   readonly #activeByServer = new Map<string, string>();
   readonly #recoveryServers = new Set<string>();
+  readonly #recoveryCauses = new Map<string, Set<string>>();
   readonly #listeners = new Set<OperationListener>();
   readonly #exclusiveLocks = new Set<string>();
+  readonly #verifiedTerminalOperations = new Set<string>();
   #mutationTail: Promise<void> = Promise.resolve();
 
   constructor(
@@ -44,31 +46,60 @@ export class OperationService {
       this.transactionRecovery?.initialize()
     ]);
     const now = this.#clock.now();
+    for (const record of transactionScan?.records ?? []) if (["active", "recovery-required"].includes(record.state)) {
+      this.#addRecovery(record.intent.serverId, `journal:${record.intent.operationId}`);
+    }
+    for (const issue of transactionScan?.issues ?? []) if (issue.serverId) this.#addRecovery(issue.serverId, `issue:${issue.fileName}`);
+    const journalOwners = new Map<string, string[]>();
+    for (const record of transactionScan?.records ?? []) {
+      const owners = journalOwners.get(record.intent.operationId) ?? [];
+      owners.push(record.intent.serverId); journalOwners.set(record.intent.operationId, owners);
+    }
+    for (const [operationId, owners] of journalOwners) if (owners.length > 1) {
+      for (const serverId of owners) this.#addRecovery(serverId, `issue:duplicate-operation:${operationId}`);
+    }
+    // A duplicate operation can affect an earlier owner that has no own issue row.
+    // Preserve the scanner's complete fail-closed set while retaining precise
+    // journal causes for otherwise resolvable restore/rollback transactions.
     for (const serverId of transactionScan?.recoveryServerIds ?? []) {
-      this.#recoveryServers.add(serverId);
+      if (!this.#recoveryServers.has(serverId)) this.#addRecovery(serverId, "issue:journal-scan");
+    }
+    const storedById = new Map(stored.map((record) => [record.operation.id, record.operation]));
+    for (const record of transactionScan?.records ?? []) {
+      if (!(record.intent.restore || record.intent.worldChange || record.intent.worldImport) || !["committed", "rolled-back"].includes(record.state)) continue;
+      const outcome = storedById.get(record.intent.operationId);
+      const established = outcome?.state === "succeeded" || (outcome?.state === "failed" && outcome.step === "rolled-back" && !outcome.error);
+      if (!established && !this.#verifiedTerminalOperations.has(record.intent.operationId)) this.requireTransactionRecovery(record.intent.serverId, record.intent.operationId);
     }
     for (const record of stored) {
       let current = record;
-      if (record.operation.state === "queued" || record.operation.state === "running") {
+      const terminal = transactionScan?.records.find((item) => (item.intent.operationId === record.operation.id ||
+        (item.intent.worldImport && item.checkpoints.some((c) => c.name === "import-recovery-operation" && c.details?.resourceId === record.operation.id))) &&
+        ["committed", "rolled-back"].includes(item.state));
+      const established = record.operation.state === "succeeded" || (record.operation.state === "failed" && record.operation.step === "rolled-back" && !record.operation.error);
+      const unverified = Boolean((terminal?.intent.restore || terminal?.intent.worldChange || terminal?.intent.worldImport) && !established && !this.#verifiedTerminalOperations.has(record.operation.id));
+      const unsafeCompletion = unverified || Boolean(terminal && this.#recoveryCauses.get(record.operation.serverId)?.has(`operation:${record.operation.id}`));
+      if (unverified) this.requireTransactionRecovery(record.operation.serverId, record.operation.id);
+      if (unsafeCompletion || record.operation.state === "queued" || record.operation.state === "running" || (record.operation.state === "interrupted" && terminal)) {
         const interrupted: Operation = {
           ...record.operation,
-          state: "interrupted",
-          step: "manager-restarted",
+          state: unsafeCompletion ? "interrupted" : terminal ? (terminal.state === "committed" || record.operation.kind === "world-import-recovery" ? "succeeded" : "failed") : "interrupted",
+          step: unsafeCompletion ? "physical-recovery-required" : terminal ? terminal.state : "manager-restarted",
           updatedAt: now.toISOString(),
-          result: null,
-          error: record.operation.kind === "backup-export"
+          result: terminal?.intent.restore ? { resourceId: terminal.intent.restore.guardBackupId, rollbackAvailable: terminal.state === "committed" && terminal.intent.kind === "restore" } : record.operation.result,
+          error: terminal && !unsafeCompletion ? null : record.operation.kind === "backup-export"
             ? { code: "EXPORT_INTERRUPTED", message: "导出被管理器重启中断，可重新请求" }
             : { code: "RECOVERY_REQUIRED", message: "管理器重启中断了操作，需要人工检查" }
         };
         current = { ...record, operation: interrupted };
         await this.#store.save(current);
-        if (interrupted.kind !== "backup-export") this.#recoveryServers.add(interrupted.serverId);
+        if (!terminal && interrupted.kind !== "backup-export") this.#addRecovery(interrupted.serverId, `operation:${interrupted.id}`);
       }
       if (
         current.operation.state === "interrupted" &&
         current.operation.error?.code === "RECOVERY_REQUIRED"
       ) {
-        this.#recoveryServers.add(current.operation.serverId);
+        if (!terminal) this.#addRecovery(current.operation.serverId, `operation:${current.operation.id}`);
       }
       this.#records.set(current.operation.id, current);
       if (Date.parse(current.expiresAt) > now.getTime()) {
@@ -90,7 +121,64 @@ export class OperationService {
   }
 
   requireRecovery(serverIds: Iterable<string>): void {
-    for (const serverId of serverIds) this.#recoveryServers.add(serverId);
+    for (const serverId of serverIds) this.#addRecovery(serverId, "external");
+  }
+
+  requireTransactionRecovery(serverId: string, operationId: string): void {
+    this.#addRecovery(serverId, `operation:${operationId}`);
+  }
+
+  async storedOutcomes(): Promise<Operation[]> {
+    await this.#store.initialize();
+    return (await this.#store.list()).map((record) => record.operation);
+  }
+
+  confirmPhysicalTransaction(operationId: string): void {
+    this.#verifiedTerminalOperations.add(operationId);
+  }
+
+  #addRecovery(serverId: string, cause: string): void {
+    const causes = this.#recoveryCauses.get(serverId) ?? new Set<string>();
+    causes.add(cause); this.#recoveryCauses.set(serverId, causes); this.#recoveryServers.add(serverId);
+  }
+
+  async assertRecoveryOwner(serverId: string, parentOperationId: string): Promise<void> {
+    const scan = await this.transactionRecovery?.initialize();
+    const parent = scan?.records.find((r) => r.intent.serverId === serverId && r.intent.operationId === parentOperationId && r.intent.kind === "restore" && r.intent.restore);
+    if (!parent || parent.state === "rolled-back" || scan!.issues.some((i) => i.serverId === serverId)) throw new DomainError(409, "RECOVERY_REQUIRED", "该事务不能安全恢复", "recovery-owner-invalid");
+    const owned = scan!.records.filter((r) => r.transactionId === parent.transactionId || r.intent.restore?.parentTransactionId === parent.transactionId);
+    const allowed = new Set(owned.flatMap((r) => [`journal:${r.intent.operationId}`, `operation:${r.intent.operationId}`]));
+    if ([...(this.#recoveryCauses.get(serverId) ?? [])].some((cause) => !allowed.has(cause)) ||
+      scan!.records.some((r) => r.intent.serverId === serverId && ["active", "recovery-required"].includes(r.state) && !owned.includes(r))) {
+      throw new DomainError(409, "RECOVERY_REQUIRED", "实例还有其他未解决的恢复原因", "unrelated-recovery");
+    }
+  }
+
+  async resolveOwnedRecovery(serverId: string, operationIds: readonly string[]): Promise<void> {
+    const scan = await this.transactionRecovery?.initialize();
+    if (!scan || scan.issues.some((i) => i.serverId === serverId) || scan.records.some((r) => r.intent.serverId === serverId && ["active", "recovery-required"].includes(r.state))) {
+      throw new DomainError(409, "RECOVERY_REQUIRED", "仍有未解决的事务", "recovery-remains", true);
+    }
+    const causes = this.#recoveryCauses.get(serverId);
+    for (const id of operationIds) {
+      causes?.delete(`journal:${id}`); causes?.delete(`operation:${id}`);
+      const op = this.#records.get(id)?.operation;
+      if (op?.state === "interrupted") await this.#update(id, { state: "failed", step: "rolled-back", error: null, result: { resourceId: op.result?.resourceId ?? null, rollbackAvailable: false } });
+      else if (op?.result?.rollbackAvailable && op.state !== "running") await this.#update(id, { result: { ...op.result, rollbackAvailable: false } });
+    }
+    if (!causes?.size) this.#recoveryServers.delete(serverId);
+  }
+
+  async assertImportRecoveryOwner(serverId: string, operationId: string): Promise<void> {
+    const scan = await this.transactionRecovery?.initialize();
+    const parent = scan?.records.find((r) => r.intent.serverId === serverId && r.intent.operationId === operationId && r.intent.worldImport);
+    const recoveryIds = parent?.checkpoints.filter((c) => c.name === "import-recovery-operation").map((c) => c.details?.resourceId).filter((id): id is string => Boolean(id)) ?? [];
+    const allowed = new Set([operationId,...recoveryIds].flatMap((id) => [`journal:${id}`, `operation:${id}`]));
+    if (!parent || !["active","recovery-required"].includes(parent.state) || scan!.issues.some((i) => i.serverId === serverId) ||
+      [...(this.#recoveryCauses.get(serverId) ?? [])].some((cause) => !allowed.has(cause)) ||
+      scan!.records.some((r) => r.intent.serverId === serverId && ["active","recovery-required"].includes(r.state) && r !== parent)) {
+      throw new DomainError(409,"RECOVERY_REQUIRED","该导入事务不能安全恢复","import-recovery-owner-invalid");
+    }
   }
 
   async runExclusive<T>(serverId: string, action: () => Promise<T>): Promise<T> {
@@ -188,7 +276,8 @@ export class OperationService {
     requestBody: string,
     execute: (context: RuntimeOperationContext) => Promise<void>,
     preflight?: () => Promise<void>,
-    kind: "backup" | "backup-export" = "backup"
+    kind: "backup" | "backup-export" | "restore" | "rollback" | "world-create" | "world-import" | "world-import-recovery" = "backup",
+    recoveryOwner?: string
   ): Promise<Operation> {
     const fingerprint = createHash("sha256").update(`${serverId}\n${kind}\n${requestBody}`).digest("hex");
     let created = false;
@@ -202,7 +291,9 @@ export class OperationService {
         return structuredClone(existing.operation);
       }
       if (this.#recoveryServers.has(serverId)) {
-        throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "recovery-required");
+        if (kind === "rollback" && recoveryOwner) await this.assertRecoveryOwner(serverId, recoveryOwner);
+        else if (kind === "world-import-recovery" && recoveryOwner) await this.assertImportRecoveryOwner(serverId,recoveryOwner);
+        else throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "recovery-required");
       }
       if (this.#exclusiveLocks.has(serverId) || this.#activeByServer.has(serverId)) {
         throw new DomainError(409, "OPERATION_CONFLICT", "实例当前已有活动操作", "operation-active");
@@ -244,11 +335,12 @@ export class OperationService {
         operationId,
         signal: controller.signal,
         onStep: async (step) => this.#update(operationId, { step })
+        ,onResult: async (result) => { await this.#update(operationId, { result }); }
       });
       await this.#update(operationId, {
         state: "succeeded",
         step: "completed",
-        result: { resourceId: null, rollbackAvailable: false },
+        result: this.#records.get(operationId)?.operation.result ?? { resourceId: null, rollbackAvailable: false },
         error: null
       });
     } catch (error) {
@@ -258,13 +350,13 @@ export class OperationService {
       const requiresRecovery = sideEffectStarted &&
         (domain === null || domain.requiresRecovery);
       if (requiresRecovery && operation !== undefined) {
-        this.#recoveryServers.add(operation.serverId);
+        this.#addRecovery(operation.serverId, `operation:${operation.id}`);
       }
       try {
         await this.#update(operationId, {
           state: requiresRecovery ? "interrupted" : "failed",
           step: requiresRecovery ? "recovery-required" : "failed",
-          result: null,
+          result: this.#records.get(operationId)?.operation.result ?? null,
           error: {
             code: requiresRecovery ? "RECOVERY_REQUIRED" : (domain?.code ?? "INTERNAL_ERROR"),
             message: requiresRecovery
@@ -273,7 +365,7 @@ export class OperationService {
           }
         });
       } catch {
-        if (operation !== undefined) this.#recoveryServers.add(operation.serverId);
+        if (operation !== undefined) this.#addRecovery(operation.serverId, `operation:${operation.id}`);
       }
     } finally {
       const operation = this.#records.get(operationId)?.operation;

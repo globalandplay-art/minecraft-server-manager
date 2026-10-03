@@ -17,6 +17,9 @@ import { registerOperationRoutes } from "./routes/operations.js";
 import { registerServerRoutes } from "./routes/servers.js";
 import { registerWebSocketRoute } from "./routes/websocket.js";
 import { registerWorldRoutes } from "./routes/worlds.js";
+import { registerWorldCreatePlanRoutes } from "./routes/world-create-plans.js";
+import { WorldCreatePlanService } from "./services/world-create-plan-service.js";
+import { WorldCreateService } from "./services/world-create-service.js";
 import { registerBackupRoutes } from "./routes/backups.js";
 import { DomainError } from "./services/domain-errors.js";
 import { EventStreamService } from "./services/event-stream-service.js";
@@ -28,6 +31,12 @@ import type { ActiveWorldStateStore } from "./services/active-world-state-store.
 import { BackupService } from "./services/backup-service.js";
 import { BackupExportService } from "./services/backup-export-service.js";
 import { WorldInventoryService } from "./services/world-inventory-service.js";
+import { RestoreService } from "./services/restore-service.js";
+import { registerRestoreRoutes } from "./routes/restores.js";
+import { WorldImportUploadService } from "./services/world-import-upload-service.js";
+import { registerWorldImportUploadRoutes } from "./routes/world-import-uploads.js";
+import { WorldImportService } from "./services/world-import-service.js";
+import { registerWorldImportRoutes } from "./routes/world-imports.js";
 
 export interface BuildAppOptions {
   clock?: Clock;
@@ -38,7 +47,7 @@ export interface BuildAppOptions {
   transactionRecovery?: Pick<TransactionJournalStore, "initialize">;
   transactionJournal?: TransactionJournalStore;
   managerRoot?: string;
-  activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart">;
+  activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "snapshot" | "prepareGeneration" | "installImportedWorld">>;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -58,16 +67,31 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const operations = new OperationService(
     options.operationStore ?? new MemoryOperationStore(),
     clock,
-    options.transactionRecovery
+    options.transactionRecovery ?? options.transactionJournal
   );
-  const service = new ServerService(registry, operations, options.activeWorldState);
+  const service = new ServerService(registry, operations, options.activeWorldState,
+    options.transactionJournal !== undefined && options.managerRoot !== undefined,
+    options.transactionJournal !== undefined && options.managerRoot !== undefined &&
+      options.activeWorldState?.snapshot !== undefined && options.activeWorldState.prepareGeneration !== undefined);
   const worlds = new WorldInventoryService(registry, clock, options.activeWorldState);
   const streams = new EventStreamService(registry, operations);
+  let restores: RestoreService | undefined;
+  let worldCreates: WorldCreateService | undefined;
+  let worldImports: WorldImportService | undefined;
 
   app.addHook("onRequest", installLocalRequestGuard(clock, mode));
   app.addHook("onReady", async () => {
+    await options.transactionJournal?.initialize();
+    await restores?.reconcileStartup();
+    await worldCreates?.reconcileStartup();
+    await worldImports?.reconcileStartup();
     await operations.initialize();
-    operations.requireRecovery(await options.activeWorldState?.initialize() ?? []);
+    const scan = await options.transactionJournal?.scan();
+    const restoreWorlds = new Map((scan?.records ?? []).filter((r) => r.intent.restore && ["active", "recovery-required"].includes(r.state))
+      .map((r) => [r.intent.serverId, r.intent.restore!.levelName] as const));
+    const importWorlds = new Map((scan?.records ?? []).filter((r) => r.intent.worldImport && ["active","recovery-required"].includes(r.state))
+      .map((r) => [r.intent.serverId,[r.intent.worldImport!.previousName,r.intent.worldImport!.nextName]] as const));
+    operations.requireRecovery(await options.activeWorldState?.initialize(restoreWorlds,importWorlds) ?? []);
   });
   app.addHook("onClose", async () => {
     streams.close();
@@ -78,7 +102,21 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerOperationRoutes(app, service, clock, mode);
   registerWorldRoutes(app, worlds, clock, mode);
   if (options.transactionJournal !== undefined && options.managerRoot !== undefined) {
+    const uploads = new WorldImportUploadService(registry, operations, options.managerRoot,undefined,options.transactionJournal);
+    registerWorldImportUploadRoutes(app, uploads, clock, mode);
     const backups = new BackupService(registry, operations, options.transactionJournal, options.managerRoot, clock);
+    const active = options.activeWorldState;
+    if (active?.snapshot && active.prepareGeneration) {
+      worldCreates = new WorldCreateService(registry, operations, options.transactionJournal, backups, options.managerRoot,
+        { snapshot: active.snapshot.bind(active), prepareGeneration: active.prepareGeneration.bind(active) }, clock);
+    }
+    if (active?.snapshot && active.installImportedWorld) {
+      worldImports = new WorldImportService(registry,operations,options.transactionJournal,backups,options.managerRoot,
+        { snapshot:active.snapshot.bind(active),installImportedWorld:active.installImportedWorld.bind(active) },clock,uploads);
+      registerWorldImportRoutes(app,worldImports,clock,mode);
+    }
+    restores = new RestoreService(registry, operations, backups, options.transactionJournal, options.managerRoot, clock);
+    registerRestoreRoutes(app, restores, clock, mode);
     registerBackupRoutes(
       app,
       backups,
@@ -87,6 +125,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       new BackupExportService(backups, operations)
     );
   }
+  registerWorldCreatePlanRoutes(app, new WorldCreatePlanService(registry, operations, Boolean(worldCreates)), clock, mode, worldCreates);
   // @fastify/websocket installs an onRoute hook in its encapsulated scope.
   // Register WebSocket routes in a following plugin so the hook can replace
   // the HTTP handler with the upgrade handler before the route is compiled.

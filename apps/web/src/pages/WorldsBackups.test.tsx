@@ -7,6 +7,8 @@ import { BackupsPage, WorldsPage } from './WorldsBackups';
 
 vi.mock('../api', async (load) => ({ ...(await load<typeof import('../api')>()), api: {
   worlds: vi.fn(), backups: vi.fn(), createBackup: vi.fn(), operation: vi.fn(), createBackupExport: vi.fn(), backupExport: vi.fn(),
+  restoreHistory: vi.fn(async () => ({ data: { items: [] }, meta })),
+  worldImportUploads: vi.fn(async () => ({ data: { items: [], occupiedSlots: 0, limit: 3 }, meta })),
   backupDownloadUrl: (serverId: string, backupId: string) => `/api/v1/servers/${serverId}/backups/${backupId}/download`,
 } }));
 
@@ -93,7 +95,7 @@ describe('Worlds 与备份初版页面', () => {
     fireEvent.change(await screen.findByLabelText('备份备注'), { target: { value: 'Before changes' } });
     fireEvent.click(screen.getByRole('button', { name: '创建备份' }));
     await waitFor(() => expect(api.createBackup).toHaveBeenCalledWith('vanilla-local', { scope: 'world-set', allowStop: false, label: 'Before changes' }, expect.any(String)));
-    expect(screen.getByText(/服务端快照.*恢复目前未在页面开放/)).toBeInTheDocument();
+    expect(screen.getByText(/服务端快照不能恢复或下载/)).toBeInTheDocument();
   });
 
   it('响应不确定时保留 payload 与幂等键并使用相同请求重试', async () => {

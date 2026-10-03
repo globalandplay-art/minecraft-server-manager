@@ -189,16 +189,16 @@ World service 管理 world set：主世界及关联 Nether / End。Vanilla / Fab
 
 save-all 通过 command transport 发出；Phase 3 不做运行中逐文件复制的“完整备份”。初版一致性备份统一请求允许停服：锁实例 → 停服并确认退出 → 生成快照 → 校验 manifest / checksum → 若原来在运行则启动并检查日志。UI 在发起前显示停服影响；未允许停服且仍在运行，返回 SERVER_MUST_BE_STOPPED。若将来增加在线备份，须另行设计 save-off / save-all flush / finally save-on，不能仅发 save-all 就认为复制一致。
 
-恢复操作（当前设计固定恢复后启动）：
+恢复操作（仅 world-set，启动须用户明确选择）：
 
-1. 锁实例并验证目标 backupId、manifest、checksum、布局和版本兼容性，检查可用空间。
-2. 将目标归档解包至 staging 并逐项校验；路径不安全或版本更高时阻止降级恢复。
-3. 停服并确认退出；创建当前世界的 pre-restore 快照，标记 pinned。
-4. 把当前 world set 移至 rollback staging；将目标 world set 切换到原受控位置；记录 journal。
-5. 启动服务器，检查启动完成与近期 ERROR / crash 日志；完整错误信息保留但先脱敏。
-6. 成功后提交事务；失败立即停下恢复的实例，保存目标、rollback 和快照，返回 rollbackAvailable=true，等待用户显式回滚。不能在状态未知时自动删除任一版本。
+1. 在 per-server reservation 内、停服前验证调用方确认的 worldRevision；验证同 serverId 的 backupId、manifest、checksum、Vanilla 布局、版本兼容性和空间。
+2. 将归档完整复制至 serverRoot 内随机 staging，逐项校验并同步文件；路径不安全或版本更高时阻止恢复。
+3. 优雅停服并确认受管子进程退出；停服后重新验证同一 active identity / level-name。因停服会改写 level.dat，计算并记录 stopped revision，不要求其等于停服前 revision。创建并验证 pinned pre-restore world-set guard 后才继续。
+4. journal 标明路径命名空间；每次同卷 rename 都先持久化 intent，再执行、核验磁盘布局与摘要，最后记录完成。禁止跨卷 move 或 copy-over-live fallback。
+5. 只有 startAfterRestore=true 时才启动；检查实际受管进程/readiness 和近期 ERROR / crash 日志。不得自动重试启动。
+6. 失败时保留新旧树、guard 和 journal，进入 recoveryRequired。管理器启动先 reconcile 非终态 restore journal，再开放写 API。显式 rollback 是新的幂等 operation，绑定 parent restore、当前 revision 与 guard；先保存当前树，再恢复已验证的 previous 或 pinned guard；不得通用绕过 recoveryRequired，只清除已解决的事务 cause。状态不明时不得自动删除任何版本。
 
-Phase 3 的 restoreScope 仅支持 world-set，即使来源备份是 server-snapshot 也只提取其中 manifest 声明的世界，UI 明确说明不会恢复 JAR / Addons / 配置。需要完整 server-snapshot 回滚时，必须在实际升级 / 批量 Addon 工作流加入前独立设计相同 scope 的 pre-change 快照与整服恢复事务，不能把世界恢复冒充完整服务器回滚。
+Phase 3 restore 仅接受同一 serverId 的 world-set 备份；server-snapshot 来源整体拒绝，不从中提取世界。UI 与 API 明确说明不会恢复 JAR / Addons / 配置。需要完整 server-snapshot 回滚时，必须在实际升级 / 批量 Addon 工作流加入前独立设计相同 scope 的 pre-change 快照与整服恢复事务，不能把世界恢复冒充完整服务器回滚。
 
 文件系统多目录切换无法保证一次性原子完成；依靠每步持久化 journal、同卷 rename 和启动时 recoveryRequired 门控。进程在任一步中断时，禁止普通 start，先核对原目录、staging、manifest 再提供恢复 / 回滚。跨卷时先完整复制并校验，不能假装 rename 原子。
 
@@ -308,6 +308,10 @@ GPT-5.6 Sol 已做只读文档校验：三份 Markdown 的 fences 成对、相�
 
 ## 15. 技术依据
 
+2026-10-02 P3.3b 创建实施补充：WorldCreateService 复用 OperationService 实例互斥、BackupService 私有 world-set guard 和 TransactionJournalStore schema-3。世界切换只更新 `level-name` / `level-seed` 与 ActiveWorldStateStore pending-generation，旧树原地保留，必须另行明确启动生成新树。journal 绑定规范化服务器根身份、前后配置摘要、guard ID 与工作区；配置保护副本包含私密值，仅留在私有随机工作区，公开 DTO 不返回路径或正文。启动先扫描并物理核验，所有重复 journal owner 均保留独立 ambiguity 原因，不能被 owned rollback 清除。未完成创建保持人工恢复锁，不提供自动回滚或自动 start。
+
+26.3 实际 Seed 从受控世界 `data/minecraft/world_gen_settings.dat` 的 `data.seed` 有界解析，来源为 world-data，旧版本继续 level-dat；缺失/损坏 unavailable。ZIP 安全校验模块已连接私有流式上传与校验 API 和 UI；只生成独占 staging，不替代实际 Import 切换事务或清理契约。暂存配额、超时与验收范围见 [上传切片报告](./P33C_UPLOAD_REVIEW_2026-10-02.md)。此前 Perflib ERROR 曾阻塞验收；2026-10-02 用户普通交互式会话中的实际 Manager 创建、Restore 和 Rollback 干净启动验收现已 PASS，P3.2 / P3.3b 最终独立 Astra High Gate 均已 PASS，详情见 PROGRESS 和 [最终独立 Review](./P32_P33B_FINAL_REVIEW_2026-10-02.md)。Codex 执行环境差异未定位；既有 Windows fsync 限制和 Phase 3 最终关卡不变。
+
 这些资料用于核实约束，不代表已实现。依赖精确版本与 Java 兼容表在对应阶段按实际版本再次核验。
 
 - [Vite Getting Started](https://vite.dev/guide/)：Node 版本兼容条件；[Vite Server Options](https://vite.dev/config/server-options)：host、strictPort、proxy 与 WS Origin 注意事项。
@@ -316,3 +320,9 @@ GPT-5.6 Sol 已做只读文档校验：三份 Markdown 的 fences 成对、相�
 - [Paper server.properties](https://docs.papermc.io/paper/reference/server-properties/)：RCON、server-ip、视距 / 模拟距离和管理协议配置；不据此假设每种 MC 版本范围完全一样。
 - [Fabric Project Structure](https://docs.fabricmc.net/develop/getting-started/project-structure)：fabric.mod.json；[Paper plugin.yml](https://docs.papermc.io/paper/dev/plugin-yml/)：Plugin metadata 与 api-version。
 - [Forge Mod Files](https://docs.minecraftforge.net/en/1.21.x/gettingstarted/modfiles/) 与 [NeoForge Mod Files](https://docs.neoforged.net/docs/gettingstarted/modfiles/)：分别使用的 TOML metadata。
+
+### P3.3c 私有暂存生命周期
+
+2026-10-03 实际 Import 事务已接入独立 schema 4 journal、消费暂存归属与内容/版本摘要重验、共享 admission/实例锁、pinned guard、同卷世界安装与配置切换意图、活动世界状态及重启物理核验。导入和显式恢复成功都保持停服；恢复仅恢复旧配置与活动世界引用，保留所有世界树。历史已确认成功允许正常后续游玩，未知终态核验失败保持人工恢复锁。消费标记或 journal 引用阻止暂存丢弃；缺少已验证 guard/配置副本的早期中断不猜测恢复。独立 Sol High 实现 Review PASS，真实验收及完整 Import Gate pending，详见 [Import 审查](./P33C_IMPORT_REVIEW_2026-10-03.md)。原平台耐久性和本地同用户信任边界不变。
+
+上传及列表/明确丢弃已接通。新归属绑定注册 root 与随机目录的 canonical/device/inode/birth 身份，按当前实例过滤记录、返回全局配额；旧元数据缺绑定或目录替换时不允许自动丢弃。丢弃使用与上传相同的 admission/实例锁和严格 JSON 写门控，先检查整树，再非递归 unlink/rmdir；私有树外凭证原子发布并同步，在最后目录失败/重启后支持身份匹配的明确重试。没有自动过期或自动恢复。Windows 目录 fsync 和同 OS 写入者边界保持原说明；此生命周期签核不代表实际 Import、断电耐久性或整个 Phase 3 完成。详见 [生命周期报告](./P33C_STAGING_REVIEW_2026-10-02.md)。

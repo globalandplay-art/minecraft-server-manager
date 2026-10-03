@@ -202,6 +202,7 @@ export type Metrics = Static<typeof metricsSchema>;
 
 export const worldFieldSourceSchema = Type.Union([
   Type.Literal("level-dat"),
+  Type.Literal("world-data"),
   Type.Literal("server-properties"),
   Type.Literal("filesystem"),
   Type.Null()
@@ -228,6 +229,7 @@ const worldIntegerMetric = metric(Type.Integer({ minimum: 0 }));
 
 export const worldInfoSchema = strictObject({
   worldId: Type.String({ minLength: 1, maxLength: 128, pattern: "^[a-z0-9-]+$" }),
+  worldRevision: Type.Optional(Type.Union([Type.String({ pattern: "^[0-9a-f]{64}$" }), Type.Null()])),
   active: Type.Boolean(),
   dimensions: Type.Array(worldDimensionSchema, { minItems: 1, maxItems: 256 }),
   name: metric(Type.String({ minLength: 1, maxLength: 128 })),
@@ -336,6 +338,34 @@ export const worldsResponseSchema = strictObject({
 });
 export type WorldsResponse = Static<typeof worldsResponseSchema>;
 
+export const worldCreatePlanRequestSchema = strictObject({
+  name: Type.String({ minLength: 1, maxLength: 64 }),
+  seed: Type.String({ maxLength: 20, pattern: "^(?:|-?(?:0|[1-9][0-9]*))$" })
+});
+export type WorldCreatePlanRequest = Static<typeof worldCreatePlanRequestSchema>;
+export const worldCreateRequestSchema = strictObject({
+  ...worldCreatePlanRequestSchema.properties,
+  confirmWorldName: Type.String({ minLength: 1, maxLength: 128 }),
+  worldRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  allowStop: Type.Boolean()
+});
+export type WorldCreateRequest = Static<typeof worldCreateRequestSchema>;
+export const worldCreatePlanResponseSchema = strictObject({
+  data: strictObject({
+    serverId: serverInfoSchema.properties.id,
+    name: Type.String({ minLength: 1, maxLength: 64 }),
+    seed: Type.Union([Type.String({ maxLength: 20 }), Type.Null()]),
+    minecraftVersion: Type.String({ minLength: 1, maxLength: 64 }),
+    currentWorldName: Type.String({ minLength: 1, maxLength: 128 }),
+    worldRevision: Type.Union([Type.String({ pattern: "^[a-f0-9]{64}$" }), Type.Null()]),
+    requiresStop: Type.Boolean(),
+    generation: Type.Literal("on-explicit-start"),
+    executionAvailable: Type.Boolean()
+  }),
+  meta: responseMetaSchema
+});
+export type WorldCreatePlanResponse = Static<typeof worldCreatePlanResponseSchema>;
+
 export const backupScopeSchema = Type.Union([Type.Literal("world-set"), Type.Literal("server-snapshot")]);
 export type BackupScope = Static<typeof backupScopeSchema>;
 export const backupInfoSchema = strictObject({
@@ -377,6 +407,35 @@ export const backupParamsSchema = strictObject({
   backupId: Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" })
 });
 export type BackupParams = Static<typeof backupParamsSchema>;
+export const restoreRequestSchema = strictObject({
+  restoreScope: Type.Literal("world-set"),
+  confirmWorldName: Type.String({ minLength: 1, maxLength: 128 }),
+  worldRevision: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+  allowStop: Type.Literal(true),
+  startAfterRestore: Type.Boolean()
+});
+export type RestoreRequest = Static<typeof restoreRequestSchema>;
+export const rollbackRequestSchema = strictObject({
+  confirmWorldName: Type.String({ minLength: 1, maxLength: 128 }),
+  worldRevision: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+  startAfterRollback: Type.Boolean()
+});
+export type RollbackRequest = Static<typeof rollbackRequestSchema>;
+export const restorePlanSchema = strictObject({
+  worldName: Type.String({ minLength: 1, maxLength: 128 }),
+  worldRevision: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+  backupId: Type.String({ minLength: 1, maxLength: 128 }),
+  minecraftVersion: Type.String({ minLength: 1, maxLength: 64 }),
+  sizeBytes: Type.Integer({ minimum: 0 }),
+  rollbackAvailable: Type.Boolean()
+});
+export const restorePlanResponseSchema = strictObject({ data: restorePlanSchema, meta: responseMetaSchema });
+export type RestorePlanResponse = Static<typeof restorePlanResponseSchema>;
+export const restoreHistoryResponseSchema = strictObject({
+  data: strictObject({ items: Type.Array(strictObject({ operationId: Type.String({ minLength: 1, maxLength: 128 }), backupId: Type.String({ minLength: 1, maxLength: 128 }),
+    state: Type.String({ minLength: 1, maxLength: 32 }), rollbackAvailable: Type.Boolean() }), { maxItems: 1000 }) }), meta: responseMetaSchema
+});
+export type RestoreHistoryResponse = Static<typeof restoreHistoryResponseSchema>;
 export const backupExportResponseSchema = strictObject({
   data: strictObject({
     backupId: Type.String({ minLength: 1, maxLength: 128 }),
@@ -418,6 +477,7 @@ export const operationKindSchema = Type.Union([
   Type.Literal("rollback"),
   Type.Literal("world-create"),
   Type.Literal("world-import"),
+  Type.Literal("world-import-recovery"),
   Type.Literal("world-archive"),
   Type.Literal("addon-change")
 ]);
@@ -568,3 +628,54 @@ export const wsMessageSchema = Type.Union([
   wsGapMessageSchema
 ]);
 export type WsMessage = Static<typeof wsMessageSchema>;
+
+export const worldImportUploadResponseSchema = strictObject({
+  data: strictObject({
+    id: Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }), serverId: Type.String({ minLength: 1, maxLength: 63 }),
+    minecraftVersion: Type.String({ minLength: 1, maxLength: 128 }),
+    fileCount: Type.Integer({ minimum: 1, maximum: 10_000 }),
+    sizeBytes: Type.Integer({ minimum: 1, maximum: 512 * 1024 ** 2 }),
+    checksumSha256: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+    state: Type.Literal("validated"), executionAvailable: Type.Literal(false)
+  }), meta: responseMetaSchema
+});
+export type WorldImportUploadResponse = Static<typeof worldImportUploadResponseSchema>;
+
+const uploadIdSchema = Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" });
+export const worldImportUploadParamsSchema = strictObject({ serverId: Type.String({ pattern: "^[a-z0-9](?:[a-z0-9-]{0,62})$" }), uploadId: uploadIdSchema });
+export const worldImportUploadsResponseSchema = strictObject({ data: strictObject({
+  items: Type.Array(strictObject({ id: uploadIdSchema,
+    state: Type.Union([Type.Literal("validated"), Type.Literal("incomplete"), Type.Literal("identity-unverified"), Type.Literal("consumed")]),
+    discardAllowed: Type.Boolean(), revision: Type.String({ pattern: "^[0-9a-f]{64}$" }), importOperationId: Type.Optional(uploadIdSchema)
+  }), { maxItems: 3 }), occupiedSlots: Type.Integer({ minimum: 0, maximum: 3 }), limit: Type.Literal(3)
+}), meta: responseMetaSchema });
+export type WorldImportUploadsResponse = Static<typeof worldImportUploadsResponseSchema>;
+export const worldImportDiscardRequestSchema = strictObject({ confirmUploadId: uploadIdSchema, revision: Type.String({ pattern: "^[0-9a-f]{64}$" }) });
+export type WorldImportDiscardRequest = Static<typeof worldImportDiscardRequestSchema>;
+export const worldImportDiscardResponseSchema = strictObject({ data: strictObject({ id: uploadIdSchema, state: Type.Literal("discarded") }), meta: responseMetaSchema });
+export type WorldImportDiscardResponse = Static<typeof worldImportDiscardResponseSchema>;
+
+const importRevisionSchema = Type.String({ pattern: "^[0-9a-f]{64}$" });
+export const worldImportPlanRequestSchema = strictObject({ uploadId: uploadIdSchema, name: Type.String({ minLength: 1, maxLength: 64 }) });
+export type WorldImportPlanRequest = Static<typeof worldImportPlanRequestSchema>;
+export const worldImportRequestSchema = strictObject({ ...worldImportPlanRequestSchema.properties,
+  uploadRevision: importRevisionSchema, worldRevision: importRevisionSchema,
+  confirmWorldName: Type.String({ minLength: 1, maxLength: 128 }), allowStop: Type.Boolean() });
+export type WorldImportRequest = Static<typeof worldImportRequestSchema>;
+export const worldImportPlanResponseSchema = strictObject({ data: strictObject({
+  ...worldImportPlanRequestSchema.properties, serverId: Type.String(), uploadRevision: importRevisionSchema,
+  minecraftVersion: Type.String(), currentWorldName: Type.String(), worldRevision: importRevisionSchema,
+  requiresStop: Type.Boolean(), fileCount: Type.Integer(), sizeBytes: Type.Integer(), checksumSha256: importRevisionSchema,
+  executionAvailable: Type.Literal(true)
+}), meta: responseMetaSchema });
+export type WorldImportPlanResponse = Static<typeof worldImportPlanResponseSchema>;
+export const worldImportRecoveryPlanRequestSchema = strictObject({ operationId: uploadIdSchema });
+export type WorldImportRecoveryPlanRequest = Static<typeof worldImportRecoveryPlanRequestSchema>;
+export const worldImportRecoveryRequestSchema = strictObject({ operationId: uploadIdSchema,
+  confirmWorldName: Type.String({ minLength: 1, maxLength: 128 }), recoveryRevision: importRevisionSchema });
+export type WorldImportRecoveryRequest = Static<typeof worldImportRecoveryRequestSchema>;
+export const worldImportRecoveryPlanResponseSchema = strictObject({ data: strictObject({ serverId: Type.String(), operationId: uploadIdSchema,
+  previousWorldName: Type.String(), importedWorldName: Type.String(), recoveryRevision: importRevisionSchema,
+  executionAvailable: Type.Literal(true), preservesAllTrees: Type.Literal(true)
+}), meta: responseMetaSchema });
+export type WorldImportRecoveryPlanResponse = Static<typeof worldImportRecoveryPlanResponseSchema>;

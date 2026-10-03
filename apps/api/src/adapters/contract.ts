@@ -38,6 +38,7 @@ export interface LocalMinecraftServerAdapter extends MinecraftServerAdapter {
   revalidateBeforeStart(): Promise<void>;
   start(context: RuntimeOperationContext): Promise<void>;
   stop(context: RuntimeOperationContext): Promise<void>;
+  stopOwnedForRecovery?(context: RuntimeOperationContext, ownerOperationId: string): Promise<void>;
   command(validatedLine: string): Promise<RuntimeCommandResult>;
   getLogs(after: string | undefined, limit: number): Promise<RuntimeLogPage>;
   subscribe(listener: (event: RuntimeEvent) => void): () => void;

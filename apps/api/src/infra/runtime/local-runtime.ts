@@ -135,6 +135,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
   private readonly tailer: BoundedLogTailer;
   private readonly redactor: Redactor;
   private child: ChildProcessWithoutNullStreams | null = null;
+  private childOperationId: string | null = null;
   private childExit: Promise<void> | null = null;
   private rcon: RconClient | null = null;
   private rconSignature: string | null = null;
@@ -255,6 +256,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
         detached: true
       });
       this.attachChild(child);
+      this.childOperationId = context.operationId;
       await this.waitForSpawn(child, context.signal);
       await context.onStep("waiting-for-new-done-log");
       await this.waitUntilReady(() => doneSeen, context.signal);
@@ -272,6 +274,21 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     } finally {
       unsubscribe();
     }
+  }
+
+  async stopOwnedForRecovery(context: RuntimeOperationContext, ownerOperationId: string): Promise<void> {
+    this.assertOpen();
+    if (this.childOperationId !== ownerOperationId) throw new RuntimeError("RECOVERY_REQUIRED", "不能停止其他事务或外部进程。");
+    if (!this.child || this.child.exitCode !== null) {
+      if (this.status.ownership !== "none") throw new RuntimeError("RECOVERY_REQUIRED", "无法确认该事务进程已退出。");
+      this.knownStopped = true;
+      this.updateStatus("stopped", "none", null, false);
+      return;
+    }
+    // This permission is tied to the exact child launched by the restore. It is
+    // never exposed as a general recovery bypass on lifecycle or HTTP APIs.
+    this.updateStatus(this.status.state, "managed", context.operationId, false);
+    await this.stop(context);
   }
 
   async stop(context: RuntimeOperationContext): Promise<void> {

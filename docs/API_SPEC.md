@@ -261,33 +261,45 @@ type WsMessage =
 
 ## 6. Phase 3：Worlds 与 Backups
 
-worldId 指向后端识别出的 world set；包含 dimensions 和 active 状态。详情字段为 `name, seed, minecraftVersion, sizeBytes, difficulty, gameMode, hardcore, pvp, viewDistance, simulationDistance`，其中每项可探测值以 Metric 包装并注明来源（NBT / properties 来源标签在世界 DTO 另设 fieldSources）。世界级不可读值 unavailable，不使用空字符串 / 0 假值。
+2026-10-02 P3.3a 已实现只读预览 `POST /api/v1/servers/:serverId/worlds/create-plan`，JSON `{ name: string, seed: string }`（seed 留空表示后续随机生成）。返回 200 `{ data: { serverId, name, seed: string | null, minecraftVersion, currentWorldName, worldRevision: string | null, requiresStop, generation: 'on-explicit-start', executionAvailable: false }, meta }`，Cache-Control: no-store。请求需允许的 Host / Origin 和 X-Manager-Intent: local-ui；不接受路径或额外字段；在 AJV 自动转换前拒绝非字符串，Seed 精确校验 signed int64。拒绝危险/保留名、已有目标（不区分大小写）、链接目录、未知版本、外部/未知进程及恢复门控。此接口不持久化、不需要 Idempotency-Key、不改世界或配置；其 revision 只是预览，后续执行必须重新在实例锁内比对。以下实际 create/import/archive endpoint 仍为后续设计，并未因提供计划而开放。
+
+2026-10-02 P3.3b 已开放实际创建 `POST /api/v1/servers/:serverId/worlds`：严格 JSON `{ name: string, seed: string, confirmWorldName: string, worldRevision: string, allowStop: boolean }`，必须携带 UUID-v4 Idempotency-Key，返回 202 Operation。缺少 key 返回 428；原始非字符串 Seed 在 AJV 转换前拒绝。实例锁内重验名称、revision、活动世界身份和停服授权；先创建 pinned world-set guard，再保存私有配置前后副本、journal 化原子更新 `level-name` / `level-seed` 与 pending-generation 状态。旧世界目录原地完整保留；不隐式启动，不自动回滚。中断保持恢复门控并保留配置副本与 guard，暂不提供自动解决创建中断的 API。重复请求复用同一操作。配置切换成功后须另行明确 start 才生成新世界。运行实例仅允许 managed，且必须 allowStop=true。计划接口的 executionAvailable 现在表示创建写入者是否存在且 revision 可用；worldChanges readiness 同时反映活动状态和恢复/操作门控。Import / archive 仍未开放。
+
+worldId 指向后端识别出的 world set；包含 dimensions 和 active 状态。详情字段为 `name, seed, minecraftVersion, sizeBytes, difficulty, gameMode, hardcore, pvp, viewDistance, simulationDistance`，其中每项可探测值以 Metric 包装并注明来源（NBT / properties 来源标签在世界 DTO 另设 fieldSources）。26.3 实际生成 Seed 从 `data/minecraft/world_gen_settings.dat` 的 `data.seed` 读取，fieldSources.seed 为 `world-data`；旧布局仍使用 `level-dat`。有界 NBT 解码保留 signed int64 精度，文件缺失/损坏仍 unavailable，禁止以 server.properties 配置 Seed 冒充世界实际 Seed。世界级不可读值 unavailable，不使用空字符串 / 0 假值。
 
 | 方法 / 路径 | 请求或结果 |
 | --- | --- |
 | GET /servers/:id/worlds | `{ items: WorldInfo[] }` |
 | POST /servers/:id/worlds/actions/save | 无 body 字段；要求可用 transport；返回命令确认，不承诺备份一致性 |
-| POST /servers/:id/worlds | `{ name, seed?, difficulty, gameMode, hardcore, allowStop: boolean }`，202 Operation；准备新 world set，安全更新活动世界配置，归档旧世界 |
-| POST /servers/:id/worlds/import | multipart .zip + allowStop；202 Operation；与 create 相同的切换保护 |
+| POST /servers/:id/worlds | 已实现：`{ name, seed, confirmWorldName, worldRevision, allowStop }` + Idempotency-Key，202 Operation；保护并保留旧世界，切换配置，明确 start 后生成新世界 |
+| POST /servers/:id/worlds/import-uploads | 已实现：原始 application/zip 流 + X-Upload-Filename；201 仅代表暂存校验，无世界切换 |
+| GET /servers/:id/worlds/import-uploads | 已实现：当前实例记录、归属 revision、丢弃可用性和全局配额，无私有路径 |
+| POST /servers/:id/worlds/import-uploads/:uploadId/discard | 已实现：JSON confirmUploadId + revision；200 仅丢弃私有暂存，不影响当前世界 |
+| POST /servers/:id/worlds/import | 尚未实现；后续消费已校验暂存 ID + 显式确认/allowStop；202 Operation；与 create 相同的切换保护 |
 | GET /servers/:id/worlds/:worldId/download | 只下载已完成不可变归档；活动世界无已生成快照则 409，GET 不停服 |
 | POST /servers/:id/worlds/:worldId/archive | `{ allowStop: boolean }`，202 Operation；inactive 世界直接归档，active 世界先一致性快照并停止使用，不能运行中移走目录 |
 | POST /servers/:id/backups | `{ scope: 'world-set' \| 'server-snapshot', label?, allowStop: boolean }`，202 Operation |
 | GET /servers/:id/backups | `{ items: BackupInfo[], nextCursor: null }`；当前首版不分页 |
 | GET /servers/:id/backups/:backupId/download | 仅已完成且通过秘密扫描的 world-set attachment；server-snapshot 返回 403 / EXPORT_NOT_SUPPORTED，扫描命中秘密返回 SENSITIVE_ARCHIVE |
-| POST /servers/:id/backups/:backupId/restore | `{ restoreScope: 'world-set', confirmWorldName: string, startAfterRestore: true }`，202 Operation；固定停服 → pre-restore → 恢复世界 → 启动 → 检查 |
-| POST /servers/:id/operations/:operationId/rollback | `{ confirmWorldName: string, startAfterRollback: boolean }`，202 Operation；恢复 rollback / pre-restore，先核对实例状态 |
+| GET /servers/:id/backups/:backupId/restore | 返回恢复预览：确认世界名、worldRevision、备份 ID、Minecraft 版本、空间大小、rollbackAvailable |
+| POST /servers/:id/backups/:backupId/restore | `{ restoreScope: 'world-set', confirmWorldName: string, worldRevision: string, allowStop: true, startAfterRestore: boolean }` + Idempotency-Key，202 Operation；在实例锁内先核 revision，再停服、验证 pinned guard、stage 与 journal 化同卷切换；不得自动回滚或未经许可启动 |
+| GET /servers/:id/restores | 不缓存的恢复历史，返回原 restore operation、归档 ID、事务状态与 rollbackAvailable |
+| GET /servers/:id/operations/:operationId/rollback | 返回仅限该父 restore 的回滚预览与当前 revision；不执行写入 |
+| POST /servers/:id/operations/:operationId/rollback | `{ confirmWorldName: string, worldRevision: string, startAfterRollback: boolean }` + Idempotency-Key，202 Operation；仅绑定原 restore 与其 guard 的显式回滚 |
 | GET /servers/:id/backup-policy | `{ enabled, localTime, timezone, allowStop, retainCount, retainDays, revision }` |
 | PATCH /servers/:id/backup-policy | 同字段白名单 + If-Match；200 保存后的 policy |
 
 所有多步写任务用 Idempotency-Key。create / import / archive 同样必须锁实例、停服、pre-change 快照和 journal，再切换布局；失败保留 rollback。create / import 初版完成后保持停止，用户另行启动；archive 当前世界后 active world 标记未设置，start readiness=false，直到用户创建 / 导入世界。不能因删除当前目录而让 MC 下一次意外生成空世界。
 
-`BackupInfo` 必须包含 architecture 指定的 manifest 字段、state=complete、pinned、sizeBytes、checksum、restart / downtime 信息。未完成归档不出现在可恢复列表；不可按前端提供的文件路径恢复。restore 验证同实例或经专门 import 工作流检查布局，不允许任意跨实例覆盖。
+`WorldInfo` 增加无路径的 `worldRevision`：对活动 world identity、配置的 level-name 和有界读取的 level.dat 摘要做版本化摘要。它是写操作的 stale-state token，不是授权凭证。Restore 在 per-server reservation 内、停服前比对；停服会更新 level.dat，停服后重新核对世界身份和 level-name 并记录新的 stopped revision，不比较前后摘要相等。`BackupInfo` 必须包含 architecture 指定的 manifest 字段、state=complete、pinned、sizeBytes、checksum、restart / downtime 信息。未完成归档不出现在可恢复列表；不可按前端提供的文件路径恢复。Restore 仅允许同 serverId 的受支持 world-set，不允许跨实例覆盖或 server-snapshot 整体恢复。
+
+Rollback operation 必须包含 parent restore operation ID、当前 worldRevision、确认世界名及独立的 startAfterRollback 明确许可；它只能通过事务拥有者限定的 recovery admission 处理原事务，不能提供通用 bypass recoveryRequired 参数。API 只有在目标/旧树与 guard 已验证、事务状态可恢复时才报告 rollbackAvailable=true；失败时返回实际 recovery cause 并保留现场。
 
 备份 readiness 仅在能力支持、状态为 stopped，或为管理器拥有的 running 进程且无活动操作 / 恢复门控时 allowed。运行中创建要求请求 `allowStop=true`。后端先估算所有目标文件的大小，预留至少 128 MiB 或估算大小的 5%（取较大值）；空间不足在停服和复制前失败。实际成功写入的 manifest 同时受 64 MiB 序列化 / 读取上限约束。逐文件数据和 manifest 均同步后才允许提交 journal；Windows Node 不支持目录 fsync 时按事务 journal 既有的平台处理规则执行，所有文件仍需先成功 fsync。
 
-当前代码仅开放 Vanilla 的 GET worlds、GET backups、POST backups 三条路径。world-set 与私有 server-snapshot 都会停服后复制并生成 SHA-256 manifest；server-snapshot 不提供下载。受限 world-set 下载、实际 payload 二次验证、restore、world CRUD 与 backup policy 尚未实现，health feature 继续返回 implemented=false；UI 会明确标注不支持的动作。
+当前本地 Vanilla 代码支持 GET worlds / backups、POST backups、经秘密扫描的 world-set 导出/下载，以及 P3.2 的 restore plan/history、显式 restore 与 rollback plan/执行。恢复整体拒绝 server-snapshot，包括仅提取其中世界；请求不能提供文件路径。world CRUD、scheduler/retention policy 尚未实现。health 的 worlds/backups 仍代表 Phase 3 全部功能完成度，故在完整 Phase 3 完成前仍可返回 implemented=false。
 
-Phase 3 恢复范围仅 world-set；从 server-snapshot 选择世界恢复时，只使用 manifest 的世界项，其他文件不切换。完整服务器恢复是后续升级 / Addon batch 工作流的独立设计，当前 API 不接受 restoreScope=server-snapshot，不能用 world-set 结果宣称整服已回滚。
+Phase 3 恢复范围仅为同实例 Vanilla world-set。server-snapshot 在恢复流程入口拒绝，不会提取其中世界；其他文件从不切换。完整服务器恢复是后续升级 / Addon batch 工作流的独立设计，当前 API 不接受 restoreScope=server-snapshot，不能用 world-set 结果宣称整服已回滚。
 
 schedule localTime 用 HH:mm，timezone 用支持的 IANA zone；retainCount 范围 1–100，retainDays 1–365；enabled 默认 false，allowStop 默认 false。预恢复 / 升级 / 批量 Addon 快照保持 pinned，不自动清理。Retention 由后端完成且只删除符合策略的备份；不提供任意文件删除 API。
 
@@ -334,3 +346,34 @@ Crash Analysis 是本地规则，finding 含 ruleId、severity、title、explana
 - Phase 7 开始前另行制定认证 / 授权合约；当前 API 不可直接作为公网 API 暴露。
 
 Phase 1 合约测试验证四个 GET、envelope、feature map、Mock 来源、未知实例、缺失指标、Origin / Host、错误响应无秘密与 API 停止状态。生命周期、WS、上传、恢复、并发与安全文件测试在各自阶段落实。
+
+### P3.3c 当前上传协议（2026-10-02）
+
+`POST /api/v1/servers/:serverId/worlds/import-uploads` 使用原始 ZIP 请求体（不是 multipart 或 JSON）。要求允许的 Host / Origin、`X-Manager-Intent: local-ui`、准确的 `Content-Type: application/zip`、`X-Upload-Filename: encodeURIComponent(file.name)`；拒绝 Content-Encoding 和任意查询参数。声明长度和实际接收都限 128 MiB，接收超时 60 秒；后续结构校验有资源上限，没有单独的总耗时期限。JSON 路由仍保持 64 KiB 限制。
+
+成功 201 `{ data: { id, serverId, minecraftVersion, fileCount, sizeBytes, checksumSha256, state: 'validated', executionAvailable: false }, meta }`，`Cache-Control: no-store`。服务端只接受本地 Vanilla / 已知版本；UUID 为后端生成，不接受目标路径。201 不代表导入、停服或世界切换授权。
+
+恢复/实例操作冲突返回 409；超大 413；类型或编码错误 415；接收超时 408；容量不足或全局三份保留目录已满 507。失败和中断也占配额，重启不清零，没有自动清理或重试；不确定响应可能留下私有上传，请先检查。当前已实现暂存列表与明确丢弃 API；实际 import API 与消费时内容/版本/revision 重验已实现，详见末节；自动过期清理未实现。更宽的通用未来 ZIP 限额不适用于此已实现接口。
+
+### P3.3c 暂存生命周期协议（2026-10-02）
+
+`GET /api/v1/servers/:serverId/worlds/import-uploads` 返回 `{ data: { items: [{ id, state: 'validated' | 'incomplete' | 'identity-unverified' | 'consumed', discardAllowed, revision, importOperationId? }], occupiedSlots, limit: 3 }, meta }`，`Cache-Control: no-store`。items 仅当前注册实例，occupiedSlots 为全部实例/残留目录的占用；空列表不代表全局配额为空。validated 是上传完成标记，不证明未来导入所需的内容重验已通过。
+
+`POST /api/v1/servers/:serverId/worlds/import-uploads/:uploadId/discard` 为严格 JSON `{ confirmUploadId: string, revision: string }`，要求正常 JSON 写门控；确认 UUID 必须等于 URL ID，revision 必须匹配持久化归属与目录身份。200 `{ data: { id, state: 'discarded' }, meta }` 代表私有暂存目录已移除，当前世界不受影响。多余/路径字段、错误确认拒绝；跨实例或不存在记录 404，身份/归属/写锁/恢复冲突 409，且不自动绕过。
+
+新上传绑定注册根目录和暂存目录身份；缺少绑定的旧上传不自动迁移或丢弃。丢弃前完整验证普通目录/文件和无硬链接，先原子发布并同步私有树外归属凭证，逐文件 unlink、逐目录非递归 rmdir。owner 已移除而最后 rmdir 失败时，凭证仅在根及暂存身份匹配时允许用户明确重试，不自动清理。没有归属/凭证的孤立目录、损坏记录保持人工检查。receipt 临时文件不是授权凭证，残留旧凭证不能授权删除被替换的目录。
+
+丢弃客户端等待上限 120 秒；超时或未知响应时不要自动重试，稍后刷新记录确认。没有记录表示目录槽位已释放；服务端仍有活动清理时刷新可能返回 409。该暂存协议本身不执行实际 Import，也不替代其 journal、guard 或最终 Gate。
+
+### P3.3c 实际导入与显式恢复协议（2026-10-03，验收进行中）
+
+以下路径均带 `/api/v1/servers/:serverId` 前缀；POST 要求本地 Host / Origin、`X-Manager-Intent: local-ui` 和严格 JSON，不接受路径或额外字段。
+
+- `POST /worlds/import-plan`：`{ uploadId, name }`，200 返回 serverId、uploadId、name、uploadRevision、minecraftVersion、currentWorldName、worldRevision、requiresStop、fileCount、sizeBytes、checksumSha256、executionAvailable。只读预检不切换。uploadRevision 绑定归属、内容摘要和版本，不能使用列表的丢弃 revision 替代。
+- `POST /worlds/import`：`{ uploadId, name, uploadRevision, worldRevision, confirmWorldName, allowStop }`，要求 UUID `Idempotency-Key`，202 返回生命周期 operation。重验源内容、版本和活动世界 revision；必要停服必须明确授权。pinned guard、同卷 staging、切换 journal 均保留，成功后保持停服。
+- `POST /worlds/import-recovery-plan`：`{ operationId }`，200 返回 serverId、operationId、previousWorldName、importedWorldName、recoveryRevision、executionAvailable、preservesAllTrees。仅核验拥有当前恢复锁的导入事务，不绕过其他恢复锁。
+- `POST /worlds/import-recovery`：`{ operationId, confirmWorldName, recoveryRevision }`，要求新的 UUID `Idempotency-Key`，202 返回 operation。明确恢复旧配置与活动世界记录，所有世界树、上传与 guard 保留，不自动启动。
+
+消费后的暂存列表 state 为 `consumed`，discardAllowed 为 false，可附 importOperationId 供人工检查显式恢复；即使消费标记丢失，持久 journal 引用仍阻止丢弃。缺少已验证 guard / 配置副本的早期中断保持人工恢复锁，不自动猜测或清理。不确定写请求仅允许用户明确使用原 body/key 确认，不自动重试。
+
+上述接口已实现；完整 Import 真实验收与独立最终 Gate 尚未全部完成，不代表 P3.3c PASS。

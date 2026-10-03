@@ -8,8 +8,11 @@ tests, rework, context and coordination cost.
 
 Default engineering: **GPT-6.1 Sol / Medium**. Small mechanical tasks:
 **GPT-6 Luna / Low**; small features with an explicit design: **Luna / Medium**.
-Default subagent budget: **0**. The user's instruction to stop using agents
-remains in force; budget limits never authorize restarting them.
+Default subagent budget: **0**. The user has now explicitly authorized agent
+use for the P3.2 work; keep one writer for coupled transaction modules and use
+read-only agents for independent reviews. This authorization does not raise
+the model-specific concurrency caps below; budget limits are ceilings, not a
+target.
 
 Escalate to **Sol High** for uncertainty, coupling, concurrency, transaction
 invariants, security boundaries or consequential failures, never simply file

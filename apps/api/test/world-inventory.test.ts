@@ -94,6 +94,27 @@ async function fixture(properties: string, data = levelDat(1n, "1.21.1")): Promi
 }
 
 describe("Vanilla world inventory", () => {
+  it("reads the actual 26.3 generated seed from separate saved data with exact int64 precision", async () => {
+    const withoutSeed = gzipSync(Buffer.concat([Buffer.from([10]), nbtString(""),
+      compoundTag("Data", [compoundTag("Version", [stringTag("Name", "26.3")])]), Buffer.from([0])]));
+    const { root, world } = await fixture("level-name=world\nlevel-seed=111\n", withoutSeed);
+    await mkdir(path.join(world, "data", "minecraft"), { recursive: true });
+    await writeFile(path.join(world, "data", "minecraft", "world_gen_settings.dat"), gzipSync(Buffer.concat([
+      Buffer.from([10]), nbtString(""), compoundTag("data", [longTag("seed", -9_223_372_036_854_775_808n)]), Buffer.from([0])
+    ])));
+    const [item] = await inspectVanillaWorld("vanilla-test", root, NOW);
+    expect(item?.seed.value).toBe("-9223372036854775808");
+    expect(item?.fieldSources.seed).toBe("world-data");
+  });
+  it("never falls back to the configured seed when saved generation data is absent or invalid", async () => {
+    const withoutSeed = gzipSync(Buffer.concat([Buffer.from([10]), nbtString(""),
+      compoundTag("Data", [compoundTag("Version", [stringTag("Name", "26.3")])]), Buffer.from([0])]));
+    const { root, world } = await fixture("level-name=world\nlevel-seed=111\n", withoutSeed);
+    expect((await inspectVanillaWorld("vanilla-test", root, NOW))[0]?.seed.status).toBe("unavailable");
+    await mkdir(path.join(world, "data", "minecraft"), { recursive: true });
+    await writeFile(path.join(world, "data", "minecraft", "world_gen_settings.dat"), "corrupt");
+    expect((await inspectVanillaWorld("vanilla-test", root, NOW))[0]?.seed.status).toBe("unavailable");
+  });
   it("keeps a signed 64-bit seed exact and discovers actual Vanilla dimensions", async () => {
     const { root, world } = await fixture(
       "level-name=world\npvp=false\nview-distance=12\nsimulation-distance=8\n",

@@ -75,7 +75,9 @@ export class ServerService {
   constructor(
     registry: AdapterRegistry,
     operations: OperationService,
-    private readonly activeWorldState?: Pick<ActiveWorldStateStore, "reconcileAfterStart">
+    private readonly activeWorldState?: Pick<ActiveWorldStateStore, "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "snapshot">>,
+    private readonly restoreEnabled = false,
+    private readonly worldCreateEnabled = false
   ) {
     this.#registry = registry;
     this.#operations = operations;
@@ -249,8 +251,10 @@ export class ServerService {
       backup: canBackup ? available() : unavailable(
         !capabilities.backup ? "capability-unsupported" : blockedReason ?? statusReason(status, "backup")
       ),
-      restore: unavailable("feature-not-implemented"),
-      worldChanges: unavailable("feature-not-implemented"),
+      restore: !this.restoreEnabled ? unavailable("feature-not-implemented") : canBackup ? available() : unavailable(blockedReason ?? statusReason(status, "backup")),
+      worldChanges: !this.worldCreateEnabled ? unavailable("feature-not-implemented") :
+        canBackup && this.activeWorldState?.snapshot?.(serverId)?.state === "active" ? available() :
+          unavailable(blockedReason ?? "world-state-unavailable"),
       addonChanges: unavailable("feature-not-implemented"),
       propertiesChanges: unavailable("feature-not-implemented"),
       commandTransport

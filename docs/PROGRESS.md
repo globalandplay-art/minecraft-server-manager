@@ -1,9 +1,135 @@
 # 实施进度
 
-更新时间：2026-10-01
+更新时间：2026-10-03
 
 
 ## Phase 3 当前检查点
+
+### 2026-10-03 P3.3c REAL ACCEPTANCE HARNESS READY
+
+宿主普通 64 位 PowerShell 包装器已就绪：`tests/acceptance/p33c-real-import-acceptance.ps1`，复用 `phase3-import-real.mjs`。本轮仅修改验收工具、合成测试及文档，没有修改产品代码、运行真实 Java、再次探测宿主 Perflib、修复 Windows、访问原世界或执行 commit/push。此前 Codex registry probe 归类为 **environment-unavailable / inconclusive**，不能证明宿主损坏或产品 Import 失败。
+
+工具要求明确隔离恢复授权，创建全新 UUID runtime/private roots，动态选择两个不同 loopback 端口；仅复制此前已验证隔离实例的 JAR/已接受 EULA。生成不同源/目标世界，实际 API 上传 ZIP，校验 pinned guard 和 journal 切换顺序，明确启动、注入既有 config-installed 故障、重启核验与显式恢复，最后正常停服并检查全部进程输出及端口。报告及现场保留；未知结果不自动重试或恢复。
+
+完整回归 **562 PASS**（contracts 5/API 489/Web 68），lint/typecheck/build/diff check PASS。该完整运行先于最后 PowerShell 绝对路径校验修复；修复后 **11/11 专项测试和 lint PASS**，没有冒称完整套件再次执行。独立 **GPT-6.1 Sol / High** 最终增量复核签核 Harness Ready，无剩余具体阻塞；详见 [工具审查记录](./P33C_HOST_HARNESS_REVIEW_2026-10-03.md)。
+
+下一步由用户依 [宿主运行指南](./P33C_HOST_ACCEPTANCE.md) 手动执行并交回脱敏报告/日志。本轮到此停止。**真实 P3.3c 验收 NOT RUN；P3.3c/Phase 3 仍 IN PROGRESS，强制 Import Final Gate pending**。遵守用户禁用 Astra，不调用或用本次 Sol 工具审查替代该 Gate。
+
+### 2026-10-03 P3.3c 实际 Import 接续 — 验证进行中
+
+已接通 upload ID 导入预检、内容/版本/revision 重验、明确停服授权、pinned pre-import guard、同卷 staging 和 schema 4 独立 Import journal、活动世界切换与显式旧配置恢复。成功保持停服；不自动启动、回滚或清理。消费暂存不可丢弃；journal 引用在消费标记缺失时仍保护目录。早期中断缺少已验证 guard/配置副本时保留人工恢复锁。
+
+完整回归 contracts 5/API 479/Web 68 共 **552 PASS**，lint/typecheck/build 和 diff check PASS。Chrome 360/768/1440 上传/丢弃与实际合成 Import 共 **6/6 PASS**；首次运行首 Chrome 进程在测试开始前退出，其余 5/6 PASS，重复运行全部通过，保留首次失败记录。合成测试不启动 Java。
+
+独立 GPT-6.1 Sol / High 接续审查未发现具体事务核心阻塞，发现确定 4xx 拒绝后沿用失效 UI 确认的 P2；已重置相应计划与确认，并补断言。修复后 Action/Worlds 18 项、lint、Web typecheck PASS，正在等待独立复查；此前两项 UI P2（重复预检确认继承、消费列表不刷新）已修复并有浏览器回归。最新完整回归先于最后这一局部 UI 修复，不冒称全套再次执行。
+
+独立 Sol High 已复查关闭该 P2，签核所审实现范围 PASS；详见 [Import 审查记录](./P33C_IMPORT_REVIEW_2026-10-03.md)。下一步：真实隔离 Vanilla 导入/明确启动/失败恢复验收与报告。用户禁止 Astra，未调用或替代强制 Import Final Gate；**P3.3c / Phase 3 仍 IN PROGRESS，Final Gate pending**。没有访问原世界、commit 或 push。
+
+运行前沙箱外只读 Perflib 009 Counter 查询仍返回实际 `ERROR: The parameter is incorrect.` / exit 1，因此本轮没有重复从该已知异常环境启动 Java。真实 Import 验收 **BLOCKED / NOT RUN**；准备独立审查的新隔离 opt-in 脚本供此前正常的用户交互式 PowerShell 执行。该结果不代表用户普通环境也失败；详见 [Import 验收记录](./ACCEPTANCE_P33C_2026-10-03.md)。
+
+按用户最多三次要求，原生 64 位 reg、cmd 与 .NET Registry64 只读方式均未成功；已停止环境尝试。第二次属于命令语法/编码错误，第三次目标 key 返回 null 后抛出诊断异常，不能据此断言 Windows 注册表损坏或需要管理员权限。真实脚本安全清理复查已通过，但最终所有进程输出管道关闭后的告警重分类仍在补一项 P2；修复复查完成前不将该脚本视为可执行验收交付。
+
+### 2026-10-02 P3.3c 暂存生命周期切片 PASS / 整体 IN PROGRESS
+
+已完成当前实例暂存列表、全局配额、明确丢弃 API/UI，以及注册根目录和暂存目录的 durable identity 绑定。缺少身份的历史上传保持人工检查；私有目录树先完整验证，再逐文件/目录非递归删除。丢弃前原子发布并同步树外身份凭证，最终目录失败后重开管理器可检查并明确重试，不自动恢复或删除。
+
+独立 GPT-6.1 Sol / High Review 发现并复查关闭两项 P2（owner 删除后 rmdir 失败失去归属、非原子凭证/重试跳过同步），最终签核本切片 PASS。未调用 Astra。contracts 5/API 432/Web 59 共 **496 PASS**；lint/typecheck/build/diff check PASS；Chrome 360/768/1440 上传、列表、确认丢弃与配额归零 3/3 PASS。范围、失败记录及平台边界见 [暂存生命周期审查](./P33C_STAGING_REVIEW_2026-10-02.md)。只使用合成测试目录，没有 Java 启动、原世界操作、commit/push。
+
+下一步：实际 Import 的版本/摘要/世界 revision 重验、停服授权、pinned guard、同卷切换 journal、重启核验和显式恢复、确认 UI，再完成隔离真实验收。**P3.3c / Phase 3 仍 IN PROGRESS，完整 Import Final Gate pending**；用户已禁用 Astra，不自行替换关卡或调用该模型。
+
+### 2026-10-02 P3.3c 上传与校验切片 PASS / 整体 IN PROGRESS
+
+用户要求停止使用 GPT-6 Astra 后开始下一步。本轮未调用 Astra；独立 GPT-6.1 Sol / High 只读审查者对上传切片最终签核 PASS，不能替代完整 Import Gate。已接通原始 ZIP 流上传 API、共享公开 contracts、私有随机 staging、接收字节/60 秒超时、全局三槽配额与实例锁，以及 Worlds 点击/拖拽上传与“尚未导入”结果。失败/中断保留且计入配额；没有世界切换或 Java 启动，用户原世界未访问。
+
+最终 contracts 5/API 419/Web 56 共 **480 项 PASS**；lint/typecheck/build/diff check PASS。API 单 worker 全套通过，保留默认并行首次三项旧事务测试超时的 FAIL，不改阈值。实际合成 local API + Chrome 360/768/1440 上传 3/3 PASS；浏览器发现 UUID 格式注册不一致，修复为共享正则并补回归后重验 PASS。独立 Review 与准确范围见 [P3.3c 上传审查报告](./P33C_UPLOAD_REVIEW_2026-10-02.md)。
+
+下一切片：暂存列表/明确丢弃生命周期、消费时 durable 根身份和摘要重验，再接入保护快照与同卷 journal 导入事务、确认 UI、故障/真实隔离验收。**P3.3c 尚未完成，Final Gate pending**；Astra 已被用户停用，不能自行调用或替换必需 Gate。P3.3 / Phase 3 仍 IN PROGRESS，没有 commit/push，保留全部既有改动。
+
+### 2026-10-02 独立最终 Gate — P3.2 / P3.3b PASSED
+
+GPT-6 Astra / High 独立只读 Reviewer 已正式签核 **P3.2 PASS、P3.3b PASS**，无剩余阻塞。重新核对 Restore/Rollback/创建及恢复门控源码，直接核验交互式真实报告、6 次 launch 输出、5 份日志、root-bound journal，独立重算 source 和两份 guard 的各 41/41 文件及 manifest 摘要。明确分类保留 Java 25 的八行 JVM 兼容性 WARNING，并未隐藏告警；未出现此前 Perflib ERROR。签核范围、Windows fsync / 受控异常限制及 Codex 执行环境差异详见 [最终独立 Review](./P32_P33B_FINAL_REVIEW_2026-10-02.md)。
+
+此前真实 PASS、460 项完整 check 和有效浏览器证据与本次独立安全签核共同完成 P3.2 / P3.3b 的关卡。审查者未运行 Java 或修改文件，主任务仅同步文档，无 commit / push，原有工作保留。P3.3 / Phase 3 整体仍 IN PROGRESS。下一步 **P3.3c：受限 ZIP 上传与导入**，接入已有 helper 的上传边界、staging 生命周期、保护/切换事务、UI 与验收；归档和调度/retention 仍为后续切片，本轮未提前实现。
+
+### 2026-10-02 最终独立 Gate 收口进行中
+
+用户要求下一步后，启动一名 GPT-6 Astra / High 只读审查者，检查 P3.2 / P3.3b 的最新真实验收与安全闭环；没有新功能实现、Java 启动或 Git 上传。此前“0 subagent / 暂不跑 Astra”适用于已结束的真实验收轮，本轮是单独的既定独立 Gate 收口。
+
+Reviewer 首先指出证据措辞需要精确：Minecraft 日志 ERROR/WARN 为零，但完整 stderr 存在 Java 25 的 JNA native-access 与 JOML Unsafe 弃用 WARNING。原始输出已保留，Acceptance Report 已分类说明其非阻塞依据，不宣称所有 warning 不存在、不屏蔽 JVM 告警。等待独立结论；P3.2 / P3.3b 的真实验收 PASS 保留，最终独立 Gate 暂仍 PENDING。
+
+### 2026-10-02 交互式普通权限真实验收 — P3.2 / P3.3b 真实 PASS
+
+用户在已验证非管理员且 Perflib 009 可读的普通 PowerShell 中执行同一份 existing-real 脚本，runId `reaccept-b7e1e9b3-372a-4be2-af1d-08a11e179e7b`。主任务核对私有原始 JSON、5 份启动日志、6 次 Java stdout/stderr、相关 journal、guard、活动世界状态与 PID 退出：全部启动输出有新 Done/RCON、无 ERROR/WARN；RCON list / TCP / 世界加载成功。Restore 三维度 marker 恢复、pinned pre-restore guard、after:rename-old 中断、重开 Manager 门控、明确 rollback 逐文件一致和 gold marker、journal 收敛及恢复锁解除都 PASS。P3.3b 新世界 accept-1e179e7b / Seed 987654321、明确启动、旧树不变及 Manager 重启 PASS。finalStopped=true，全部 6 个测试进程均已退出；原世界未被操作。
+
+验收后再次运行全仓 `npm.cmd run check`，exit 0：contracts 4/API 403/web 53 共 460 项；lint/typecheck/build PASS。此前浏览器 11+3 项与真实 360px 验收仍有效，本轮没有 UI / 核心 transaction / restore 代码变更，不重复无变化 E2E。报告已更新为真实验收 PASS，并保留此前 BLOCKED 的历史记录：[Acceptance Report](./ACCEPTANCE_P32_P33B_2026-10-02.md)。
+
+本轮 0 subagent、没有新 Astra Review、没有 commit/push。既有独立源码 Review 署名保留；原始干净启动验收缺口已补齐，P3.2 / P3.3b **真实验收 PASS**。既定最终独立 Gate 的收口仍 **PENDING**（用户暂不再跑 Astra），不能以主任务核对冒称新的独立签核；尚不将整个 Phase 3 或 P3.3 标 DONE，不进入 ZIP 导入/归档。Codex 执行环境与用户普通交互式环境的差异仍未定位，不据此承诺 Codex 内自动真实测试已恢复。
+
+### 2026-10-02 普通交互式 PowerShell 验证 — Codex 执行环境差异待定位
+
+用户明确贴出普通 PowerShell `IsAdministrator=False` 且 `CounterQueryExit=0`。此前 Codex 的沙箱外验收进程同为非管理员但名称表查询 exit 1，因此不能继续将问题概括为 Windows 全机未修复或普通用户必然无权限；具体执行环境/token 差异尚未证明。无需再重复 lodctr 修复。
+
+准备在该已验证普通窗口运行现有 `tests/acceptance/phase3-existing-real.mjs`，仍由 Manager 启动原先已确认的 runtime/p33-create-8b216c11-3aab-46e6-88aa-de2b6eb6892e 隔离实例、使用已授权端口 1610/1611，保留所有 transaction/restore/rollback 门控。调整验收证据采集顺序：记录 TCP、RCON list、世界加载后仍拒绝 ERROR / 待调查 WARN，不以收集证据替代日志 Gate；未修改业务源码。没有从 Codex 重复启动同一失败环境。等待该交互会话实际报告，P3.2 / P3.3b 仍 BLOCKED，0 subagent，无 commit/push。
+
+### 2026-10-02 现有隔离实例重新验收 — 启动日志 BLOCKED
+
+用户授权普通权限下现有隔离 Vanilla 26.3 / Java 25 的完整验收，0 subagent、不再跑 Astra、不 commit/push。写操作前验证并打印 runtime/p33-create-8b216c11-3aab-46e6-88aa-de2b6eb6892e canonical path、配置归属、历史隔离身份及 stopped/none。手动 Java PID 24392 占用标准端口；用户明确批准使用隔离已有端口 1610/1611，未操作该手动进程。
+
+Manager 启动 operation succeeded、PID 26480 存活，20:49:01 出现新的 Done 与 RCON 127.0.0.1:1611；但 20:48:52 的实际 Perflib 009 ERROR / Win32Exception 参数错误仍存在，并有 4 条 OSHI WARN。本轮普通权限、沙箱之外 Perflib 009 查询仍失败而 CPU Get-Counter 成功，不能据此认定名称表已恢复。严格启动验收在日志检查处停止，未执行 RCON list、Restore、故障注入、Rollback 或 P3.3b 新世界步骤；不得冒充 PASS。通过 Manager 正常停止，最终 stopped/none、PID 26480 已不存在，exit 0。
+
+完整 check 退出码 0，contracts 4/API 403/web 53 共 460 项；lint/typecheck/build PASS；Chrome 基础 E2E 11/11、world-set export E2E 3/3 PASS。只新增现有实例验收脚本和 Acceptance Report、更新本进度，没有修改业务源码或 transaction/restore semantics。详见 [Acceptance Report](./ACCEPTANCE_P32_P33B_2026-10-02.md)，原始证据保存在忽略目录 `.manager/p33-create-8b216c11-3aab-46e6-88aa-de2b6eb6892e/reaccept-ac4275d2-3cfb-4859-b9f2-a4962f066efe/`。P3.2、P3.3b 最终验收仍 BLOCKED。
+
+### 2026-10-02 用户手动重建后只读核验 — 仍 BLOCKED
+
+用户贴出手动执行 `C:\Windows\System32\lodctr.exe /R` 的乱码 Info 输出。随后在普通权限、沙箱之外复查 64-bit Perflib 009、0804、CurrentLanguage 的 Counter，仍为参数错误 / exit 1；PerfOS Enabled。不能凭 Info 或控制台当前目录认定修复成功或已取得管理员权限。未再次重建、未执行 SysWOW64 / WMI 同步或重启服务，也未重复无变化环境的真实验收。下一项为在用户同一个 PowerShell 中只读确认管理员身份及 009 Counter 查询结果，再决定额外主机写操作；P3.2 / P3.3b 最终启动 Gate 仍 BLOCKED。
+
+### 2026-10-02 启动环境后续复查 — 等待主机写操作授权
+
+用户要求继续下一步后，只读复查普通权限、沙箱之外的 Perflib 名称表：009、0804、CurrentLanguage 的 64-bit Counter 查询仍均为参数错误 / exit 1。WMI Win32_OperatingSystem 正常，Windows 11 build 26200；PerfOS Enabled。因此不能只归因于沙箱，也未证明单一根因。没有重复未变化环境的真实验收，没有改注册表或系统服务。
+
+已重新保存当前计数器只读导出及系统备份副本到忽略目录 `.manager/perflib-followup-20261002-163441/`，确认输出、大小和 SHA-256。具体管理员 64-bit 重建、逐步验证与回退边界见 [PERFLIB_REPAIR_PLAN.md](./PERFLIB_REPAIR_PLAN.md)。当前停在执行 `C:\Windows\System32\lodctr.exe /R` 前：这是全机注册设置修改，现有“允许智能体和真实服务器测试”不包含此主机操作授权；等待用户明确批准。未进行自动 SysWOW64 / WMI 重同步或服务重启。
+
+本轮仅诊断、备份和修复方案文档，无产品源码改动，不重复 460 项测试；没有 commit / push。P3.2 / P3.3b 最终启动 Gate 保持 BLOCKED，ZIP 导入与归档尚未接入。
+
+### 2026-10-02 P3.3b 实际创建 — 功能 PASS / 最终启动 Gate BLOCKED
+
+用户明确授权本轮使用智能体和真实服务器。主任务作为唯一耦合事务写入者，独立 Sol High 智能体负责测试与只读复审；另一名 Sol High 只写隔离 ZIP 模块及其测试，Astra High 承担 crash-recovery / 数据保护 Gate。未改变账户或主任务模型设置，未创建提交、推送或改动用户原世界。
+
+已交付严格 `POST /servers/:id/worlds`、创建确认 UI、幂等网络断线/刷新重试、共享实例锁、停服授权、pinned world-set guard、私有配置副本、原子世界名/Seed 更新、pending-generation 和 schema-3 journal 根目录绑定。保留旧世界全树；完成后不自动启动或回滚。管理器重启对不确定 committed 做磁盘/guard/配置/进程核验，未完成事务保持人工恢复锁。接口 readiness 和备份 scope 标签与实际功能对齐。Vanilla 26.3 在真实隔离存档中把 Seed 移到 `data/minecraft/world_gen_settings.dat` 的 `data.seed`；已加入有界精确读取，缺失/损坏不冒充配置值。
+
+Review 发现并修复：worldChange journal 序列化遗漏、可用状态/备份标签与缓存不一致、部分 app wiring 漏扫 durable journal、重复 operation journal 的所有权恢复门控，以及已有 restore-owned 原因不能掩盖重复所有权原因。最后一项使用真实 journal 回归：前一 owner 已有 active restore 时仍拒绝恢复 admission；解决其 owned 原因后仍保持重复所有权锁。Sol High 独立最终复审 PASS，Astra High 源码安全审查 PASS；不以主任务自检替代独立签核。
+
+最终 `npm.cmd run check` 退出码 0：contracts 4、API 403、web 53，共 **460** 项测试；lint、typecheck、生产 build 全通过。创建专项 40 项、前端计划/创建 5 项；ZIP 模块 77 项（尚未集成上传）。最后 `git diff --check` 通过。最初两次真实脚本失败分别是验收脚本读取错误 DTO 字段及实际 Seed 布局未支持，均保留失败记录；最后修复与真实重验后才取得以下功能 PASS。
+
+真实报告：忽略目录 `.manager/p33-create-8b216c11-3aab-46e6-88aa-de2b6eb6892e/acceptance-report.json`；脚本 `tests/acceptance/phase3-create-real.mjs` 每次只复制注册 JAR 和已接受 EULA 到全新隔离目录。Vanilla 26.3 / Java 25、360px Chrome 确认/布局、三维度旧树逐文件保留、pinned guard、重开管理器 pending、明确 start 后实际新 Seed `987654321` 和版本全部 PASS；最终 stopped/none，原 JAR/EULA 摘要不变，未读取或写入用户原世界。实际启动仍有 `Unable to locate English counter names in registry Perflib 009` ERROR，报告明确 `creationSemantics=PASS`、`cleanStartupGate=BLOCKED`、整体 `result=BLOCKED`。Astra High 最终验收 Gate 仍 BLOCKED，不能标为 P3.3b 完整完成；不屏蔽 ERROR、不修改注册表。
+
+P3.3c 仅完成受限 ZIP staging 校验基础：77 项测试通过，先正向布局检查再构建路径前缀，含 10,000 个深路径目录的内存放大回归。上传 API、Import 事务/UI、归档、Import 独立 Gate 均未实现。当前待办：完成无 ERROR 的真实启动 Gate；在允许推进后接入 ZIP 导入与归档。P3.2 仍 BLOCKED/PENDING，Phase 3 / P3.3 仍 IN PROGRESS；先前未提交改动全部保留。
+
+### 2026-10-02 用户授权暂跳 P3.2，P3.3a 新世界计划 — PASSED
+
+用户明确要求先跳过 P3.2 进行 P3.3；这是开发顺序例外，P3.2 / Astra High Final Gate 仍 BLOCKED/PENDING，不能标为完成或用于 Phase 3 最终通过。按切片开始 P3.3，已交付只读新世界计划：`POST /api/v1/servers/:serverId/worlds/create-plan`、严格共享 contracts、Worlds 页面名称/Seed 输入与计划结果。后端验证本地 Vanilla、已确认目标版本、安全名称、已有文件/目录冲突（不区分大小写）、signed int64 Seed、恢复门控和受管进程状态；返回现世界 revision 与明确停服需求，不返回本地路径或秘密。前端依据 capabilities 展示功能，编辑输入或切换实例后清除旧计划，明确提示计划不等于世界已创建。
+
+单一主任务写入；GPT-6.1 Sol / High 独立只读 Review 初次发现 P2：AJV 类型转换会把已经损失精度的数字 Seed 接受成字符串。现已在 preValidation 拒绝所有非字符串/数组输入和额外字段，新增五项 HTTP 回归；独立复审及最后样式/能力显示复查均 PASS。首次全仓 check 因新增测试 fixture 缺少 subscribe 方法失败，已补齐 fixture，未掩盖失败。最终 `npm.cmd run check` 退出码 0：contracts 4、API 283、web 50，共 337 项测试；lint、typecheck、生产 build 全通过，`git diff --check` 通过。专项 API 37 / UI 2 项通过。本切片没有真实 Minecraft 或浏览器验收，也不替代后续 P3.3 Final Security Gate。
+
+P3.3 整体仍 IN PROGRESS；本轮没有实际创建世界、上传 ZIP、归档世界、修改服务器配置或启动/停止用户服务器。下一切片是实际创建：明确确认/停服授权、保护当前世界、原子配置和 active-state 提交、pending-generation、实例锁内重验及中断恢复；随后受限 ZIP staging 导入与活动世界归档。每个写功能须保留事务/安全 Gate，最终需 Astra Medium 或按数据损失风险升级 High。没有 commit / push，原有 P3.2 未提交改动保留。
+
+### 2026-10-02 Perflib 只读诊断与修复准备 — BLOCKED
+
+用户要求继续测试后，普通用户权限下 `lodctr /q` 返回 0，PerfOS / PerfProc 已启用，`Get-Counter -ListSet *` 可列出 179 组计数器，WMI 系统运行时间可读；但直接 `reg query .../Perflib/{009,0804,CurrentLanguage} /v Counter` 都失败，009 查询报告“参数错误”，与实际 Java 错误一致。这不是已证明的全系统计数器缺失；之前 PowerShell 路径不可读也不能单独证明键被删除。
+
+已把系统 `PerfStringBackup.INI` 复制到忽略目录 `.manager/perflib-diagnostic-20261002/PerfStringBackup.before.ini`（1,849,730 bytes），并用只导出的 `lodctr /s` 保存 `counters.before.ini`（1,880,276 bytes，退出码 0）。系统备份含 0804 / 011 / 009 三个语言段；摘要和诊断结果写入同目录 `diagnostic-report.json`。未改变主机设置、未重启系统服务、未重复同环境真实验收或改动用户世界。下一步候选为经明确授权后在管理员权限下重建 64-bit 计数器，复核名称表后才重验；不能假定该修复必然成功。P3.2 Gate 仍 BLOCKED/PENDING。
+
+### 2026-10-02 06:00 单次定时验收 — BLOCKED
+
+先完成只读环境诊断：没有项目测试或 Java 进程运行；已有 Node 进程属于 Codex 工具。沙箱内 WMI 查询返回 HRESULT 80041003；普通用户权限下 Win32_Process / Win32_OperatingSystem 查询正常、Winmgmt running，但 Perflib 009 / CurrentLanguage Counter 仍无法读取。未修改注册表或主机设置，未屏蔽 ERROR。
+
+基于权限差异，在普通用户权限下运行已有脚本，创建全新隔离实例 `p32-real-9f238584-5280-44ba-984b-2c1421055219`。只复制原实例 JAR / 已接受 EULA，不访问原世界。三维度准备、360px 浏览器离线恢复及显式回滚通过；恢复后显式启动仍产生实际 Perflib ERROR / Win32Exception 参数错误（0x80070057），本次启动日志不再包含先前 WMI 访问拒绝。原验收报告如实为 FAIL，不能将问题全归因于沙箱。
+
+补充验收如实为 BLOCKED：实际 ERROR 阻止提交并保留恢复门控、优雅停服；pinned guard 保留，显式离线回滚逐文件哈希一致；受控 rename 中断后重开管理器、普通 start 被阻止、显式回滚解除门控均通过。两份报告位于忽略目录 `.manager/p32-real-9f238584-5280-44ba-984b-2c1421055219/{acceptance-report,launch-error-evidence}.json`，最终状态 stopped，已确认没有 Java 进程残留。无产品源码变更，没有重复全套 check，也没有新增独立 Review 签核；P3.2 / Astra High Final Gate 仍 BLOCKED/PENDING，不进入 P3.3，没有 commit / push。本次定时检查结束；后续需经授权诊断/修复主机计数器或在健康环境重新验收，不能仅重复相同环境测试。
+
+### 2026-10-02 用户启动服务器只读检查
+
+用户随后表示真实服务器已启动并要求测试。只读进程检查确认 PID 18404 使用已登记的 Vanilla 26.3 配置和 Java 25，监听本机 Minecraft 25565 / RCON 25575；配置根目录仍是用户给出的真实服务器目录。项目管理器 API 当前未运行，该 JVM 并非本次管理器启动。通过本地 RCON 成功认证并执行只读 `list`，返回 0 / 20 玩家；RCON 密码只在本机内存读取，没有输出。未发送改变世界的命令、未停服、未运行恢复或回滚；用户世界未改动。此结果只证明服务器与 RCON 可达，不构成 P3.2 恢复/回滚验收，也不解除 Perflib 阻塞。
 
 ### 2026-10-01 P3.1 最终复审 — PASSED
 
@@ -11,7 +137,11 @@
 
 本次复审只读，没有重跑测试或重新启动 Minecraft。过去的全仓 check、lint、typecheck、build 和专项测试结果仍是原有执行记录，不标作本次重跑。边界说明：无法保证抵御拥有相同 OS 写权限的进程在校验后原地改写下载文件；秘密扫描也不覆盖任意 NBT / region 二进制内容。Review 确认二者属于已记录的本地信任边界限制，不阻塞本 Gate。
 
-Phase 3 的 P3.1 已通过既定实现、测试、真实世界验收与独立 Review Gate；当前下一步为 P3.2 Restore / Explicit Rollback 的架构与风险设计。P3.2 涉及文件切换、数据丢失与 crash recovery，核心设计和实现使用 Sol High，且恢复 / 显式回滚必须通过 Astra High 安全 Gate。开始恢复实现前须完成方案、故障状态机、journal/atomic replacement/crash recovery 不变量及测试计划；真实 Restore 只在独立测试世界执行。
+Phase 3 的 P3.1 已通过既定实现、测试、真实世界验收与独立 Review Gate。P3.2 Restore / Explicit Rollback 已完成主要实现与单元/集成测试，但仍为 IN PROGRESS：Sol High 独立实现复审通过；Astra High 首审发现两项 P1，已补绑定注册根目录身份及 committed terminal 的物理 reconciliation；后续只读检查未发现新代码阻塞，但 final Gate 因真实 happy-path acceptance 尚未通过而保持 BLOCKED/PENDING。最新全仓 `npm.cmd run check` 经主任务重跑通过：contracts 4、API 246、web 48，共 298 项；lint、typecheck、build 通过，`git diff --check` 通过。新事务绑定注册根目录身份；未确认终态必须物理 reconciliation 后才能报告成功；旧 journal 缺少绑定时保持恢复锁。
+
+历史隔离 Vanilla 26.3 / Java 25.0.4.1 验收 `.manager/p32-real-8e1118bf-4d50-4b6d-8c28-67acf70c3080/acceptance-report.json` 和补充证据均发生在最终 rootIdentity / terminal reconciliation P1 修复之前，不作为最终代码验收；旧 report 中的 transaction journal 没有 root binding。
+
+2026-10-02 已针对最终代码以全新隔离目录 `.manager/p32-real-11742bf7-1f08-4d76-bc57-cecbb4a9492c/` 重验。恢复、三维度世界文件和 360px 浏览器显式恢复/回滚 PASS；显式启动因真实 Vanilla 26.3 / Java 25.0.4.1 Perflib 009 ERROR（并伴 WMI HRESULT 80041003）被 fail-closed 拒绝，原报告如实为 FAIL。补充验收报告如实为 BLOCKED，但确认错误后优雅停服、pinned guard、显式离线回滚、同卷 rename 中断后 manager restart、普通 start 被阻止及显式回滚解除锁均通过；新 run 的六份 restore/rollback journal 均含 rootIdentity，最终 Minecraft 状态 stopped。该受控异常注入不证明 OS kill/断电耐久性。不得忽略 ERROR 或修改主机注册表。成功启动 happy path 及 Astra High Final Gate 仍未通过，P3.2 不得标 DONE。
 ### 2026-10-01 接续 — P3.1 真实验收与一致性修复
 
 用户要求停止使用子智能体，后续没有派发或续用任何智能体。P3.1 整体独立只读 Review 已于本轮执行并发现两项 P1：运行时预检与正式备份之间的实例状态发生变化时，可能把 `unknown` 当成 stopped 复制活动世界；备份复制 / 验证失败后仍可能自动启动。现已加入共享严格状态校验、停服后与复制前双重核验；failure path 保留 stopped + recovery-required journal，不自动启动。新增状态变化、运行实例未停成、复制前变 unknown、运行实例未授权及失败 journal 留存测试。人工交接时定向 API 两个文件 44 项通过。新增 Nether / End 维度文件的离线服务测试。

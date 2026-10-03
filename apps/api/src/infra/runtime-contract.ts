@@ -33,6 +33,7 @@ export interface RuntimeOperationContext {
   readonly operationId: string;
   readonly signal: AbortSignal;
   readonly onStep: (step: string) => Promise<Operation>;
+  readonly onResult?: (result: NonNullable<Operation["result"]>) => Promise<void>;
 }
 
 export interface RuntimeSnapshot {
@@ -81,6 +82,7 @@ export interface MinecraftRuntime {
   snapshot(): Promise<RuntimeSnapshot>;
   start(context: RuntimeOperationContext): Promise<void>;
   stop(context: RuntimeOperationContext): Promise<void>;
+  stopOwnedForRecovery?(context: RuntimeOperationContext, ownerOperationId: string): Promise<void>;
   command(validatedLine: string): Promise<RuntimeCommandResult>;
   getLogs(after: string | undefined, limit: number): Promise<RuntimeLogPage>;
   subscribe(listener: (event: RuntimeEvent) => void): () => void;

@@ -24,6 +24,21 @@ export type JournalPathRole = "source" | "target" | "staging" | "rollback" | "ar
 export interface TransactionPath {
   readonly role: JournalPathRole;
   readonly relativePath: string;
+  readonly namespace?: "manager" | "server";
+}
+
+export interface RestoreIntent {
+  /** Missing only on legacy records; those cannot authorize automated recovery. */
+  readonly rootIdentity?: string;
+  readonly backupId: string;
+  readonly guardBackupId: string;
+  readonly levelName: string;
+  readonly worldId: string;
+  readonly approvedRevision: string;
+  readonly backupChecksum: string;
+  readonly parentTransactionId: string | null;
+  readonly startAfter: boolean;
+  readonly workspaceName: string;
 }
 
 export interface TransactionIntent {
@@ -36,6 +51,23 @@ export interface TransactionIntent {
   readonly originalState: "running" | "stopped" | "unknown";
   readonly paths: readonly TransactionPath[];
   readonly createdAt: string;
+  readonly restore?: RestoreIntent;
+  readonly worldChange?: {
+    readonly rootIdentity: string;
+    readonly previousName: string;
+    readonly nextName: string;
+    readonly approvedRevision: string;
+    readonly guardBackupId: string;
+    readonly propertiesBefore: string;
+    readonly propertiesAfter: string;
+    readonly workspaceName: string;
+  };
+  readonly worldImport?: NonNullable<TransactionIntent["worldChange"]> & {
+    readonly uploadId: string;
+    readonly uploadRevision: string;
+    readonly importedChecksum: string;
+    readonly minecraftVersion: string;
+  };
 }
 
 export interface CheckpointDetails {
@@ -52,7 +84,7 @@ export interface TransactionCheckpoint {
 }
 
 export interface TransactionJournalRecord {
-  readonly schemaVersion: typeof SCHEMA_VERSION;
+  readonly schemaVersion: typeof SCHEMA_VERSION | 2 | 3 | 4;
   readonly transactionId: string;
   readonly intent: TransactionIntent;
   readonly state: TransactionState;
@@ -121,7 +153,7 @@ function normalizeRelativePath(value: string): string {
 function validateIntent(value: unknown): value is TransactionIntent {
   if (!isObject(value) || !hasOnlyKeys(value, [
     "operationId", "serverId", "kind", "scope", "resourceId", "allowStop",
-    "originalState", "paths", "createdAt"
+    "originalState", "paths", "createdAt", "restore", "worldChange", "worldImport"
   ])) return false;
   if (!UUID.test(String(value.operationId)) || !SERVER_ID.test(String(value.serverId))) return false;
   if (!(["backup", "restore", "rollback", "world-create", "world-import", "world-archive"] as unknown[])
@@ -130,9 +162,47 @@ function validateIntent(value: unknown): value is TransactionIntent {
   if (value.resourceId !== null && !isOpaqueId(value.resourceId)) return false;
   if (typeof value.allowStop !== "boolean" || !["running", "stopped", "unknown"].includes(String(value.originalState))) return false;
   if (!Array.isArray(value.paths) || value.paths.length > 16 || !isTimestamp(value.createdAt)) return false;
+  if (value.restore !== undefined) {
+    const r = value.restore;
+    if (!isObject(r) || !hasOnlyKeys(r, ["rootIdentity", "backupId", "guardBackupId", "levelName", "worldId", "approvedRevision", "backupChecksum", "parentTransactionId", "startAfter", "workspaceName"]) ||
+        !["restore", "rollback"].includes(String(value.kind)) || value.scope !== "world-set" ||
+        !UUID.test(String(r.backupId)) || !UUID.test(String(r.guardBackupId)) ||
+        typeof r.levelName !== "string" || r.levelName.length > 128 ||
+        typeof r.workspaceName !== "string" || !/^\.manager-restore-[0-9a-f-]{36}$/u.test(r.workspaceName) ||
+        !/^world-[0-9a-f]{24}$/u.test(String(r.worldId)) || !SHA256.test(String(r.approvedRevision)) ||
+        !SHA256.test(String(r.backupChecksum)) || (r.rootIdentity !== undefined && !SHA256.test(String(r.rootIdentity))) || typeof r.startAfter !== "boolean" ||
+        (r.parentTransactionId !== null && !UUID.test(String(r.parentTransactionId)))) return false;
+    try { if (normalizeRelativePath(r.levelName) !== r.levelName || r.levelName.includes("/")) return false; } catch { return false; }
+  }
+  if (value.worldChange !== undefined) {
+    const w = value.worldChange;
+    if (value.restore !== undefined || value.kind !== "world-create" || value.scope !== "world-set" || !isObject(w) ||
+      !hasOnlyKeys(w, ["rootIdentity", "previousName", "nextName", "approvedRevision", "guardBackupId", "propertiesBefore", "propertiesAfter", "workspaceName"]) ||
+      ![w.rootIdentity, w.approvedRevision, w.propertiesBefore, w.propertiesAfter].every((v) => typeof v === "string" && SHA256.test(v)) ||
+      !UUID.test(String(w.guardBackupId)) || !/^\.manager-world-create-[0-9a-f-]{36}$/u.test(String(w.workspaceName))) return false;
+    for (const name of [w.previousName, w.nextName]) {
+      if (typeof name !== "string" || name.length > 128 || name.includes("/")) return false;
+      try { if (normalizeRelativePath(name) !== name) return false; } catch { return false; }
+    }
+  }
+  if (value.worldImport !== undefined) {
+    const w = value.worldImport;
+    if (value.restore !== undefined || value.worldChange !== undefined || value.kind !== "world-import" || value.scope !== "world-set" || !isObject(w) ||
+      !hasOnlyKeys(w, ["rootIdentity", "previousName", "nextName", "approvedRevision", "guardBackupId", "propertiesBefore", "propertiesAfter", "workspaceName", "uploadId", "uploadRevision", "importedChecksum", "minecraftVersion"]) ||
+      ![w.rootIdentity,w.approvedRevision,w.propertiesBefore,w.propertiesAfter,w.uploadRevision,w.importedChecksum].every((v) => typeof v === "string" && SHA256.test(v)) ||
+      !UUID.test(String(w.guardBackupId)) || !UUID.test(String(w.uploadId)) || !/^\.manager-world-import-[0-9a-f-]{36}$/u.test(String(w.workspaceName)) ||
+      typeof w.minecraftVersion !== "string" || !w.minecraftVersion || w.minecraftVersion.length > 128) return false;
+    for (const name of [w.previousName,w.nextName]) {
+      if (typeof name !== "string" || name.length > 128 || name.includes("/")) return false;
+      try { if (normalizeRelativePath(name) !== name) return false; } catch { return false; }
+    }
+  }
+  if (value.kind === "world-import" && value.worldImport === undefined) return false;
   const roles = new Set<string>();
   for (const item of value.paths) {
-    if (!isObject(item) || !hasOnlyKeys(item, ["role", "relativePath"])) return false;
+    if (!isObject(item) || !hasOnlyKeys(item, ["role", "relativePath", "namespace"])) return false;
+    if ((value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined) && !["manager", "server"].includes(String(item.namespace))) return false;
+    if (value.restore === undefined && value.worldChange === undefined && value.worldImport === undefined && item.namespace !== undefined) return false;
     if (!["source", "target", "staging", "rollback", "archive"].includes(String(item.role))) return false;
     if (roles.has(String(item.role)) || typeof item.relativePath !== "string") return false;
     roles.add(String(item.role));
@@ -160,11 +230,14 @@ function validateRecord(value: unknown): value is TransactionJournalRecord {
   if (!isObject(value) || !hasOnlyKeys(value, [
     "schemaVersion", "transactionId", "intent", "state", "checkpoints", "updatedAt"
   ])) return false;
-  if (value.schemaVersion !== SCHEMA_VERSION || !UUID.test(String(value.transactionId)) ||
+  if (![SCHEMA_VERSION, 2, 3, 4].includes(value.schemaVersion as never) || !UUID.test(String(value.transactionId)) ||
       !validateIntent(value.intent) ||
       !["active", "recovery-required", "committed", "rolled-back"].includes(String(value.state)) ||
       !Array.isArray(value.checkpoints) || value.checkpoints.length > MAX_CHECKPOINTS ||
       !isTimestamp(value.updatedAt)) return false;
+  if ((value.schemaVersion === 2) !== (value.intent.restore !== undefined)) return false;
+  if ((value.schemaVersion === 3) !== (value.intent.worldChange !== undefined)) return false;
+  if ((value.schemaVersion === 4) !== (value.intent.worldImport !== undefined)) return false;
   let previousTime = Date.parse(value.intent.createdAt);
   for (let index = 0; index < value.checkpoints.length; index += 1) {
     const checkpoint = value.checkpoints[index];
@@ -246,6 +319,26 @@ export class TransactionJournalStore {
     return this.scan();
   }
 
+  async finalizeRollback(serverId: string, parentId: string, childId: string, updatedAt: string, inject?: (point: string) => Promise<void>): Promise<void> {
+    await this.#mutate(async () => {
+      const parent = await this.#read(serverId, parentId);
+      const child = await this.#read(serverId, childId);
+      if (parent.intent.kind !== "restore" || !parent.intent.restore || child.state !== "committed" || child.intent.kind !== "rollback" ||
+        child.intent.restore?.parentTransactionId !== parentId || child.intent.restore.guardBackupId !== parent.intent.restore.guardBackupId ||
+        !child.checkpoints.some((c) => c.name === "installed-verified")) throw new Error("Invalid rollback finalization");
+      const scan = await this.scan();
+      for (const sibling of scan.records) if (sibling.intent.restore?.parentTransactionId === parentId &&
+        ["active", "recovery-required"].includes(sibling.state)) {
+        await this.#write({ ...sibling, state: "rolled-back", updatedAt });
+        await inject?.("after:rollback-sibling-finalized");
+      }
+      // Parent completion is published last; startup also supports recovery of
+      // older parent-first records whose sibling writes were interrupted.
+      if (parent.state !== "rolled-back") await this.#write({ ...parent, state: "rolled-back", updatedAt });
+      await inject?.("after:rollback-parent-finalized");
+    });
+  }
+
   async scan(): Promise<JournalScanResult> {
     const entries = await readdir(this.#directory, { withFileTypes: true });
     if (entries.length > MAX_RECORDS) throw new Error("Too many transaction journal files");
@@ -306,10 +399,13 @@ export class TransactionJournalStore {
         allowStop: input.allowStop,
         originalState: input.originalState,
         paths: input.paths.map((item) => ({ ...item, relativePath: normalizeRelativePath(item.relativePath) })),
-        createdAt: input.createdAt
+        createdAt: input.createdAt,
+        ...(input.restore === undefined ? {} : { restore: structuredClone(input.restore) }),
+        ...(input.worldChange === undefined ? {} : { worldChange: structuredClone(input.worldChange) }),
+        ...(input.worldImport === undefined ? {} : { worldImport: structuredClone(input.worldImport) })
       };
       const record: TransactionJournalRecord = {
-        schemaVersion: SCHEMA_VERSION,
+        schemaVersion: input.worldImport !== undefined ? 4 : input.worldChange !== undefined ? 3 : input.restore === undefined ? SCHEMA_VERSION : 2,
         transactionId,
         intent,
         state: "active",
@@ -317,6 +413,7 @@ export class TransactionJournalStore {
         updatedAt: input.createdAt
       };
       if (!validateRecord(record)) throw new Error("Invalid transaction journal intent");
+      if (intent.restore && !intent.restore.rootIdentity) throw new Error("New restore journals require root binding");
       const target = this.#target(intent.serverId, transactionId);
       try { await stat(target); throw new Error("Transaction journal already exists"); }
       catch (error) {
@@ -326,6 +423,10 @@ export class TransactionJournalStore {
       await this.#write(record);
       return structuredClone(record);
     });
+  }
+
+  async get(serverId: string, transactionId: string): Promise<TransactionJournalRecord> {
+    return structuredClone(await this.#read(serverId, transactionId));
   }
 
   async appendCheckpoint(

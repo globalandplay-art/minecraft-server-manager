@@ -142,6 +142,22 @@ afterEach(async () => {
 });
 
 describe("LocalMinecraftRuntime", () => {
+  it("only gracefully stops the exact transaction-owned child after failed readiness", async () => {
+    const root = await fixtureRoot();
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript({ exitOnStop: true })), {
+      spawnProcess: trackedSpawn(), statusProbe: async () => "stopped", startTimeoutMs: 120, stopTimeoutMs: 1000, readinessPollMs: 5
+    });
+    await runtime.initialize();
+    try {
+      await expect(runtime.start(operation())).rejects.toMatchObject({ code: "OPERATION_TIMEOUT" });
+      await expect(runtime.snapshot()).resolves.toMatchObject({ status: { recoveryRequired: true, ownership: "managed" } });
+      await expect(runtime.stop(operation("stop"))).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" });
+      await expect(runtime.stopOwnedForRecovery(operation("stop"), "another-operation")).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" });
+      await runtime.stopOwnedForRecovery(operation("stop"), "start-operation");
+      await expect(runtime.snapshot()).resolves.toMatchObject({ status: { state: "stopped", ownership: "none", recoveryRequired: false } });
+    } finally { await runtime.closeObserver(); }
+  });
+
   it("does not report startup success if the child exits during the readiness probe", async () => {
     const root = await fixtureRoot();
     let resolveProbe!: (value: "running") => void;

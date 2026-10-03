@@ -1,4 +1,10 @@
 import {
+  worldImportUploadResponseSchema,
+  type WorldImportUploadResponse,
+  worldImportUploadsResponseSchema, worldImportDiscardResponseSchema,
+  type WorldImportUploadsResponse, type WorldImportDiscardResponse, type WorldImportDiscardRequest,
+  worldImportPlanResponseSchema, worldImportRecoveryPlanResponseSchema,
+  type WorldImportPlanResponse, type WorldImportRecoveryPlanResponse, type WorldImportRequest, type WorldImportRecoveryRequest,
   healthResponseSchema,
   overviewResponseSchema,
   lifecycleActionResponseSchema,
@@ -6,6 +12,10 @@ import {
   logsResponseSchema,
   commandResponseSchema,
   worldsResponseSchema,
+  worldCreatePlanResponseSchema,
+  type WorldCreatePlanRequest,
+  type WorldCreatePlanResponse,
+  type WorldCreateRequest,
   backupsResponseSchema,
   backupExportResponseSchema,
   type BackupExportResponse,
@@ -22,6 +32,12 @@ import {
   type CommandResponse,
   type ServerResponse,
   type ServersResponse,
+  restorePlanResponseSchema,
+  restoreHistoryResponseSchema,
+  type RestorePlanResponse,
+  type RestoreHistoryResponse,
+  type RestoreRequest,
+  type RollbackRequest,
 } from '@mcsm/contracts';
 import { Value } from '@sinclair/typebox/value';
 
@@ -64,11 +80,12 @@ interface RequestOptions {
   body?: unknown | undefined;
   headers?: Record<string, string> | undefined;
   expectedStatus?: number | undefined;
+  timeoutMs?: number | undefined;
 }
 
 async function requestJson<T>(path: string, schema: unknown, options: RequestOptions = {}): Promise<T> {
   const timeout = new AbortController();
-  const timeoutId = window.setTimeout(() => timeout.abort(), 5_000);
+  const timeoutId = window.setTimeout(() => timeout.abort(), options.timeoutMs ?? 5_000);
   const combinedSignal = options.signal
     ? AbortSignal.any([options.signal, timeout.signal])
     : timeout.signal;
@@ -143,6 +160,59 @@ async function requestJson<T>(path: string, schema: unknown, options: RequestOpt
 }
 
 export const api = {
+  worldImportPlan: (serverId: string, body: { uploadId: string; name: string }) =>
+    requestJson<WorldImportPlanResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-plan`, worldImportPlanResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
+  importWorld: (serverId: string, body: WorldImportRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import`, lifecycleActionResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202, timeoutMs: 120_000 }),
+  worldImportRecoveryPlan: (serverId: string, body: { operationId: string }) =>
+    requestJson<WorldImportRecoveryPlanResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-recovery-plan`, worldImportRecoveryPlanResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
+  recoverWorldImport: (serverId: string, body: WorldImportRecoveryRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-recovery`, lifecycleActionResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202, timeoutMs: 120_000 }),
+  worldImportUploads: (serverId: string, signal?: AbortSignal) =>
+    getJson<WorldImportUploadsResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-uploads`, worldImportUploadsResponseSchema, signal),
+  discardWorldImportUpload: (serverId: string, uploadId: string, body: WorldImportDiscardRequest) =>
+    requestJson<WorldImportDiscardResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-uploads/${encodeURIComponent(uploadId)}/discard`, worldImportDiscardResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
+  uploadWorldZip: async (serverId: string, file: File, signal?: AbortSignal): Promise<WorldImportUploadResponse> => {
+    const timeout = new AbortController();
+    const timer = window.setTimeout(() => timeout.abort(), 120_000);
+    try {
+      let response: Response;
+      try {
+        response = await fetch(`/api/v1/servers/${encodeURIComponent(serverId)}/worlds/import-uploads`, {
+          method: 'POST', body: file, signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal,
+          headers: { Accept: 'application/json', 'Content-Type': 'application/zip',
+            'X-Manager-Intent': 'local-ui', 'X-Upload-Filename': encodeURIComponent(file.name) },
+        });
+      } catch { throw new ApiClientError('上传未确认完成，请勿自动重复上传；已接收的文件可能保留在暂存区。', 'network'); }
+      let payload: unknown;
+      try { payload = await response.json(); } catch { throw new ApiClientError('上传响应格式异常。', 'schema', response.status); }
+      if (!response.ok) {
+        const error = readError(payload);
+        throw new ApiClientError(error.message ?? '世界上传被拒绝。', 'http', response.status, error.code, error.requestId);
+      }
+      if (response.status !== 201 || !Value.Check(worldImportUploadResponseSchema, payload)) {
+        throw new ApiClientError('上传校验结果格式异常。', 'schema', response.status);
+      }
+      return payload;
+    } finally { window.clearTimeout(timer); }
+  },
+  restorePlan: (serverId: string, backupId: string, signal?: AbortSignal) =>
+    getJson<RestorePlanResponse>(`/servers/${encodeURIComponent(serverId)}/backups/${encodeURIComponent(backupId)}/restore`, restorePlanResponseSchema, signal),
+  rollbackPlan: (serverId: string, operationId: string, signal?: AbortSignal) =>
+    getJson<RestorePlanResponse>(`/servers/${encodeURIComponent(serverId)}/operations/${encodeURIComponent(operationId)}/rollback`, restorePlanResponseSchema, signal),
+  restoreHistory: (serverId: string, signal?: AbortSignal) =>
+    getJson<RestoreHistoryResponse>(`/servers/${encodeURIComponent(serverId)}/restores`, restoreHistoryResponseSchema, signal),
+  restore: (serverId: string, backupId: string, body: RestoreRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/backups/${encodeURIComponent(backupId)}/restore`, lifecycleActionResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202 }),
+  rollback: (serverId: string, operationId: string, body: RollbackRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/operations/${encodeURIComponent(operationId)}/rollback`, lifecycleActionResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202 }),
   health: (signal?: AbortSignal) =>
     getJson<HealthResponse>('/health', healthResponseSchema, signal),
   servers: (signal?: AbortSignal) =>
@@ -209,6 +279,14 @@ export const api = {
     }),
   worlds: (serverId: string, signal?: AbortSignal) =>
     getJson<WorldsResponse>(`/servers/${encodeURIComponent(serverId)}/worlds`, worldsResponseSchema, signal),
+  worldCreatePlan: (serverId: string, body: WorldCreatePlanRequest) =>
+    requestJson<WorldCreatePlanResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/create-plan`, worldCreatePlanResponseSchema, {
+      method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200,
+    }),
+  createWorld: (serverId: string, body: WorldCreateRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds`, lifecycleActionResponseSchema, {
+      method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202,
+    }),
   backups: (serverId: string, signal?: AbortSignal) =>
     getJson<BackupsResponse>(`/servers/${encodeURIComponent(serverId)}/backups`, backupsResponseSchema, signal),
   createBackup: (serverId: string, body: BackupCreateRequest, idempotencyKey: string, signal?: AbortSignal) =>
