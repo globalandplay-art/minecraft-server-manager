@@ -1,6 +1,6 @@
 # Minecraft Java Server Manager
 
-一个本地优先的 Minecraft Java 服务端管理界面。默认的 Mock 模式保留 Phase 1 的受控示例数据；已签核的 Phase 2 接入本机 Vanilla 服务端的启动、停止、重启、Console 日志与命令。自动化测试、真实 Vanilla 生命周期和浏览器 WebSocket 联调均已通过。直接使用请先阅读 [本地使用指南](./docs/USER_GUIDE.md)；Worlds、Backups 和其他后续功能仍在开发中。
+一个本地优先的 Minecraft Java 服务端管理界面。默认的 Mock 模式保留受控示例数据；本机 Vanilla 模式支持启动、停止、重启、Console 日志、RCON 命令，以及已完成验收的 Worlds / Backups 基础流程。自动化测试、真实 Vanilla 生命周期和浏览器 WebSocket 联调均已通过。下面的“使用指南”适合快速开始；详细约束见 [本地使用指南](./docs/USER_GUIDE.md)。
 
 ## 环境要求
 
@@ -9,7 +9,7 @@
 - npm（请在 PowerShell 中使用 `npm.cmd`）
 - 本机安装的 Google Chrome（E2E 测试使用其 headless channel）
 
-仓库当前没有配置 Git remote。运行与测试均为本地操作，不会创建远程仓库、推送分支或发布站点。
+运行与测试均为本地操作；服务端默认只监听 `127.0.0.1`，不会自动开放到局域网或公网。
 
 ## 安装与启动
 
@@ -23,6 +23,60 @@ npm.cmd run dev
 默认启动的是 Mock 模式。开发入口是 <http://127.0.0.1:3000>（也可使用 <http://localhost:3000>）；Vite 在该地址提供前端，并将同源 `/api/v1` 和 `/ws` 请求代理到 Fastify。API 基址是 <http://127.0.0.1:8080/api/v1>（或 <http://localhost:8080/api/v1>），健康检查可直接访问 <http://127.0.0.1:8080/api/v1/health>。Fastify 只监听 `127.0.0.1:8080`，WebSocket 使用同一个后端端口，不另开监听端口。两个开发服务都使用固定端口，端口被占用时不会自动切换。
 
 `localhost` 在部分 Windows 环境会解析到 IPv6，因此开发时优先使用上面的 `127.0.0.1` 地址。服务只监听本机回环地址；响应式手机布局用于浏览器模拟测试，并不表示物理手机可以从局域网访问。
+
+## 使用指南
+
+### 快速体验 Mock 模式
+
+Mock 模式不启动真实 Minecraft，也不会修改服务端文件，适合先查看 Dashboard、Servers、Console 占位和响应式布局：
+
+```powershell
+npm.cmd install --legacy-peer-deps
+npm.cmd run dev
+```
+
+然后打开 <http://127.0.0.1:3000>。页面显示 `MOCK DATA` 时，数据来自受控 fixture；它不代表真实 Java 进程状态。
+
+### 连接本机 Vanilla 服务端
+
+1. 确认服务端已经自行接受 EULA，并且当前处于停止状态。管理器不会替你接受 EULA、下载 Java 或下载 JAR。
+2. 在项目根目录创建 `.manager\config.json`，填写服务端目录、Java 25 的 `java.exe` 和 JAR 文件名。`root` 与 `javaExecutable` 必须是绝对路径，`jarFile` 只能是服务端目录内的文件名。
+3. 先运行准备预览：
+
+   ```powershell
+   npm.cmd run prepare:local-test -- --server-id vanilla-local
+   ```
+
+4. 确认预览无误后再应用本机设置：
+
+   ```powershell
+   npm.cmd run prepare:local-test -- --server-id vanilla-local --apply
+   ```
+
+   该操作会备份原始 `server.properties`，再设置 `server-ip=127.0.0.1`、RCON 开关、RCON 端口和随机密码。RCON 密码不会显示在终端或返回到前端。
+
+5. 在当前 PowerShell 会话启动本机模式：
+
+   ```powershell
+   $env:MCSM_MODE = "local"
+   npm.cmd run dev
+   ```
+
+6. 打开 <http://127.0.0.1:3000>，在 Dashboard 或 Servers 中选择实例。后端健康检查地址是 <http://127.0.0.1:8080/api/v1/health>。
+
+### 日常操作
+
+- 使用“启动”“停止”“重启”按钮管理生命周期；停止会等待 Minecraft 优雅保存并退出。
+- 在 Console 查看实时日志并发送普通 Minecraft 命令。`stop`、`restart` 等生命周期命令必须使用专用按钮。
+- 管理器只控制自己启动的 Java 进程；外部窗口启动的进程不会被接管或强制停止。
+- Worlds / Backups 的写操作会要求确认世界、版本或 revision，并在需要时明确授权停服。恢复失败时会保留保护备份并进入恢复门控，不会自动重试或静默回滚。
+- P3.3 的世界导入只接受受限 Vanilla world-set ZIP；归档、计划备份和保留策略仍按项目进度逐步开放。
+
+### 停止与故障处理
+
+先在页面中停止 Minecraft，确认状态为已停止，再回到运行开发服务的 PowerShell 按 `Ctrl+C`。如果页面显示“需要恢复检查”，先保留 `.manager` 和服务端目录中的现场，不要删除 journal、guard、staging 或备份，也不要反复点击启动；应根据页面操作状态和 [实施进度](./docs/PROGRESS.md) 进行人工恢复。
+
+`.manager/`、`runtime/`、服务端目录、世界存档、备份、日志和凭据均属于运行时数据，已被 Git 忽略，不能提交到仓库。
 
 ## Phase 2 本机 Vanilla 模式
 
