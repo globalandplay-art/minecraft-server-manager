@@ -1,9 +1,20 @@
 # 实施进度
 
+### 2026-10-04 P3.5真实浏览器验收 PASS
+
+新真实run `p35-browser-441fb968-c099-4892-8560-a58aae9d9fba` PASS；旧run `p35-browser-4c145881-8043-4ca1-9d1d-c231a598e45a` 保持BLOCKED且证据未改写。P3.5 独立精确 warning 分类要求完整 readiness 时序边界、后续 RCON、三维保存、正常退出及端口释放，未知 WARN 继续阻塞。专项 39 PASS；完整 contracts6/API706/Web82 共794 PASS，lint/typecheck/build PASS；独立 Sol High 分类Review PASS；真实run 360/768/1440及全部12次Java启动、shutdown、Restore/Rollback证据通过，最终停服且无recoveryRequired。总项目回归794 PASS、lint/typecheck/build PASS。P3.5真实Gate PASS；Phase3 Final Review/PASS仍待完成，之后再评估Phase4。详见 [修复记录](./P35_WARNING_CLASSIFICATION_FIX_2026-10-04.md)。
+
+
 更新时间：2026-10-04
 
 
 ## Phase 3 当前检查点
+
+### 2026-10-04 P3.5工具实现检查点（历史，后续真实验收已PASS）
+
+用户确认P3.4提交0a021e0已推同名开发分支、bundle完整，main保持5920f6d；本轮不上传/合并。已完成新的三档真实Browser工具：真实POST备份断响应后同key/body/op查询、A/B/C三维标记区别、停服完整manifest/hash、一次已持久new-installed故障、重启恢复门控、Browser显式Rollback、再次重启及Done/RCON/标记/最终正常停止。仅全新UUID隔离实例，来源只JAR/EULA/config与既有报告，原世界不访问。精确ownedJava/Vite/Chrome清场，独立bounded cleanup/日志上限/原始私有流，ERROR及未知WARN继续阻塞。没有修改产品业务源码或事务语义。
+
+专项52/52 PASS；真实HTTP/Chrome/Backend文件事务的合成三档两轮PASS（明确realAcceptance=NOT_RUN，不冒充Java/RCON）。独立SolHigh CODE/TOOL/TEST-SOURCE及P2 delta Review PASS；最终冻结check exit0：contracts6/API667/Web82共 **755 PASS**，lint/typecheck/build/JS与PS语法/diff PASS。预检run `p35-browser-a2706d2b-0f9c-431f-8814-d6b425c7caa2` exit1：HOST_PRECONDITION_UNAVAILABLE/HOST_PERFLIB_UNAVAILABLE、ItemNotFoundException/HResult -2146233087，当前Codex Perflib009不可见、CPUcounter PASS；只预检一次，serverRoot未创建、无Java/Vite/Chrome启动，无系统修复。普通宿主工具上下文再做一次只读查询仍PathNotFound，未重跑真实测试；不证明用户手动会话或Windows损坏。实际宿主需一次执行新wrapper并返回evidence。该段为历史工具检查点，真实验收后更新见本文件顶部；Phase3 Final仍PENDING。见 [P3.5工具/问题/命令](./P35_BROWSER_ACCEPTANCE_2026-10-04.md) / [独立工具审查](./P35_TOOL_REVIEW_2026-10-04.md)。
 
 ### 2026-10-04 P3.4 每日计划 / retention PASS
 

@@ -1,5 +1,7 @@
 # Phase 3 实施与验收计划
 
+最新P3.5检查点（2026-10-04）：真实run `p35-browser-441fb968-c099-4892-8560-a58aae9d9fba` PASS；360/768/1440浏览器三档闭环、12次受管Java启动、Backup/Restore/故障恢复/显式Rollback、哈希与标记验证均通过；最终Minecraft/Manager/Browser helper停止，端口释放，无active operation或recoveryRequired。warning分类Harness修复及独立SolHigh Review通过，旧BLOCKED历史run保留。P3.5真实验收PASS，Phase3 Final Gate仍PENDING；不得进入Phase4。详见 [P3.5验收](./P35_BROWSER_ACCEPTANCE_2026-10-04.md)。以下为历史检查点。
+
 最新P3.4 Gate（2026-10-04）：每日计划和安全并集保留实现及独立SolHigh源码Review通过，三档Browser3/3 PASS，最终冻结完整check exit0（contracts6/API654/Web82共742），lint/typecheck/build/diff PASS。**P3.4 PASS**，Phase3仍IN PROGRESS；下一步P3.5独立真实测试世界浏览器闭环和Final Review。用户禁用Astra覆盖历史未来路由，由独立SolHigh签核，不改写既有Astra历史证据。详见 [P3.4](./P34_SCHEDULER_RETENTION_2026-10-04.md)。下文为历史检查点。
 
 最新切片Gate（2026-10-04 12:24）：World Archive真实PASS；失败上传/staging生命周期收尾PASS，最终693项check、Chrome三档6/6及独立SolHigh Review通过。当前P3.3主要切片完成，保留明确none重新激活/Windows平台等已知非阻塞边界。Phase3仍IN PROGRESS；下一步P3.4调度/retention，随后P3.5整体集成验收/Final Review。以下“staging未开始/推进中”均为较早历史检查点，详见PROGRESS与P33_STAGING_LIFECYCLE_2026-10-04.md。
