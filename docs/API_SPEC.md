@@ -1,5 +1,21 @@
 # Minecraft Java Server Manager — API 合约
 
+## P3.4 每日备份计划与保留策略（2026-10-04）
+
+本地受支持实例新增以下端点。写请求均要求现有 Host / Origin / `X-Manager-Intent: local-ui` 门控、严格 JSON 类型和当前 64 位 hex revision；未知字段、路径字段及隐式类型转换拒绝。冲突返回 409，不自动重试。响应有 meta，公开 DTO 不含私有 owner/root/path 或密码。
+
+| 方法 / 路径（前缀 `/api/v1/servers/:serverId`） | 请求 / 响应 data |
+| --- | --- |
+| GET `/backup-schedule` | `{ revision, settings, runs }`，最近 30 条运行记录 |
+| POST `/backup-schedule` | `{ revision, settings: { enabled, localTime, timezone, allowStop } }`；返回新的 revision/settings/runs |
+| GET `/backup-retention` | `{ revision, settings, lastRun }`；lastRun 初始 null |
+| POST `/backup-retention` | `{ revision, settings: { enabled, retainCount, retainDays } }`；返回新 revision/settings/lastRun |
+| POST `/backup-retention/run` | `{ revision, intent: "apply-backup-retention" }`；返回 revision/settings/lastRun |
+
+schedule 首次 disabled、02:00、Asia/Shanghai、allowStop=false；localTime 必须 HH:mm，timezone 是 Intl 支持的 IANA 时区，保存规范化别名。run 包含 id、localDate、timezone、localTime、claimedAt、operationId（可 null）、state（claimed/submitted/succeeded/failed/skipped/interrupted）及 code（可 null）。日期 claim 先落盘后提交；同日不重复、错过不补跑，失败也消费该日期。运行中默认跳过，保存 allowStop=true 才授权沿用备份停服/恢复原运行态流程。
+
+retention 首次 disabled、retainCount=10（1–100）、retainDays=7（1–365）。按最近份数或最近天数的并集保留，pinned/legacy/失败/引用/不确定现场不清理。lastRun 包含 completedAt、state（completed/blocked/partial）、code、removed IDs 及 retained `{ id, reason }[]`；HTTP 200 不意味着所有备份被删除。实例运行中、恢复门控或部分删除保留现场并报告，不能解释为成功删除。启用后仅新成功普通备份触发检查；无启动或定时清理。完整条件见 [P3.4](./P34_SCHEDULER_RETENTION_2026-10-04.md)。
+
 ## P3.3 staging lifecycle closure (2026-10-04)
 
 `POST /api/v1/servers/:serverId/worlds/import-uploads/cleanup` accepts only `{ "intent": "cleanup-expired-unclaimed" }` with existing local Host/Origin/write-intent guards. Response `data` has `removed: UUID[]` and `retained: { id, reason }[]`; reasons are `not-expired`, `requires-inspection`, `referenced`, `discard-pending`, `cleanup-failed`. Paths, exception text, filenames and secrets are not returned. A 200 sweep can retain every record; it does not imply all staging was deleted. Unknown root layout/admission conflict fails closed.
@@ -306,7 +322,7 @@ Rollback operation 必须包含 parent restore operation ID、当前 worldRevisi
 
 备份 readiness 仅在能力支持、状态为 stopped，或为管理器拥有的 running 进程且无活动操作 / 恢复门控时 allowed。运行中创建要求请求 `allowStop=true`。后端先估算所有目标文件的大小，预留至少 128 MiB 或估算大小的 5%（取较大值）；空间不足在停服和复制前失败。实际成功写入的 manifest 同时受 64 MiB 序列化 / 读取上限约束。逐文件数据和 manifest 均同步后才允许提交 journal；Windows Node 不支持目录 fsync 时按事务 journal 既有的平台处理规则执行，所有文件仍需先成功 fsync。
 
-当前本地 Vanilla 代码支持 GET worlds / backups、POST backups、经秘密扫描的 world-set 导出/下载，以及 P3.2 的 restore plan/history、显式 restore 与 rollback plan/执行。恢复整体拒绝 server-snapshot，包括仅提取其中世界；请求不能提供文件路径。world CRUD、scheduler/retention policy 尚未实现。health 的 worlds/backups 仍代表 Phase 3 全部功能完成度，故在完整 Phase 3 完成前仍可返回 implemented=false。
+当前本地 Vanilla 代码支持 GET worlds / backups、POST backups、经秘密扫描的 world-set 导出/下载，以及 P3.2 的 restore plan/history、显式 restore 与 rollback plan/执行，P3.3 创建/导入/归档和受控 staging 收尾，P3.4 每日备份计划与保留策略。恢复整体拒绝 server-snapshot，包括仅提取其中世界；请求不能提供文件路径。none 的重新激活/归档恢复接口仍未开放。health 的 worlds/backups 仍代表 Phase 3 全部功能完成度，故在完整 Phase 3 完成前仍可返回 implemented=false。
 
 Phase 3 恢复范围仅为同实例 Vanilla world-set。server-snapshot 在恢复流程入口拒绝，不会提取其中世界；其他文件从不切换。完整服务器恢复是后续升级 / Addon batch 工作流的独立设计，当前 API 不接受 restoreScope=server-snapshot，不能用 world-set 结果宣称整服已回滚。
 

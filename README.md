@@ -2,6 +2,8 @@
 
 一个本地优先的 Minecraft Java 服务端管理界面。默认的 Mock 模式保留受控示例数据；本机 Vanilla 模式支持启动、停止、重启、Console 日志、RCON 命令，以及已完成验收的 Worlds / Backups 基础流程。自动化测试、真实 Vanilla 生命周期和浏览器 WebSocket 联调均已通过。下面的“使用指南”适合快速开始；详细约束见 [本地使用指南](./docs/USER_GUIDE.md)。
 
+Phase 3 各切片与最新真实验收状态、最终 Review、回归和已知限制统一见 [Phase 3 Final Gate](./docs/PHASE3_FINAL_GATE_2026-10-04.md)。
+
 ## 环境要求
 
 - Windows PowerShell
@@ -70,7 +72,10 @@ npm.cmd run dev
 - 在 Console 查看实时日志并发送普通 Minecraft 命令。`stop`、`restart` 等生命周期命令必须使用专用按钮。
 - 管理器只控制自己启动的 Java 进程；外部窗口启动的进程不会被接管或强制停止。
 - Worlds / Backups 的写操作会要求确认世界、版本或 revision，并在需要时明确授权停服。恢复失败时会保留保护备份并进入恢复门控，不会自动重试或静默回滚。
-- P3.3 的世界导入只接受受限 Vanilla world-set ZIP；归档、计划备份和保留策略仍按项目进度逐步开放。
+- P3.3 的世界导入只接受受限 Vanilla world-set ZIP。归档会保留完整世界和保护备份，完成后无活动世界，启动被拒绝；当前没有归档重新激活入口。
+- 在 Worlds / Backups 的“每日备份计划”设置时间和 IANA 时区并保存，首次默认关闭。运行中默认跳过，只有明确勾选允许停服才会沿用备份停服/恢复原运行态流程；错过时间不补跑，同日不重复。
+- “备份保留策略”默认关闭。启用后，保留最近份数 **或** 最近天数满足任一条件的备份；保护备份、引用和身份不确定的备份不删除。清理只在停止态执行，可在页面明确运行；删除不可撤销。若显示 partial / 需检查，保留现场，不删除 receipt 或反复重试。
+- 已导出并带有 ZIP/cache 文件的备份会被保留为需检查，不在当前自动删除布局范围内。不要手工删文件来绕过此保护。
 
 ### 停止与故障处理
 
@@ -124,7 +129,7 @@ npm.cmd run dev
 
 浏览器仍访问 <http://127.0.0.1:3000>；前端通过同源 API 和 WebSocket 与本机后端通信。管理器只会停止自己在当前进程中启动的 Java 子进程；它不会接管或停止外部启动的 Minecraft 进程。管理器异常重启后，未完成的操作会标记为中断并要求恢复确认，不会自动重放。
 
-当前本机模式只覆盖 Vanilla 生命周期、受限命令和 Console。Worlds、Backups、Players、Properties、Addons、Performance、Crash Analysis、Remote Access、文件上传和任意路径访问仍未实现。Console 命令有长度、控制字符和保留命令限制；生命周期操作应使用页面中的专用按钮。
+当前本机 Vanilla 模式提供生命周期、受限命令、Console，以及已验收的 Worlds / Backups：手动备份、受限 world-set 下载、恢复与显式回滚、新建世界、受限 ZIP 导入、完整世界归档、每日计划和安全保留策略。Players、Properties 编辑、Mods / Plugins、Performance 页面、Crash Analysis 和远程访问仍在后续阶段。Console 命令有长度、控制字符和保留命令限制；生命周期操作应使用页面中的专用按钮。
 
 ## 检查与构建
 
@@ -160,4 +165,4 @@ Phase 1 的范围仅包括：
 - 未知实例、空列表、API 断线、响应格式异常和旧数据状态；
 - 后续功能的阶段占位说明。
 
-真实 Java 进程管理由 Phase 2 本机模式提供；备份 / 世界、配置、Addons、性能采集与远程访问分别留在后续阶段。正常启动不会下载 Java 或服务端 JAR、接受 EULA 或改写既有服务端配置；只有显式执行上述 `prepare:local-test --apply` 才会按说明备份并修改 `server.properties`。
+真实 Java 进程管理由 Phase 2 本机模式提供；备份 / 世界由 Phase 3 提供。上面的 Mock 与 Phase 1 描述保留其示例模式范围。配置编辑、Addons、性能页面与远程访问仍在后续阶段。正常启动不会下载 Java 或服务端 JAR、接受 EULA；`prepare:local-test --apply` 会按上述说明备份并配置本机 RCON，新建或导入世界等明确授权操作也可能按各自事务契约更新世界选择设置。

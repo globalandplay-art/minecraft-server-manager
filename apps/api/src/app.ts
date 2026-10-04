@@ -39,6 +39,10 @@ import { WorldImportService } from "./services/world-import-service.js";
 import { registerWorldImportRoutes } from "./routes/world-imports.js";
 import { WorldArchiveService } from "./services/world-archive-service.js";
 import { registerWorldArchiveRoutes } from "./routes/world-archives.js";
+import { BackupScheduleService } from "./services/backup-schedule-service.js";
+import { registerBackupScheduleRoutes } from "./routes/backup-schedules.js";
+import { BackupRetentionService } from "./services/backup-retention-service.js";
+import { registerBackupRetentionRoutes } from "./routes/backup-retention.js";
 
 export interface BuildAppOptions {
   clock?: Clock;
@@ -50,6 +54,7 @@ export interface BuildAppOptions {
   transactionJournal?: TransactionJournalStore;
   managerRoot?: string;
   importAutomaticCleanup?: boolean;
+  backupSchedulerTimers?: boolean;
   activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "snapshot" | "prepareGeneration" | "installImportedWorld" | "archiveCurrentWorld">>;
 }
 
@@ -82,6 +87,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   let worldCreates: WorldCreateService | undefined;
   let worldImports: WorldImportService | undefined;
   let worldArchives: WorldArchiveService | undefined;
+  let backupSchedules: BackupScheduleService | undefined;
+  let backupRetention: BackupRetentionService | undefined;
 
   app.addHook("onRequest", installLocalRequestGuard(clock, mode));
   app.addHook("onReady", async () => {
@@ -98,8 +105,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       .map((r) => [r.intent.serverId,[r.intent.worldImport!.previousName,r.intent.worldImport!.nextName]] as const));
     const archiveServers = new Set((scan?.records ?? []).filter((r) => r.intent.worldArchive).map((r) => r.intent.serverId));
     operations.requireRecovery(await options.activeWorldState?.initialize(restoreWorlds,importWorlds,archiveWorlds,archiveServers) ?? []);
+    await backupSchedules?.initialize();
+    if (options.backupSchedulerTimers !== false) backupSchedules?.start();
+    backupRetention?.start();
   });
   app.addHook("onClose", async () => {
+    await Promise.all([backupRetention?.close(), backupSchedules?.close()]);
     streams.close();
     await service.close();
   });
@@ -111,6 +122,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const uploads = new WorldImportUploadService(registry, operations, options.managerRoot,undefined,options.transactionJournal,clock,options.importAutomaticCleanup ?? false);
     registerWorldImportUploadRoutes(app, uploads, clock, mode);
     const backups = new BackupService(registry, operations, options.transactionJournal, options.managerRoot, clock);
+    backupRetention = new BackupRetentionService(registry, operations, backups, options.transactionJournal, options.managerRoot, clock);
+    registerBackupRetentionRoutes(app, backupRetention, clock, mode);
+    if (options.activeWorldState?.snapshot) {
+      backupSchedules = new BackupScheduleService(registry, operations, backups, options.managerRoot, clock,
+        (serverId) => options.activeWorldState!.snapshot!(serverId)?.state === "active");
+      registerBackupScheduleRoutes(app, backupSchedules, clock, mode);
+    }
     const active = options.activeWorldState;
     if (active?.snapshot && active.archiveCurrentWorld) {
       worldArchives = new WorldArchiveService(registry,operations,options.transactionJournal,backups,options.managerRoot,

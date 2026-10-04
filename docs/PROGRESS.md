@@ -1,9 +1,32 @@
 # 实施进度
 
+### 2026-10-04 Phase 3 Final Gate PASS
+
+P3.0–P3.5 切片及整体 Final Gate 均 PASS，不进入 Phase 4。续接重新核验 P3.5 最新真实 PASS 原始报告、12 次 launch 与九份备份/guard 的 360 个文件摘要。独立 Sol High 全阶段 Review 提出的两个 P2（备份源硬链接、operations junction）已修复，28 项专项 PASS；修改后全新 `VITEST_MAX_WORKERS=1 npm.cmd run check` exit0，contracts6/API718/Web82 共 **806 PASS**，lint/typecheck/build PASS；三档 HTTP/Chrome/真实文件事务回归 SYNTHETIC_PASS（明确无新 Java/RCON 实跑），Phase 1 Browser 11/11、Phase 2 只读 Console 1/1 重新 PASS，helpers 退出、端口释放、diff check PASS。独立 Sol High 全阶段技术终态签核 PASS，文档 delta PASS，没有未解决 P1/P2/P3。已有真实 Vanilla/RCON 证据适用理由、历史失败、限制及问题账本见 [Final Gate](./PHASE3_FINAL_GATE_2026-10-04.md)。仅继续安全 Git 提交/feature push/PR 收口，停在 READY TO MERGE；不自动合并 main，不开启下一阶段或新定时任务。
+
+以下按日期保留历史检查点；旧“下一步”和 IN PROGRESS/BLOCKED/NOT RUN 仅描述当时状态，当前状态以本节及 Final Gate 为准。
+
+### 2026-10-04 P3.5真实浏览器验收 PASS
+
+新真实run `p35-browser-441fb968-c099-4892-8560-a58aae9d9fba` PASS；旧run `p35-browser-4c145881-8043-4ca1-9d1d-c231a598e45a` 保持BLOCKED且证据未改写。P3.5 独立精确 warning 分类要求完整 readiness 时序边界、后续 RCON、三维保存、正常退出及端口释放，未知 WARN 继续阻塞。专项 39 PASS；完整 contracts6/API706/Web82 共794 PASS，lint/typecheck/build PASS；独立 Sol High 分类Review PASS；真实run 360/768/1440及全部12次Java启动、shutdown、Restore/Rollback证据通过，最终停服且无recoveryRequired。总项目回归794 PASS、lint/typecheck/build PASS。P3.5真实Gate PASS；Phase3 Final Review/PASS仍待完成，之后再评估Phase4。详见 [修复记录](./P35_WARNING_CLASSIFICATION_FIX_2026-10-04.md)。
+
+
 更新时间：2026-10-04
 
 
 ## Phase 3 当前检查点
+
+### 2026-10-04 P3.5工具实现检查点（历史，后续真实验收已PASS）
+
+用户确认P3.4提交0a021e0已推同名开发分支、bundle完整，main保持5920f6d；本轮不上传/合并。已完成新的三档真实Browser工具：真实POST备份断响应后同key/body/op查询、A/B/C三维标记区别、停服完整manifest/hash、一次已持久new-installed故障、重启恢复门控、Browser显式Rollback、再次重启及Done/RCON/标记/最终正常停止。仅全新UUID隔离实例，来源只JAR/EULA/config与既有报告，原世界不访问。精确ownedJava/Vite/Chrome清场，独立bounded cleanup/日志上限/原始私有流，ERROR及未知WARN继续阻塞。没有修改产品业务源码或事务语义。
+
+专项52/52 PASS；真实HTTP/Chrome/Backend文件事务的合成三档两轮PASS（明确realAcceptance=NOT_RUN，不冒充Java/RCON）。独立SolHigh CODE/TOOL/TEST-SOURCE及P2 delta Review PASS；最终冻结check exit0：contracts6/API667/Web82共 **755 PASS**，lint/typecheck/build/JS与PS语法/diff PASS。预检run `p35-browser-a2706d2b-0f9c-431f-8814-d6b425c7caa2` exit1：HOST_PRECONDITION_UNAVAILABLE/HOST_PERFLIB_UNAVAILABLE、ItemNotFoundException/HResult -2146233087，当前Codex Perflib009不可见、CPUcounter PASS；只预检一次，serverRoot未创建、无Java/Vite/Chrome启动，无系统修复。普通宿主工具上下文再做一次只读查询仍PathNotFound，未重跑真实测试；不证明用户手动会话或Windows损坏。实际宿主需一次执行新wrapper并返回evidence。该段为历史工具检查点，真实验收后更新见本文件顶部；Phase3 Final仍PENDING。见 [P3.5工具/问题/命令](./P35_BROWSER_ACCEPTANCE_2026-10-04.md) / [独立工具审查](./P35_TOOL_REVIEW_2026-10-04.md)。
+
+### 2026-10-04 P3.4 每日计划 / retention PASS
+
+已实现默认关闭的 IANA 每日计划、日期先持久化 claim、跨重启 / DST / 时钟倒退去重、错过不补跑、root/revision/active/关闭门控；仅明确 allowStop 才停服。默认关闭的并集 retention 保护 pinned、legacy、失败和任意事务/恢复引用；仅停止态运行，新备份私有 owner、全清单校验、外置 durable receipt、有界非递归删除，部分现场跨重启持续显示 inspection-required，不自动续删。
+
+独立 Sol High CODE/TOOL/TEST-SOURCE Review PASS，六项 P2 已闭合；实际 Chrome360/768/1440共3/3 PASS，真实API删除两份旧合成备份保留最新一份，helpers退出/端口释放。最终冻结 `VITEST_MAX_WORKERS=1 npm.cmd run check` exit0：contracts6/API654/Web82共 **742 PASS**，lint/typecheck/production build PASS，git diff --check PASS。首次混合源码check：contracts6/Web82通过，API652通过、1既有Archive测试超时（5秒原时限），整体exit1；保持代码/时限/断言单独复核两分支2/2通过，再完成上述冻结全套，历史失败保留。不调用Astra、不启动Java、不访问原世界、不进入P3.5/Phase4。P3.4 PASS，Phase3仍IN PROGRESS；下一步P3.5独立真实测试世界浏览器备份→修改→恢复→故障→显式回滚和Phase3 Final Review。详见 [P3.4实现与问题账本](./P34_SCHEDULER_RETENTION_2026-10-04.md) / [独立Review](./P34_REVIEW_2026-10-04.md)。用户此前已授权每切片完成后专用GitHub智能体做安全检查/上传，本次在所有Gate通过后执行；源码与运行时证据分离，私有数据不上传。
 
 ### 2026-10-04 P3.3 失败上传 / staging 生命周期收尾 PASS
 

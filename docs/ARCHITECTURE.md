@@ -2,7 +2,9 @@
 
 Current P3.3 closure: Archive host run `1d0662e9…` is verified PASS (see PROGRESS; historical BLOCKED evidence retained). Upload staging lifecycle uses immutable createdAt/identity owner plus atomic receiving/failed/validated metadata; expiry only selects candidates. A shared global lease and per-instance exclusive admission recheck all journal references, consumed/pinned markers, recovery and canonical identities before existing durable-receipt/nonrecursive deletion. Default automatic cleanup is OFF; opt-in cleanup runs only before new uploads, with a separate locally guarded explicit sweep API. No world/archive/guard/transaction workspace cleanup, no automatic retry of partial deletion. Full policy and verification are in [staging framework](./P33_STAGING_LIFECYCLE_2026-10-04.md).
 
-状态：设计 v1；Phase 1 已在 `apps/api`、`apps/web`、`packages/contracts` 与 `tests/e2e` 实现并通过测试及 GPT-6 Astra UI Review。Phase 2–7 仍为后续设计合同。
+当前实施状态：Phase 1 / Phase 2 已通过；Phase 3 的 P3.0–P3.5 已通过各自切片验收，整体签核以 [Phase 3 Final Gate](./PHASE3_FINAL_GATE_2026-10-04.md) 为准；Phase 4–7 尚未实施。本轮按用户明确覆盖使用独立 Sol High Final Review，不调用 Astra；历史模型署名保留。
+
+以下总体设计保留原始合同。设计 v1 历史检查点：Phase 1 已在 `apps/api`、`apps/web`、`packages/contracts` 与 `tests/e2e` 实现并通过测试及 GPT-6 Astra UI Review；当时 Phase 2–7 为后续设计合同。
 
 ## 1. 需求与第一轮边界
 
@@ -209,6 +211,10 @@ Phase 3 restore 仅接受同一 serverId 的 world-set 备份；server-snapshot 
 备份 manifest 包含 id、serverId、scope（world-set / server-snapshot）、kind（manual / auto / snapshot）、label、createdAt、minecraftVersion、serverType、includedRoots、字节数与 SHA-256。world-set 是常规存档备份；升级及 Addon 批量改动使用 server-snapshot，覆盖世界、JAR、配置与 Addons（排除日志、暂存、备份目录）。server-snapshot 中的 server.properties 与插件配置可能含密码，因此完整快照只在后端私有存储中使用，不提供 HTTP 下载；下载端点仅支持经秘密扫描的 world-set 归档，发现秘密则拒绝导出。后续若需导出完整快照，另行设计脱敏导出副本与独立 manifest，不能返回原始归档。
 
 默认 retention：最近 10 份 manual / auto、最近 7 天；满足两项任一者保留。pinned、pre-restore、pre-upgrade / pre-addon-change 不自动清理。只清理同 serverId 的已完成备份，成功新建后再运行 retention，不触碰 staging 与失败现场。Scheduled Backup 使用明确 IANA timezone + daily time，每实例不重叠；首次默认 disabled，运行中默认跳过并提示，用户可明确开启允许停服。漏掉的计划不会堆积补跑。
+
+2026-10-04 P3.4 实现：计划与保留策略均默认关闭，私有策略绑定注册 root 身份和 revision，写操作使用共享 instance lease。调度先 durable claim 再提交，规范化 timezone 的日期高水位跨重启保留，DST fold/时钟倒退不重复、gap/漏分钟不补跑；提交/admission/executor 重验 root/active/closed。损坏策略按实例隔离，不对未知绑定重写。
+
+新普通备份增加私有 owner.json（root/directory 身份、serverId、createdAt），旧无可信 owner 的备份和 pinned guard 保留。retention 无启动 sweep/timer，仅新成功普通备份或明确手动请求触发，要求 stopped/ownership=none/no recovery；runtime 不安全返回 blocked，不自行停服。删除前重验完整 world-set 清单/hash、owner、所有 journal/recovery/reference，在目录外落盘 deleting receipt，再按有界验证清单非递归 unlink/rmdir。未知文件、链接、多链接、遗留引用均保留；部分删除在重启和 manifest 缺失后仍由外部 receipt 呈现 partial/inspection-required，不自动续删。关闭同时封闭调度与保留入口，再等待拥有操作终态。Windows fsync 和同用户外部变更边界不提升。详见 [P3.4](./P34_SCHEDULER_RETENTION_2026-10-04.md)。
 
 ## 9. Addons 与 Properties（Phase 4 / 5）
 
