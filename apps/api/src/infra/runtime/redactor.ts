@@ -4,6 +4,8 @@ const SENSITIVE_KEY = /(?:pass(?:word|phrase)?|passwd|pwd|token|secret|authoriza
 const INLINE_SECRET = /(\b(?:pass(?:word|phrase)?|passwd|pwd|token|secret|authorization|credential|rcon[._-]?password)\b["']?\s*(?::|=)\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&]+)/gi;
 const BEARER = /(\bBearer\s+)[A-Za-z0-9._~+\/-]+=*/gi;
 
+export function isSensitiveKey(key: string): boolean { return SENSITIVE_KEY.test(key); }
+
 export interface Redactor {
   redactText(value: string): string;
   redactValue<T>(value: T): T;
@@ -47,7 +49,7 @@ export function createRedactor(options: RedactorOptions = {}): Redactor {
     const result: Record<string, unknown> = {};
     seen.set(value, result);
     for (const [key, entry] of Object.entries(value)) {
-      result[key] = SENSITIVE_KEY.test(key) ? REDACTED : visit(entry, seen);
+      result[key] = isSensitiveKey(key) ? REDACTED : visit(entry, seen);
     }
     return result;
   };

@@ -1,4 +1,5 @@
 import {
+  playersResponseSchema, type PlayersResponse,
   backupScheduleResponseSchema, type BackupScheduleResponse, type BackupScheduleUpdate,
   backupRetentionResponseSchema, type BackupRetentionResponse, type BackupRetentionUpdate,
   worldImportUploadResponseSchema,
@@ -163,6 +164,8 @@ async function requestJson<T>(path: string, schema: unknown, options: RequestOpt
 }
 
 export const api = {
+  players: (serverId: string, signal?: AbortSignal) =>
+    getJson<PlayersResponse>(`/servers/${encodeURIComponent(serverId)}/players`, playersResponseSchema, signal),
   worldImportPlan: (serverId: string, body: { uploadId: string; name: string }) =>
     requestJson<WorldImportPlanResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-plan`, worldImportPlanResponseSchema,
       { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),

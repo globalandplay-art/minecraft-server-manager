@@ -17,7 +17,8 @@ export type TransactionKind =
   | "rollback"
   | "world-create"
   | "world-import"
-  | "world-archive";
+  | "world-archive"
+  | "properties-write";
 export type TransactionState = "active" | "recovery-required" | "committed" | "rolled-back";
 export type JournalPathRole = "source" | "target" | "staging" | "rollback" | "archive";
 
@@ -79,6 +80,16 @@ export interface TransactionIntent {
     readonly workspaceName: string;
     readonly propertiesChecksum: string;
   };
+  readonly propertiesWrite?: {
+    readonly rootIdentity: string;
+    readonly worldId: string;
+    readonly worldRevision: string;
+    readonly originalFileIdentity: string;
+    readonly originalChecksum: string;
+    readonly preparedChecksum: string;
+    readonly guardId: string;
+    readonly workspaceName: string;
+  };
 }
 
 export interface CheckpointDetails {
@@ -95,7 +106,7 @@ export interface TransactionCheckpoint {
 }
 
 export interface TransactionJournalRecord {
-  readonly schemaVersion: typeof SCHEMA_VERSION | 2 | 3 | 4 | 5;
+  readonly schemaVersion: typeof SCHEMA_VERSION | 2 | 3 | 4 | 5 | 6;
   readonly transactionId: string;
   readonly intent: TransactionIntent;
   readonly state: TransactionState;
@@ -164,10 +175,10 @@ function normalizeRelativePath(value: string): string {
 function validateIntent(value: unknown): value is TransactionIntent {
   if (!isObject(value) || !hasOnlyKeys(value, [
     "operationId", "serverId", "kind", "scope", "resourceId", "allowStop",
-    "originalState", "paths", "createdAt", "restore", "worldChange", "worldImport", "worldArchive"
+    "originalState", "paths", "createdAt", "restore", "worldChange", "worldImport", "worldArchive", "propertiesWrite"
   ])) return false;
   if (!UUID.test(String(value.operationId)) || !SERVER_ID.test(String(value.serverId))) return false;
-  if (!(["backup", "restore", "rollback", "world-create", "world-import", "world-archive"] as unknown[])
+  if (!(["backup", "restore", "rollback", "world-create", "world-import", "world-archive", "properties-write"] as unknown[])
     .includes(value.kind)) return false;
   if (!["world-set", "server-snapshot", null].includes(value.scope as never)) return false;
   if (value.resourceId !== null && !isOpaqueId(value.resourceId)) return false;
@@ -224,11 +235,29 @@ function validateIntent(value: unknown): value is TransactionIntent {
       !value.paths.some((p) => isObject(p) && p.role === "archive" && p.namespace === "server" && p.relativePath === `${w.workspaceName}/world`)) return false;
   }
   if (value.kind === "world-archive" && value.worldArchive === undefined) return false;
+  if (value.propertiesWrite !== undefined) {
+    const p = value.propertiesWrite;
+    if (value.kind !== "properties-write" || value.scope !== null || value.allowStop !== false || value.originalState !== "stopped" ||
+      value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldArchive !== undefined ||
+      !isObject(p) || !hasOnlyKeys(p, ["rootIdentity", "worldId", "worldRevision", "originalFileIdentity", "originalChecksum", "preparedChecksum", "guardId", "workspaceName"]) ||
+      ![p.rootIdentity, p.worldRevision, p.originalFileIdentity, p.originalChecksum, p.preparedChecksum].every((v) => typeof v === "string" && SHA256.test(v)) ||
+      typeof p.worldId !== "string" || !/^world-[0-9a-f]{24}$/u.test(p.worldId) || !UUID.test(String(p.guardId)) || value.resourceId !== p.guardId ||
+      p.workspaceName !== `.manager-properties-${value.operationId}`) return false;
+    const expected = [
+      { role: "target", namespace: "server", relativePath: "server.properties" },
+      { role: "staging", namespace: "server", relativePath: p.workspaceName },
+      { role: "rollback", namespace: "manager", relativePath: `properties-backups/${value.serverId}/${p.guardId}` }
+    ];
+    const paths = value.paths;
+    if (paths.length !== expected.length || !expected.every((e) => paths.some((item: unknown) => isObject(item) &&
+      item.role === e.role && item.namespace === e.namespace && item.relativePath === e.relativePath))) return false;
+  }
+  if (value.kind === "properties-write" && value.propertiesWrite === undefined) return false;
   const roles = new Set<string>();
   for (const item of value.paths) {
     if (!isObject(item) || !hasOnlyKeys(item, ["role", "relativePath", "namespace"])) return false;
-    if ((value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldArchive !== undefined) && !["manager", "server"].includes(String(item.namespace))) return false;
-    if (value.restore === undefined && value.worldChange === undefined && value.worldImport === undefined && value.worldArchive === undefined && item.namespace !== undefined) return false;
+    if ((value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldArchive !== undefined || value.propertiesWrite !== undefined) && !["manager", "server"].includes(String(item.namespace))) return false;
+    if (value.restore === undefined && value.worldChange === undefined && value.worldImport === undefined && value.worldArchive === undefined && value.propertiesWrite === undefined && item.namespace !== undefined) return false;
     if (!["source", "target", "staging", "rollback", "archive"].includes(String(item.role))) return false;
     if (roles.has(String(item.role)) || typeof item.relativePath !== "string") return false;
     roles.add(String(item.role));
@@ -256,7 +285,7 @@ function validateRecord(value: unknown): value is TransactionJournalRecord {
   if (!isObject(value) || !hasOnlyKeys(value, [
     "schemaVersion", "transactionId", "intent", "state", "checkpoints", "updatedAt"
   ])) return false;
-  if (![SCHEMA_VERSION, 2, 3, 4, 5].includes(value.schemaVersion as never) || !UUID.test(String(value.transactionId)) ||
+  if (![SCHEMA_VERSION, 2, 3, 4, 5, 6].includes(value.schemaVersion as never) || !UUID.test(String(value.transactionId)) ||
       !validateIntent(value.intent) ||
       !["active", "recovery-required", "committed", "rolled-back"].includes(String(value.state)) ||
       !Array.isArray(value.checkpoints) || value.checkpoints.length > MAX_CHECKPOINTS ||
@@ -265,6 +294,7 @@ function validateRecord(value: unknown): value is TransactionJournalRecord {
   if ((value.schemaVersion === 3) !== (value.intent.worldChange !== undefined)) return false;
   if ((value.schemaVersion === 4) !== (value.intent.worldImport !== undefined)) return false;
   if ((value.schemaVersion === 5) !== (value.intent.worldArchive !== undefined)) return false;
+  if ((value.schemaVersion === 6) !== (value.intent.propertiesWrite !== undefined)) return false;
   let previousTime = Date.parse(value.intent.createdAt);
   for (let index = 0; index < value.checkpoints.length; index += 1) {
     const checkpoint = value.checkpoints[index];
@@ -430,10 +460,11 @@ export class TransactionJournalStore {
         ...(input.restore === undefined ? {} : { restore: structuredClone(input.restore) }),
         ...(input.worldChange === undefined ? {} : { worldChange: structuredClone(input.worldChange) }),
         ...(input.worldImport === undefined ? {} : { worldImport: structuredClone(input.worldImport) }),
-        ...(input.worldArchive === undefined ? {} : { worldArchive: structuredClone(input.worldArchive) })
+        ...(input.worldArchive === undefined ? {} : { worldArchive: structuredClone(input.worldArchive) }),
+        ...(input.propertiesWrite === undefined ? {} : { propertiesWrite: structuredClone(input.propertiesWrite) })
       };
       const record: TransactionJournalRecord = {
-        schemaVersion: input.worldArchive !== undefined ? 5 : input.worldImport !== undefined ? 4 : input.worldChange !== undefined ? 3 : input.restore === undefined ? SCHEMA_VERSION : 2,
+        schemaVersion: input.propertiesWrite !== undefined ? 6 : input.worldArchive !== undefined ? 5 : input.worldImport !== undefined ? 4 : input.worldChange !== undefined ? 3 : input.restore === undefined ? SCHEMA_VERSION : 2,
         transactionId,
         intent,
         state: "active",

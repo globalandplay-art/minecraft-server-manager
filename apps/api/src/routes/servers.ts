@@ -1,4 +1,6 @@
 import {
+  playersResponseSchema,
+  type PlayersResponse,
   apiErrorResponseSchema,
   overviewResponseSchema,
   type OverviewResponse,
@@ -39,6 +41,11 @@ export function registerServerRoutes(
   clock: Clock,
   mode: Mode = "mock"
 ): void {
+  app.get<{ Params: ServerParams; Reply: PlayersResponse }>("/api/v1/servers/:serverId/players", {
+    schema: { params: serverParamsSchema, response: { 200: playersResponseSchema,
+      400: apiErrorResponseSchema, 403: apiErrorResponseSchema, 404: apiErrorResponseSchema, 500: apiErrorResponseSchema } }
+  }, async (request) => ({ data: await service.getPlayers(request.params.serverId, () => clock.now().toISOString()),
+    meta: responseMeta(request.id, clock, mode) }));
   app.get<{ Reply: ServersResponse }>(
     "/api/v1/servers",
     {

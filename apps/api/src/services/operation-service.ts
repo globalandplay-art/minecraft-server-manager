@@ -66,7 +66,7 @@ export class OperationService {
     }
     const storedById = new Map(stored.map((record) => [record.operation.id, record.operation]));
     for (const record of transactionScan?.records ?? []) {
-      if (!(record.intent.restore || record.intent.worldChange || record.intent.worldImport || record.intent.worldArchive) || !["committed", "rolled-back"].includes(record.state)) continue;
+      if (!(record.intent.restore || record.intent.worldChange || record.intent.worldImport || record.intent.worldArchive || record.intent.propertiesWrite) || !["committed", "rolled-back"].includes(record.state)) continue;
       const outcome = storedById.get(record.intent.operationId);
       const established = outcome?.state === "succeeded" || (outcome?.state === "failed" && outcome.step === "rolled-back" && !outcome.error);
       if (!established && !this.#verifiedTerminalOperations.has(record.intent.operationId)) this.requireTransactionRecovery(record.intent.serverId, record.intent.operationId);
@@ -77,7 +77,7 @@ export class OperationService {
         (item.intent.worldImport && item.checkpoints.some((c) => c.name === "import-recovery-operation" && c.details?.resourceId === record.operation.id))) &&
         ["committed", "rolled-back"].includes(item.state));
       const established = record.operation.state === "succeeded" || (record.operation.state === "failed" && record.operation.step === "rolled-back" && !record.operation.error);
-      const unverified = Boolean((terminal?.intent.restore || terminal?.intent.worldChange || terminal?.intent.worldImport || terminal?.intent.worldArchive) && !established && !this.#verifiedTerminalOperations.has(record.operation.id));
+      const unverified = Boolean((terminal?.intent.restore || terminal?.intent.worldChange || terminal?.intent.worldImport || terminal?.intent.worldArchive || terminal?.intent.propertiesWrite) && !established && !this.#verifiedTerminalOperations.has(record.operation.id));
       const unsafeCompletion = unverified || Boolean(terminal && this.#recoveryCauses.get(record.operation.serverId)?.has(`operation:${record.operation.id}`));
       if (unverified) this.requireTransactionRecovery(record.operation.serverId, record.operation.id);
       if (unsafeCompletion || record.operation.state === "queued" || record.operation.state === "running" || (record.operation.state === "interrupted" && terminal)) {
@@ -276,7 +276,7 @@ export class OperationService {
     requestBody: string,
     execute: (context: RuntimeOperationContext) => Promise<void>,
     preflight?: () => Promise<void>,
-    kind: "backup" | "backup-export" | "restore" | "rollback" | "world-create" | "world-import" | "world-import-recovery" | "world-archive" = "backup",
+    kind: "backup" | "backup-export" | "restore" | "rollback" | "world-create" | "world-import" | "world-import-recovery" | "world-archive" | "properties-write" = "backup",
     recoveryOwner?: string
   ): Promise<Operation> {
     const fingerprint = createHash("sha256").update(`${serverId}\n${kind}\n${requestBody}`).digest("hex");

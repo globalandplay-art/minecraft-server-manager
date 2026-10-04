@@ -334,13 +334,23 @@ schedule localTime 用 HH:mm，timezone 用支持的 IANA zone；retainCount 范
 | --- | --- |
 | GET /servers/:id/players | `{ availability: 'available' \| 'unavailable', completeness: 'full' \| 'sample' \| 'unknown', items: Player[], sampledAt: string \| null, reason: string \| null }` |
 | GET /servers/:id/properties | `{ fields: SafeProperties, revision: string, fieldRules: PropertyRules }`，ETag 与 revision 对应 |
-| PATCH /servers/:id/properties | `{ changes: Partial<SafeProperties> }` + If-Match；`{ fields, revision, backupId, restartRequired: true, restartFields: string[] }` |
+| PATCH /servers/:id/properties | `{ changes: Record<string, string>, confirmOfflineIdentity: boolean }` + quoted If-Match + UUID Idempotency-Key；202 `{ operation, restartRequired: true, restartFields: string[] }`，需轮询 operation 后重新 GET |
 
 Player 为 `{ id: string, uuid: string | null, name: string, online: boolean }`；有已验证 UUID 时作为稳定 id，只有名字时使用 backend opaque session id，不能伪造 UUID。空 items 只有 availability=available 才能解释为无在线玩家。此阶段只查看玩家；kick / ban / op 不隐含在本轮范围中，将来单独设计权限和确认。
 
+P4.1 当前实现：仅受管 running Vanilla 的固定 RCON `list` 完整英文格式；名字、人数、上限、重复项及输出大小全部核对。成功为 available/full；没有可信完整结果为 unavailable/unknown、items=[]、sampledAt=null，reason 为安全枚举，不返回原始日志、异常或秘密。uuid=null，ID 为当前采样会话的后端 opaque 标识，不代表已认证身份或跨重启稳定账号。UI 以15秒采样年龄/查询暂停标记旧数据，错误时不把缓存显示成当前名单；轮询10秒、后台暂停，手动刷新共享命令限流。实例恢复/活动操作/ownership 门控沿用现有 admission。Properties 合约仍为后续切片，尚未启用。
+
 SafeProperties 是 properties 键名白名单：`max-players`（1–10000 的产品上限，仍需版本规则校验）、difficulty、gamemode、pvp、online-mode、view-distance、simulation-distance、motd（UTF-8 ≤ 1024 字节，无 NUL / 换行）。具体距离范围由后端版本 fieldRules 返回，未知版本拒绝未经确认的范围修改。difficulty / gamemode 枚举由后端 schema 提供。rcon.password 等秘密字段在任何 fields、errors、revision diff 中都不得出现。
 
+2026-10-04 实施检查点：`properties-write` 已加入 operation kind 和严格私有 schema6 journal；私有保护备份及 bootstrap 拒绝属于准备内核，不是上述公共配置 GET/PATCH 的实现。当前没有配置保存端点，也没有保护备份下载端点；不返回原配置或私有 manifest/checksum。
+
 保存前将完整原文件备份到后端私有目录，备份失败则不改文件；backupId 仅用于本地受保护恢复，不设通用下载端点。If-Match 冲突先刷新并保留用户编辑；保存只是写入，不执行 restart。
+
+2026-10-05 后端接线状态（替代此前“未启用”作为当前状态，不改写旧检查点）：GET/PATCH `/api/v1/servers/:serverId/properties` 已接入。GET 返回上述 data 和 meta，no-store，ETag 为双引号包裹的 opaque revision；不返回路径、文件身份、原字节、manifest/checksum或密码。PATCH 需允许的 Host/Origin、JSON、`X-Manager-Intent: local-ui`、quoted `If-Match`、UUID v4幂等键。changes 值全部为字符串，只允许六个已开放字段；所有额外字段、路径、秘密字段、非字符串与隐式类型转换先拒绝。当前仅 Vanilla 26.3 的六项产品规则开放；其他版本全部只读，两个距离字段全部只读，不假定上限。
+
+`confirmOfflineIdentity` 必须为布尔；online-mode=false 需 true。max-players 产品上限 10000、枚举 difficulty/gamemode、pvp/online-mode true/false、motd UTF-8字节/控制字符限制继续由后端执行。保存要求已确认 stopped/ownership none、active world、无恢复锁/其他操作，运行中不隐含停服授权。202只是 accepted，不代表写入已成功或 Minecraft 已生效；待 `/operations/:operationId` succeeded 后重新 GET 获取新 revision/字段。operation.result.resourceId 是私有 guard ID，无下载端点；所有修改需要明确后续启动/重启，本接口不会执行。
+
+缺少/无效前置条件428，revision过期409 PROPERTIES_REVISION_CONFLICT，同key不同请求409 OPERATION_CONFLICT，非法请求400，写意图不足403，不具备本地服务501。成功及GET均no-store。bootstrap仅放行root绑定且物理核验成功的committed历史；active/模糊/缺失配置/根目录改变继续阻止启动，无默认配置回退或自动修复。当前是后端接线，表单及真实Vanilla Gate未完成，不能据此标记P4.3/Phase 4 PASS。
 
 ## 8. Phase 5 / 6：Addons、指标与 Crash Analysis
 

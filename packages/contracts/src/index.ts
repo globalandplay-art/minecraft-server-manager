@@ -301,6 +301,23 @@ export const responseMetaSchema = strictObject({
 });
 export type ResponseMeta = Static<typeof responseMetaSchema>;
 
+export const playerSchema = strictObject({
+  id: Type.String({ minLength: 1, maxLength: 128 }),
+  uuid: Type.Union([Type.String({ format: "uuid" }), Type.Null()]),
+  name: Type.String({ pattern: "^[A-Za-z0-9_]{1,16}$" }),
+  online: Type.Boolean()
+});
+export type Player = Static<typeof playerSchema>;
+export const playersDataSchema = Type.Union([
+  strictObject({ availability: Type.Literal("available"), completeness: Type.Literal("full"),
+    items: Type.Array(playerSchema, { maxItems: 10000 }), sampledAt: timestampSchema, reason: Type.Null() }),
+  strictObject({ availability: Type.Literal("unavailable"), completeness: Type.Literal("unknown"),
+    items: Type.Array(playerSchema, { maxItems: 0 }), sampledAt: Type.Null(), reason: Type.String({ minLength: 1, maxLength: 128 }) })
+]);
+export const playersResponseSchema = strictObject({ data: playersDataSchema, meta: responseMetaSchema });
+export type PlayersData = Static<typeof playersDataSchema>;
+export type PlayersResponse = Static<typeof playersResponseSchema>;
+
 export const healthDataSchema = strictObject({
   status: Type.Literal("ok"),
   apiVersion: Type.Literal("1"),
@@ -553,6 +570,7 @@ export const operationKindSchema = Type.Union([
   Type.Literal("world-import"),
   Type.Literal("world-import-recovery"),
   Type.Literal("world-archive"),
+  Type.Literal("properties-write"),
   Type.Literal("addon-change")
 ]);
 export type OperationKind = Static<typeof operationKindSchema>;
@@ -618,6 +636,26 @@ export const lifecycleActionResponseSchema = strictObject({
   meta: responseMetaSchema
 });
 export type LifecycleActionResponse = Static<typeof lifecycleActionResponseSchema>;
+
+const safePropertyKeys = ["max-players", "difficulty", "gamemode", "pvp", "online-mode", "view-distance", "simulation-distance", "motd"] as const;
+export const propertiesResponseSchema = strictObject({ data: strictObject({
+  fields: strictObject(Object.fromEntries(safePropertyKeys.map((key) => [key, Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()])]))),
+  revision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  fieldRules: strictObject(Object.fromEntries(safePropertyKeys.map((key) => [key, strictObject({
+    editable: Type.Boolean(), restartRequired: Type.Boolean(), reason: Type.Union([Type.String(), Type.Null()])
+  })])))
+}), meta: responseMetaSchema });
+export const propertiesWriteRequestSchema = strictObject({
+  changes: Type.Object(Object.fromEntries(safePropertyKeys.filter((key) => key !== "view-distance" && key !== "simulation-distance")
+    .map((key) => [key, Type.Optional(Type.String({ maxLength: 1024 }))])), { additionalProperties: false, minProperties: 1, maxProperties: 6 }),
+  confirmOfflineIdentity: Type.Boolean()
+});
+export type PropertiesWriteRequest = Static<typeof propertiesWriteRequestSchema>;
+export const propertiesWriteResponseSchema = strictObject({ data: strictObject({
+  operation: operationSchema, restartRequired: Type.Literal(true), restartFields: Type.Array(Type.String(), { minItems: 1, maxItems: 6 })
+}), meta: responseMetaSchema });
+export type PropertiesResponse = Static<typeof propertiesResponseSchema>;
+export type PropertiesWriteResponse = Static<typeof propertiesWriteResponseSchema>;
 
 export const operationResponseSchema = strictObject({
   data: operationSchema,

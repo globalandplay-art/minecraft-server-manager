@@ -30,7 +30,8 @@ export function featuresForMode(mode: Mode): Features {
   return {
     ...structuredClone(FEATURES),
     lifecycle: { implemented: true, phase: 2 },
-    console: { implemented: true, phase: 2 }
+    console: { implemented: true, phase: 2 },
+    players: { implemented: true, phase: 4 }
   };
 }
 

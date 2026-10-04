@@ -4,6 +4,9 @@ import path from "node:path";
 import type { ValidatedLaunchPlan } from "../infra/runtime-contract.js";
 import { detectServer } from "../services/detection-service.js";
 import { DomainError } from "../services/domain-errors.js";
+import { TransactionJournalStore } from "../services/transaction-journal.js";
+import { assertPropertiesBootstrapSafety } from "../services/properties-bootstrap.js";
+import { JsonOperationStore } from "../services/operation-store.js";
 import {
   EULA_LIMIT,
   SERVER_PROPERTIES_LIMIT,
@@ -394,6 +397,26 @@ export async function loadLocalRegistrations(managerRoot: string): Promise<Valid
     throw error;
   }
   const configs = await loadRawConfig(path.join(canonicalManagerRoot, "config.json"));
+  // Recognize interrupted properties transactions before server.properties is mandatory.
+  // Absence of a journal is ordinary registration, never permission to create defaults.
+  let journalExists = false;
+  try { await lstat(path.join(canonicalManagerRoot, "transactions")); journalExists = true; }
+  catch (error) { if (!(typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")) throw error; }
+  if (journalExists) {
+    const journal = new TransactionJournalStore(canonicalManagerRoot);
+    const scan = await journal.initialize();
+    const outcomes = [];
+    if (scan.records.some((record) => record.intent.propertiesWrite)) {
+      const store = new JsonOperationStore(canonicalManagerRoot);
+      let operationsExist = false;
+      try { await lstat(path.join(canonicalManagerRoot, "operations")); operationsExist = true; }
+      catch (error) { if (!(typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")) throw error; }
+      // Registration preflight is read-only: never create metadata before roots are admitted.
+      // If a store exists, every malformed/missing record remains a hard read failure.
+      if (operationsExist) outcomes.push(...(await store.list()).map((item) => item.operation));
+    }
+    await assertPropertiesBootstrapSafety(configs, scan, { managerRoot: canonicalManagerRoot, journal, outcomes });
+  }
   const registrations = await Promise.all(configs.map(validateRegistration));
   assertSafeRegistrationRoots(
     canonicalManagerRoot,

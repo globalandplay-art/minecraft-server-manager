@@ -10,6 +10,7 @@ import { PhasePage, SettingsPage, type PhasePageKind } from './pages/PhasePage';
 import { Servers } from './pages/Servers';
 import { ConsolePage } from './pages/Console';
 import { BackupsPage, WorldsPage } from './pages/WorldsBackups';
+import { PlayersPage } from './pages/Players';
 
 function interval(visibleMs: number, hiddenMs?: number) {
   return () => document.hidden ? (hiddenMs ?? false) : visibleMs;
@@ -193,7 +194,7 @@ export function App() {
               ? <ErrorState description={errorMessage(serversQuery.error)} retry={() => void serversQuery.refetch()} />
               : <Servers items={servers} mode={mode ?? 'local'} stale={serversStale} />
         } />
-        <Route path="/players" element={phaseRoute('players')} />
+        <Route path="/players" element={invalidSelection ? <InvalidSelection /> : mode === 'local' && healthQuery.data?.data.features.players.implemented ? <PlayersPage key={selectedId} server={selectedServer} /> : phaseRoute('players')} />
         <Route path="/worlds" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <WorldsPage server={selectedServer} /> : phaseRoute('worlds')} />
         <Route path="/addons" element={phaseRoute('addons')} />
         <Route path="/console" element={consoleRoute} />

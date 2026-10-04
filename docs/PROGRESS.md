@@ -1,5 +1,25 @@
 # 实施进度
 
+### 2026-10-05 P4.3 API 与启动接线 — 后端工程切片 PASS
+
+收尾额度Gate：五小时剩余8%、周剩余28%，不再开启新大型切片。当前测试和fixture已结束；下次从配置UI/浏览器交互继续，之后fresh isolated Vanilla验收，不重做已通过后端核心。git diff --check exit0；未commit/push。
+
+在已审查切换核心上接入bootstrap物理核验、纯只读JsonOperationStore历史读取、app启动先reconcile后OperationService.initialize，以及配置GET/PATCH/严格contracts。108专项PASS；独立SolHigh CODE/TEST-SOURCE/DOC REVIEW PASS、无未解决P1/P2。新冻结完整check显式exit0，contracts6/API832/Web87共925PASS，lint/typecheck/production build PASS。首轮完整检查因过程中源码变化标INVALIDATED BASELINE且日志保留，不充当最终证据。当前只有Vanilla26.3六字段可改，距离及其他版本只读；202代表accepted，不自动停服或重启。公共API已接，UI/真实JavaGate仍未完成，P4.3/Phase 4整体尚未PASS。Luna只读盘点/机械完整测试，耦合核心单写入者。首次fixture错误码及TS2345失败、纯只读预检修复记录保留。未commit/push、未访问原世界。见 [API/启动记录](./P43_API_STARTUP_2026-10-05.md)；以下是旧冻结检查点，不作为本轮未接线状态。
+
+### 2026-10-05 P4.3 配置切换核心 — IN PROGRESS
+
+未接线后端核心工程检查及独立 Sol High CODE / TEST-SOURCE REVIEW PASS：pinned guard、同卷旧配置保留/安装、提交前后核验、committed 物理确认及严格历史 outcome。89 专项 PASS，包含真实 OperationService 两次重启与合法离线编辑；最终冻结完整 check 显式 exit0，contracts6/API823/Web87 共916 PASS，lint/typecheck/production build PASS。首次核心/fixture 失败及 PowerShell 外层 NativeCommandError exit1 保留，未改写。公共保存 API/UI、bootstrap/app 集成和真实 Java 验收未完成；现有 bootstrap 仍保守拒绝 properties journal，P4.3/Phase 4 尚未 PASS。没有 commit/push、没有访问原世界。详见 [切换核心记录](./P43_PROPERTIES_WRITE_CORE_2026-10-05.md)。
+
+### 2026-10-04 P4 配置事务准备切片 — 工程 Gate PASS
+
+用户授权继续下一高风险内核。新增 properties-write/schema6 的严格 journal、私有 pinned guard、backend-only descriptor bytes reader、配置缺失窗口之前的 bootstrap RECOVERY_REQUIRED 拒绝，并将未确认终态纳入 OperationService recovery gate。最终93专项PASS；私有树隔离P2已修复并获独立SolHigh CODE DELTA PASS。最新冻结check exit0：contracts6/API813/Web87共906PASS，lint/typecheck/build/diff PASS，准备切片工程Gate及独立SolHigh最终PREPARATION GATE SIGNOFF通过，无未解决阻塞发现。历史首次完整运行 exit1（array-world-id assertion）、首次fixture/类型失败及增量前903PASS记录保留。无实际配置切换、配置保存 API、真实 Java 启动；P4.2/P4.3 完整切片及 Phase 4 尚未 PASS。暂时全 API fail-closed 拒绝新 properties journal，不能当作最终恢复 UX。实施范围、首次测试/类型失败及第1次修复证据见 [准备记录](./P43_PROPERTIES_FOUNDATION_2026-10-04.md)。未 commit/push，未触碰原世界。
+
+### 2026-10-04 Phase 4 已授权开始 — P4.0 / P4.1
+
+用户在 Phase 3 Final PASS 后明确要求继续下一步。基于 `39beabc` 创建 `codex/phase-4-players-properties`；Phase 3 PR #1 仍 open/mergeable，main 未改。以下“不进入 Phase 4”是上轮历史停止点，已被本次明确授权解除；Phase 3 验收事实不变。
+
+P4.0 顺序与边界见 [Phase 4 计划](./PHASE4_PLAN.md)。P4.1 实现/合成Gate PASS：受管 Vanilla 固定 RCON `list`与 Players 页面、严格完整名单、unknown/unavailable 区分、opaque ID/uuid=null、admission/recovery/ownership、15秒旧采样门控；冻结完整827PASS、lint/typecheck/build/diffPASS、三档captured Chrome/HTTP合成PASS且helpers/Chrome关闭/端口free、独立SolHigh签核PASS。无玩家写操作/配置写入。历史失败见 [P4.1记录](./P41_PLAYERS_2026-10-04.md)。Phase 4 整体仍 **IN PROGRESS**，真实 Vanilla Gate 尚待本阶段验收，合成 RCON 不冒充真实结果。用户随后要求优先高工作量核心：Properties事务设计独立审查DESIGN PASS，明确bootstrap缺失配置窗口及精确字节patch约束；配置前置核心 reader/精确 patcher/保守 grammar 已实现：44专项PASS，独立SolHigh核心复审PASS；冻结全套867PASS、lint/typecheck/build PASS。两项P2已修复，见 [P4.2核心记录](./P42_PROPERTIES_CORE_2026-10-04.md)。尚未接公共配置API或写入事务，P4.2完整切片未完成。
+
 ### 2026-10-04 Phase 3 Final Gate PASS
 
 P3.0–P3.5 切片及整体 Final Gate 均 PASS，不进入 Phase 4。续接重新核验 P3.5 最新真实 PASS 原始报告、12 次 launch 与九份备份/guard 的 360 个文件摘要。独立 Sol High 全阶段 Review 提出的两个 P2（备份源硬链接、operations junction）已修复，28 项专项 PASS；修改后全新 `VITEST_MAX_WORKERS=1 npm.cmd run check` exit0，contracts6/API718/Web82 共 **806 PASS**，lint/typecheck/build PASS；三档 HTTP/Chrome/真实文件事务回归 SYNTHETIC_PASS（明确无新 Java/RCON 实跑），Phase 1 Browser 11/11、Phase 2 只读 Console 1/1 重新 PASS，helpers 退出、端口释放、diff check PASS。独立 Sol High 全阶段技术终态签核 PASS，文档 delta PASS，没有未解决 P1/P2/P3。已有真实 Vanilla/RCON 证据适用理由、历史失败、限制及问题账本见 [Final Gate](./PHASE3_FINAL_GATE_2026-10-04.md)。仅继续安全 Git 提交/feature push/PR 收口，停在 READY TO MERGE；不自动合并 main，不开启下一阶段或新定时任务。

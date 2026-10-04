@@ -9,6 +9,8 @@ import type { MinecraftServerAdapter } from "./adapters/contract.js";
 import { AdapterRegistry } from "./adapters/registry.js";
 import type { Clock } from "./clock.js";
 import { systemClock } from "./clock.js";
+import { PropertiesWriteService } from "./services/properties-write-service.js";
+import { registerPropertiesRoutes } from "./routes/properties.js";
 import { JSON_BODY_LIMIT_BYTES } from "./config/runtime.js";
 import { createMockAdapters } from "./fixtures/servers.js";
 import { errorResponse, installLocalRequestGuard } from "./infra/http.js";
@@ -89,6 +91,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   let worldArchives: WorldArchiveService | undefined;
   let backupSchedules: BackupScheduleService | undefined;
   let backupRetention: BackupRetentionService | undefined;
+  let properties: PropertiesWriteService | undefined;
 
   app.addHook("onRequest", installLocalRequestGuard(clock, mode));
   app.addHook("onReady", async () => {
@@ -97,6 +100,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await worldCreates?.reconcileStartup();
     await worldImports?.reconcileStartup();
     const archiveWorlds = await worldArchives?.reconcileStartup();
+    await properties?.reconcileStartup();
     await operations.initialize();
     const scan = await options.transactionJournal?.scan();
     const restoreWorlds = new Map((scan?.records ?? []).filter((r) => r.intent.restore && ["active", "recovery-required"].includes(r.state))
@@ -130,6 +134,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       registerBackupScheduleRoutes(app, backupSchedules, clock, mode);
     }
     const active = options.activeWorldState;
+    if (active?.snapshot) {
+      properties = new PropertiesWriteService(registry, operations, options.transactionJournal, options.managerRoot,
+        { snapshot: active.snapshot.bind(active) }, clock);
+    }
     if (active?.snapshot && active.archiveCurrentWorld) {
       worldArchives = new WorldArchiveService(registry,operations,options.transactionJournal,backups,options.managerRoot,
         { snapshot:active.snapshot.bind(active),archiveCurrentWorld:active.archiveCurrentWorld.bind(active) },clock);
@@ -154,6 +162,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       new BackupExportService(backups, operations)
     );
   }
+  registerPropertiesRoutes(app, properties, clock, mode);
   registerWorldCreatePlanRoutes(app, new WorldCreatePlanService(registry, operations, Boolean(worldCreates)), clock, mode, worldCreates);
   // @fastify/websocket installs an onRoute hook in its encapsulated scope.
   // Register WebSocket routes in a following plugin so the hook can replace

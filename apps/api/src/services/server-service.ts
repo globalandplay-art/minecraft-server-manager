@@ -1,4 +1,5 @@
 import type {
+  PlayersData,
   CommandResponse,
   LogsResponse,
   Operation,
@@ -7,6 +8,9 @@ import type {
   ServerStatus,
   ServerSummary
 } from "@mcsm/contracts";
+
+import { randomUUID } from "node:crypto";
+import { parsePlayerList } from "./player-list.js";
 
 import {
   isLocalAdapter,
@@ -71,6 +75,7 @@ export class ServerService {
   readonly #registry: AdapterRegistry;
   readonly #operations: OperationService;
   readonly #commandAttempts = new Map<string, number[]>();
+  readonly #playerSessions = new Map<string, Map<string, string>>();
 
   constructor(
     registry: AdapterRegistry,
@@ -177,6 +182,40 @@ export class ServerService {
     limit: number
   ): Promise<LogsResponse["data"]> {
     return this.getLocalAdapter(serverId).getLogs(after, limit);
+  }
+
+  async getPlayers(serverId: string, sampledAt: () => string): Promise<PlayersData> {
+    const adapter = this.#registry.get(serverId);
+    if (!adapter) throw new ServerNotFoundError();
+    const missing = (reason: string): PlayersData => ({ availability: "unavailable", completeness: "unknown",
+      items: [], sampledAt: null, reason });
+    if (!isLocalAdapter(adapter)) return missing("mock-mode");
+    try {
+      return await this.#operations.runExclusive(serverId, async () => {
+        const summary = await this.#getSummary(serverId);
+        if (summary.server.type !== "vanilla") return missing("capability-unsupported");
+        if (summary.status.state !== "running" || summary.status.ownership !== "managed" ||
+          !summary.readiness.commands.allowed || summary.readiness.commandTransport !== "rcon") {
+          this.#playerSessions.delete(serverId);
+          return missing("managed-rcon-unavailable");
+        }
+        this.#consumeCommandRate(serverId);
+        const result = await adapter.command("list");
+        if (result.status !== "executed" || result.transport !== "rcon" || result.output === null) return missing("unconfirmed-response");
+        const names = parsePlayerList(result.output);
+        if (names === null) return missing("unrecognized-list-response");
+        const previous = this.#playerSessions.get(serverId);
+        const sessions = new Map(names.map((name) => [name, previous?.get(name) ?? `session-${randomUUID()}`]));
+        this.#playerSessions.set(serverId, sessions);
+        return { availability: "available", completeness: "full", sampledAt: sampledAt(), reason: null,
+          items: names.map((name) => ({ id: sessions.get(name)!, uuid: null, name, online: true })) };
+      });
+    } catch (error) {
+      if (error instanceof DomainError && error.code === "RATE_LIMITED") return missing("rate-limited");
+      if (error instanceof DomainError && error.code === "RECOVERY_REQUIRED") return missing("recovery-required");
+      if (error instanceof DomainError && error.code === "OPERATION_CONFLICT") return missing("operation-active");
+      return missing("player-query-failed");
+    }
   }
 
   async sendCommand(serverId: string, command: string): Promise<CommandResponse["data"]> {

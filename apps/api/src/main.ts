@@ -6,6 +6,7 @@ import { JsonOperationStore } from "./services/operation-store.js";
 import { TransactionJournalStore } from "./services/transaction-journal.js";
 import { ActiveWorldStateStore } from "./services/active-world-state-store.js";
 import { isLocalAdapter } from "./adapters/contract.js";
+import { DomainError } from "./services/domain-errors.js";
 
 async function main(): Promise<void> {
   const mode = resolveMode(process.env.MCSM_MODE);
@@ -44,7 +45,9 @@ async function main(): Promise<void> {
   await app.listen({ host: API_HOST, port: API_PORT });
 }
 
-main().catch(() => {
-  process.stderr.write("API startup failed; see safe application diagnostics.\n");
+main().catch((error: unknown) => {
+  process.stderr.write(error instanceof DomainError && error.code === "RECOVERY_REQUIRED"
+    ? `API startup blocked: RECOVERY_REQUIRED — ${error.safeMessage}\n`
+    : "API startup failed; see safe application diagnostics.\n");
   process.exitCode = 1;
 });
