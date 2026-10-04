@@ -1,5 +1,11 @@
 # 实施进度
 
+### 2026-10-04 Phase 3 Final Gate PASS
+
+P3.0–P3.5 切片及整体 Final Gate 均 PASS，不进入 Phase 4。续接重新核验 P3.5 最新真实 PASS 原始报告、12 次 launch 与九份备份/guard 的 360 个文件摘要。独立 Sol High 全阶段 Review 提出的两个 P2（备份源硬链接、operations junction）已修复，28 项专项 PASS；修改后全新 `VITEST_MAX_WORKERS=1 npm.cmd run check` exit0，contracts6/API718/Web82 共 **806 PASS**，lint/typecheck/build PASS；三档 HTTP/Chrome/真实文件事务回归 SYNTHETIC_PASS（明确无新 Java/RCON 实跑），Phase 1 Browser 11/11、Phase 2 只读 Console 1/1 重新 PASS，helpers 退出、端口释放、diff check PASS。独立 Sol High 全阶段技术终态签核 PASS，文档 delta PASS，没有未解决 P1/P2/P3。已有真实 Vanilla/RCON 证据适用理由、历史失败、限制及问题账本见 [Final Gate](./PHASE3_FINAL_GATE_2026-10-04.md)。仅继续安全 Git 提交/feature push/PR 收口，停在 READY TO MERGE；不自动合并 main，不开启下一阶段或新定时任务。
+
+以下按日期保留历史检查点；旧“下一步”和 IN PROGRESS/BLOCKED/NOT RUN 仅描述当时状态，当前状态以本节及 Final Gate 为准。
+
 ### 2026-10-04 P3.5真实浏览器验收 PASS
 
 新真实run `p35-browser-441fb968-c099-4892-8560-a58aae9d9fba` PASS；旧run `p35-browser-4c145881-8043-4ca1-9d1d-c231a598e45a` 保持BLOCKED且证据未改写。P3.5 独立精确 warning 分类要求完整 readiness 时序边界、后续 RCON、三维保存、正常退出及端口释放，未知 WARN 继续阻塞。专项 39 PASS；完整 contracts6/API706/Web82 共794 PASS，lint/typecheck/build PASS；独立 Sol High 分类Review PASS；真实run 360/768/1440及全部12次Java启动、shutdown、Restore/Rollback证据通过，最终停服且无recoveryRequired。总项目回归794 PASS、lint/typecheck/build PASS。P3.5真实Gate PASS；Phase3 Final Review/PASS仍待完成，之后再评估Phase4。详见 [修复记录](./P35_WARNING_CLASSIFICATION_FIX_2026-10-04.md)。

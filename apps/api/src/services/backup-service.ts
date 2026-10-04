@@ -97,6 +97,7 @@ async function estimateRoots(serverRoot: string, roots: string[]): Promise<numbe
       return;
     }
     if (!info.isFile()) throw unsafe("special-file");
+    if (info.nlink !== 1) throw unsafe("hardlinked-file");
     count += 1;
     total += info.size;
     if (count > MAX_FILES || !Number.isSafeInteger(total) || total > MAX_BYTES) {
@@ -264,16 +265,16 @@ export class BackupService {
       await context.onStep("copying-snapshot");
       const files: FileEntry[] = [];
       let total = 0;
-      const sources: Array<{ source: string; relative: string; sizeBytes: number; mtimeMs: number }> = [];
+      const sources: Array<{ source: string; relative: string; sizeBytes: number; mtimeMs: number; dev: number; ino: number }> = [];
       const collectOne = async (source: string, relative: string) => {
         if (relative.length > 4096 || relative.split("/").length > 64 || !relative.split("/").every(safeSegment)) throw unsafe("unsafe-relative-path");
         const sourceInfo = await lstat(source);
-        if (!sourceInfo.isFile() || sourceInfo.isSymbolicLink()) throw unsafe("unsafe-file");
+        if (!sourceInfo.isFile() || sourceInfo.isSymbolicLink() || sourceInfo.nlink !== 1) throw unsafe("unsafe-file");
         total += sourceInfo.size;
         if (!Number.isSafeInteger(total) || total > MAX_BYTES || sources.length >= MAX_FILES) {
           throw new DomainError(413, "BACKUP_TOO_LARGE", "备份超过本地大小或文件数量限制", "backup-limit");
         }
-        sources.push({ source, relative, sizeBytes: sourceInfo.size, mtimeMs: sourceInfo.mtimeMs });
+        sources.push({ source, relative, sizeBytes: sourceInfo.size, mtimeMs: sourceInfo.mtimeMs, dev: sourceInfo.dev, ino: sourceInfo.ino });
       };
       const walk = async (directoryPath: string, relativeRoot: string) => {
         await plainDirectory(directoryPath);
@@ -317,6 +318,10 @@ export class BackupService {
           if (ancestor === staging) break;
           ancestor = path.dirname(ancestor);
         }
+        const sourceBeforeCopy = await lstat(source);
+        if (!sourceBeforeCopy.isFile() || sourceBeforeCopy.isSymbolicLink() || sourceBeforeCopy.nlink !== 1 ||
+          sourceBeforeCopy.dev !== item.dev || sourceBeforeCopy.ino !== item.ino ||
+          sourceBeforeCopy.size !== item.sizeBytes || sourceBeforeCopy.mtimeMs !== item.mtimeMs) throw unsafe("source-changed");
         await copyFile(source, destination);
         const output = await open(destination, "r+");
         try { await output.sync(); } finally { await output.close(); }
@@ -324,7 +329,10 @@ export class BackupService {
         for await (const chunk of createReadStream(destination)) hash.update(chunk as Buffer);
         const copied = await lstat(destination);
         const sourceAfterCopy = await lstat(source);
-        if (copied.size !== item.sizeBytes || sourceAfterCopy.size !== item.sizeBytes ||
+        if (!copied.isFile() || copied.isSymbolicLink() || copied.nlink !== 1 ||
+          !sourceAfterCopy.isFile() || sourceAfterCopy.isSymbolicLink() || sourceAfterCopy.nlink !== 1 ||
+          sourceAfterCopy.dev !== item.dev || sourceAfterCopy.ino !== item.ino ||
+          copied.size !== item.sizeBytes || sourceAfterCopy.size !== item.sizeBytes ||
           sourceAfterCopy.mtimeMs !== item.mtimeMs) throw new Error("Source changed while copying");
         files.push({ path: relative, sizeBytes: copied.size, sha256: hash.digest("hex") });
       }

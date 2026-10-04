@@ -1,6 +1,6 @@
 # 本地使用指南
 
-本文对应当前已验收的 Phase 2：本机 Vanilla 服务端的检测、启动、停止、重启、RCON 命令和实时 Console。Worlds、Backups、Properties、Players、Mods / Plugins 及远程访问仍在后续阶段开发中。
+本文对应本机 Vanilla 生命周期、RCON / Console，以及已通过切片验收的 Phase 3 Worlds / Backups：备份、受限导出、恢复与显式回滚、新建、导入、归档、每日计划及安全保留。整体阶段签核见 [Phase 3 Final Gate](./PHASE3_FINAL_GATE_2026-10-04.md)。Properties 编辑、Players、Mods / Plugins 和远程访问仍在后续阶段。
 
 ## 1. 安装依赖
 
@@ -89,6 +89,8 @@ npm.cmd run dev
 
 ## 7. 重要限制
 
-当前版本不提供 Worlds / Backups、世界恢复、Properties 编辑、Mods / Plugins 上传、远程访问或任意 Shell 命令。不要在当前版本通过文件管理器直接移动或覆盖真实世界目录来模拟这些功能；Phase 3 会提供带备份、校验和回滚的安全流程。
+当前本机 Vanilla 版本提供 Worlds / Backups、受限 world-set 下载、恢复与显式回滚、新建世界、受限 ZIP 导入、完整世界归档、每日计划和安全保留策略。进入 Worlds / Backups 后按页面确认世界名称、revision 和停服/启动授权；失败时保留 guard、journal 与现场，按明确恢复入口处理。完整操作说明见 [README 使用指南](../README.md#使用指南)。
+
+归档后无活动世界，Start 会被拒绝；当前没有归档重新激活入口。备份计划和保留策略默认关闭，开启前核对其停服许可与删除范围。已导出并带有 ZIP/cache 文件的备份会被保留为需检查，不在当前自动删除布局范围内；不要手工删除这些文件以绕过保留门控。Properties 编辑、Mods / Plugins 上传、远程访问和任意 Shell 命令仍未提供。不要通过文件管理器移动或覆盖世界目录来代替页面中的事务流程。
 
 如果服务端启动失败，先查看 Console 和 `server.properties` 备份；不要反复点击启动。状态为“需要恢复检查”时，管理器会锁住可能造成进一步文件或进程风险的操作。

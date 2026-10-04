@@ -2,7 +2,9 @@
 
 Current P3.3 closure: Archive host run `1d0662e9…` is verified PASS (see PROGRESS; historical BLOCKED evidence retained). Upload staging lifecycle uses immutable createdAt/identity owner plus atomic receiving/failed/validated metadata; expiry only selects candidates. A shared global lease and per-instance exclusive admission recheck all journal references, consumed/pinned markers, recovery and canonical identities before existing durable-receipt/nonrecursive deletion. Default automatic cleanup is OFF; opt-in cleanup runs only before new uploads, with a separate locally guarded explicit sweep API. No world/archive/guard/transaction workspace cleanup, no automatic retry of partial deletion. Full policy and verification are in [staging framework](./P33_STAGING_LIFECYCLE_2026-10-04.md).
 
-状态：设计 v1；Phase 1 已在 `apps/api`、`apps/web`、`packages/contracts` 与 `tests/e2e` 实现并通过测试及 GPT-6 Astra UI Review。Phase 2–7 仍为后续设计合同。
+当前实施状态：Phase 1 / Phase 2 已通过；Phase 3 的 P3.0–P3.5 已通过各自切片验收，整体签核以 [Phase 3 Final Gate](./PHASE3_FINAL_GATE_2026-10-04.md) 为准；Phase 4–7 尚未实施。本轮按用户明确覆盖使用独立 Sol High Final Review，不调用 Astra；历史模型署名保留。
+
+以下总体设计保留原始合同。设计 v1 历史检查点：Phase 1 已在 `apps/api`、`apps/web`、`packages/contracts` 与 `tests/e2e` 实现并通过测试及 GPT-6 Astra UI Review；当时 Phase 2–7 为后续设计合同。
 
 ## 1. 需求与第一轮边界
 

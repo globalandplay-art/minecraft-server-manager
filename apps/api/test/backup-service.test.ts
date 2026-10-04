@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -237,6 +237,43 @@ describe("BackupService manual snapshots", () => {
     expect(Buffer.byteLength(serialized)).toBeGreaterThan(8 * 1024 * 1024);
     await writeFile(path.join(root, "manifest.json"), serialized);
     expect(await fixtureState.backups.list("vanilla-test")).toMatchObject([{ id, fileCount: 80_000 }]);
+  });
+
+  it.each([false, true])("rejects a pre-existing hardlinked world file before stop, journal or publication (running=%s)", async (running) => {
+    const f = await fixture(running);
+    const outside = path.join(f.managerRoot, "outside-sentinel.bin");
+    const sentinel = "private file outside registered world";
+    await writeFile(outside, sentinel);
+    const region = path.join(f.serverRoot, "world", "region", "r.0.0.mca");
+    await rm(region);
+    await link(outside, region);
+    const operation = await f.backups.create("vanilla-test", { scope: "world-set", allowStop: true },
+      "723e4567-e89b-42d3-a456-426614174000");
+    const result = await waitForCompletion(f.operations, operation.id);
+    expect(result).toMatchObject({ state: "failed", error: { code: "BACKUP_LAYOUT_UNSAFE" } });
+    expect(f.stop).not.toHaveBeenCalled(); expect(f.start).not.toHaveBeenCalled();
+    expect(await f.backups.list("vanilla-test")).toEqual([]);
+    expect((await f.journal.scan()).records).toEqual([]);
+    expect(f.operations.getServerState("vanilla-test").recoveryRequired).toBe(false);
+    expect(await readFile(outside, "utf8")).toBe(sentinel);
+  });
+
+  it("retains recovery evidence if a source gains a hardlink after authorized stop", async () => {
+    const f = await fixture(true);
+    const outside = path.join(f.managerRoot, "outside-after-stop.bin");
+    f.stop.mockImplementation(async () => {
+      await link(path.join(f.serverRoot, "world", "region", "r.0.0.mca"), outside);
+    });
+    const original = await f.adapter.getStatus();
+    vi.spyOn(f.adapter, "getStatus").mockResolvedValueOnce(original).mockResolvedValueOnce(original)
+      .mockResolvedValue({ ...original, state: "stopped", ownership: "none" });
+    const operation = await f.backups.create("vanilla-test", { scope: "world-set", allowStop: true },
+      "823e4567-e89b-42d3-a456-426614174000");
+    expect((await waitForCompletion(f.operations, operation.id)).state).toBe("interrupted");
+    expect(f.start).not.toHaveBeenCalled(); expect(await f.backups.list("vanilla-test")).toEqual([]);
+    expect(f.operations.getServerState("vanilla-test").recoveryRequired).toBe(true);
+    expect((await f.journal.scan()).records).toMatchObject([{ state: "recovery-required" }]);
+    expect(await readFile(outside, "utf8")).toBe("region fixture");
   });
 
   it("refuses linked world roots before journaling or requiring recovery", async () => {

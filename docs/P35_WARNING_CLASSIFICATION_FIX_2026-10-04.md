@@ -1,6 +1,8 @@
 # P3.5 Warning Classification Fix — 2026-10-04
 
-Status: HARNESS FIX READY; real acceptance remains BLOCKED / awaiting a new run.
+Current status: subsequent real acceptance run `p35-browser-441fb968-c099-4892-8560-a58aae9d9fba` is **PASS**, including 360/768/1440 and all twelve managed launches. Its raw evidence is recorded in [P3.5 acceptance](./P35_BROWSER_ACCEPTANCE_2026-10-04.md). Phase 3 overall requires the separate [Final Gate](./PHASE3_FINAL_GATE_2026-10-04.md).
+
+Historical harness-fix checkpoint (before the subsequent real run): HARNESS FIX READY; real acceptance remained BLOCKED / awaiting a new run. The validation and no-real-rerun statements below describe that earlier repair task, not the current real acceptance status.
 
 ## Root cause and historical evidence
 
