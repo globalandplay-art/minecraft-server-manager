@@ -6,10 +6,19 @@ import {
   healthResponseSchema,
   numberMetricSchema,
   worldInfoSchema,
-  worldImportUploadResponseSchema
+  worldImportUploadResponseSchema,
+  worldImportUploadsResponseSchema
 } from "../src/index.js";
 
 describe("shared contract invariants", () => {
+  it("validates staging lifecycle timestamps in browser Value.Check without a format registry",() => {
+    const item = { id:"5babd7fe-c96b-4938-917d-01def3ab4d80",state:"validated",discardAllowed:true,revision:"a".repeat(64),lifecycle:"validated",expiresAt:"2026-10-11T00:00:00.000Z" };
+    const payload = { data:{ items:[item],occupiedSlots:1,limit:3 },meta:{ requestId:"test",generatedAt:"2026-10-04T00:00:00Z",mode:"local" } };
+    expect(Value.Check(worldImportUploadsResponseSchema,payload)).toBe(true);
+    for (const expiresAt of ["not-a-date","2026-99-99T99:99:99.000Z","2026-10-11T00:00:00Z"]) {
+      expect(Value.Check(worldImportUploadsResponseSchema,{ ...payload,data:{ ...payload.data,items:[{ ...item,expiresAt }] } })).toBe(false);
+    }
+  });
   it("validates an upload result in browser Value.Check without a format registry", () => {
     const payload = { data: { id: "5babd7fe-c96b-4938-917d-01def3ab4d80", serverId: "test", minecraftVersion: "26.3",
       fileCount: 1, sizeBytes: 100, checksumSha256: "a".repeat(64), state: "validated", executionAvailable: false },

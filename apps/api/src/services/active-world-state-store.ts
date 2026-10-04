@@ -13,6 +13,7 @@ export type ActiveWorldState = {
   state: "active" | "pending-generation" | "none";
   worldId: string | null;
   levelName: string | null;
+  archiveTransactionId?: string;
 };
 
 export function worldIdentity(serverId: string, levelName: string): string {
@@ -30,7 +31,7 @@ export class ActiveWorldStateStore {
     this.#adapters = adapters;
   }
 
-  async initialize(restoreWorlds: ReadonlyMap<string, string> = new Map(), importWorlds: ReadonlyMap<string, readonly string[]> = new Map()): Promise<ReadonlySet<string>> {
+  async initialize(restoreWorlds: ReadonlyMap<string, string> = new Map(), importWorlds: ReadonlyMap<string, readonly string[]> = new Map(), archivedWorlds: ReadonlyMap<string, string> = new Map(), archiveServers: ReadonlySet<string> = new Set()): Promise<ReadonlySet<string>> {
     const managerRoot = path.dirname(this.#directory);
     await mkdir(managerRoot, { recursive: true, mode: 0o700 });
     const managerInfo = await lstat(managerRoot);
@@ -79,10 +80,14 @@ export class ActiveWorldStateStore {
           if (!this.#isMissing(error)) throw error;
         }
         if (existing === null) {
+          if (archivedWorlds.has(adapter.serverId) || archiveServers.has(adapter.serverId)) throw new Error("Archived world state is missing");
           await this.#write(file, expected);
           existing = expected;
         } else if (existing.state === "none") {
-          throw new Error("No active world is configured");
+          if (existing.worldId !== null || existing.levelName !== null || !existing.archiveTransactionId ||
+              archivedWorlds.get(adapter.serverId) !== existing.archiveTransactionId) throw new Error("Unverified archived world state");
+          this.#states.set(adapter.serverId, existing);
+          continue;
         } else if (importWorlds.get(adapter.serverId)?.includes(levelName) && importWorlds.get(adapter.serverId)?.includes(existing.levelName ?? "")) {
           // Only an owned unfinished import may have configuration/state between
           // checkpoints. OperationService keeps its recovery gate; do not infer success.
@@ -114,6 +119,22 @@ export class ActiveWorldStateStore {
   snapshot(serverId: string): ActiveWorldState | null {
     const state = this.#states.get(serverId);
     return state ? structuredClone(state) : null;
+  }
+
+  /** Archive writer has verified the complete renamed tree and pinned guard. */
+  async archiveCurrentWorld(serverId: string, levelName: string, transactionId: string): Promise<void> {
+    const current = this.#states.get(serverId);
+    const adapter = this.#adapters.find((a) => a.serverId === serverId);
+    if (this.#recovery.has(serverId) || !adapter || current?.state !== "active" ||
+        current.levelName !== levelName || current.worldId !== worldIdentity(serverId, levelName) ||
+        !/^[0-9a-f-]{36}$/u.test(transactionId)) throw new Error("Active archive identity changed");
+    try { await lstat(path.join(adapter.plan.rootPath, levelName)); throw new Error("Archived source still exists"); }
+    catch (error) { if (!this.#isMissing(error)) throw error; }
+    const props = parseProperties(await readBoundedRegularFile(path.join(adapter.plan.rootPath,"server.properties"),SERVER_PROPERTIES_LIMIT,"server.properties"));
+    if ((props.get("level-name") ?? "world") !== levelName) throw new Error("Archived world configuration changed");
+    const next: ActiveWorldState = { schemaVersion: 1, serverId, state: "none", worldId: null, levelName: null, archiveTransactionId: transactionId };
+    await this.#write(path.join(this.#directory,`${serverId}.json`),next);
+    this.#states.set(serverId,next);
   }
 
   async prepareGeneration(serverId: string, previousName: string, nextName: string): Promise<void> {
@@ -172,11 +193,12 @@ export class ActiveWorldStateStore {
   #isState(value: unknown): value is ActiveWorldState {
     if (typeof value !== "object" || value === null) return false;
     const state = value as Partial<ActiveWorldState>;
-    return Object.keys(value).every((key) => ["schemaVersion", "serverId", "state", "worldId", "levelName"].includes(key)) &&
+    return Object.keys(value).every((key) => ["schemaVersion", "serverId", "state", "worldId", "levelName", "archiveTransactionId"].includes(key)) &&
       state.schemaVersion === 1 && typeof state.serverId === "string" &&
       ["active", "pending-generation", "none"].includes(state.state ?? "") &&
       (state.worldId === null || typeof state.worldId === "string") &&
-      (state.levelName === null || typeof state.levelName === "string");
+      (state.levelName === null || typeof state.levelName === "string") &&
+      (state.state === "none" ? state.levelName === null && state.worldId === null && typeof state.archiveTransactionId === "string" && /^[0-9a-f-]{36}$/u.test(state.archiveTransactionId) : state.archiveTransactionId === undefined);
   }
 
   async #worldExists(root: string, name: string): Promise<boolean> {

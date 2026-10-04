@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readdir, realpath, rename, rmdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
-import type { WorldImportUploadResponse, WorldImportUploadsResponse, WorldImportDiscardRequest } from "@mcsm/contracts";
+import type { WorldImportUploadResponse, WorldImportUploadsResponse, WorldImportDiscardRequest, WorldImportCleanupResponse } from "@mcsm/contracts";
 import { readBoundedRegularFile } from "../config/properties.js";
 import { isLocalAdapter } from "../adapters/contract.js";
 import type { AdapterRegistry } from "../adapters/registry.js";
@@ -13,6 +13,7 @@ import { plainRestoreDirectory, restoreCapacity, restoreFilesChecksum, syncResto
 import { stageWorldImportArchive, WORLD_IMPORT_ARCHIVE_LIMITS, allowedWorldImportFile } from "./world-import-archive.js";
 import { readWorldVersion } from "./world-inventory-service.js";
 import type { TransactionJournalStore } from "./transaction-journal.js";
+import { systemClock, type Clock } from "../clock.js";
 
 // Reserve the full worst-case upload/extraction budget for each retained directory,
 // including interrupted and rejected uploads. Never silently evict possible evidence.
@@ -21,6 +22,8 @@ const reservation = WORLD_IMPORT_ARCHIVE_LIMITS.zipBytes + WORLD_IMPORT_ARCHIVE_
 const unsafe = () => new DomainError(409, "IMPORT_STAGING_UNSAFE", "导入暂存区需要人工检查", "unsafe-import-staging");
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+const DAY = 24 * 60 * 60 * 1000;
+type Lifecycle = { schemaVersion: 1; id: string; serverId: string; directoryIdentity: string; createdAt: string; state: "receiving" | "failed" | "validated" };
 async function directoryIdentity(directory: string): Promise<string> {
   await plainRestoreDirectory(directory);
   const canonical = await realpath(directory), info = await lstat(directory, { bigint: true });
@@ -31,7 +34,80 @@ async function directoryIdentity(directory: string): Promise<string> {
 export class WorldImportUploadService {
   #busy = false;
   constructor(private readonly registry: AdapterRegistry, private readonly operations: OperationService,
-    private readonly managerRoot: string, private readonly inject?: (point: string) => Promise<void>, private readonly journal?: Pick<TransactionJournalStore,"scan">) {}
+    private readonly managerRoot: string, private readonly inject?: (point: string) => Promise<void>, private readonly journal?: Pick<TransactionJournalStore,"scan">,
+    private readonly clock: Clock = systemClock, private readonly automaticCleanup = false) {}
+
+  private async lifecycle(record: Awaited<ReturnType<WorldImportUploadService["artifact"]>>) {
+    const text = await this.ownerText(path.join(record.directory,"lifecycle.json"));
+    const value = JSON.parse(text) as Lifecycle;
+    const created = Date.parse(value.createdAt);
+    if (!value || value.schemaVersion !== 1 || value.id !== record.owner.id || value.serverId !== record.owner.serverId ||
+      value.directoryIdentity !== record.identity || value.createdAt !== record.owner.createdAt ||
+      !["receiving","failed","validated"].includes(value.state) || !Number.isFinite(created) || created > this.clock.now().getTime() ||
+      Object.keys(value).some((key) => !["schemaVersion","id","serverId","directoryIdentity","createdAt","state"].includes(key))) throw unsafe();
+    return { value, expiresAt: new Date(created + (value.state === "validated" ? 7 : 1) * DAY).toISOString() };
+  }
+
+  private async receiptExists(id: string): Promise<boolean> {
+    try { await lstat(this.receiptPath(id)); return true; } catch (error) { if (missingFile(error)) return false; throw error; }
+  }
+
+  private async assertUnreferenced(serverId: string, id: string, directory: string, requireScan = false): Promise<void> {
+    const scan = await this.journal?.scan();
+    const referencesDirectory = (relativePath: string) => {
+      const reference = path.resolve(this.managerRoot,relativePath);
+      const inside = (value: string) => value === "" || (!value.startsWith(".." + path.sep) && value !== ".." && !path.isAbsolute(value));
+      return inside(path.relative(reference,directory)) || inside(path.relative(directory,reference));
+    };
+    if ((requireScan && !scan) || scan?.issues.length || scan?.recoveryServerIds.has(serverId) ||
+      scan?.records.some((record) => record.intent.worldImport?.uploadId === id ||
+        (record.intent.serverId === serverId && ["active","recovery-required"].includes(record.state)) ||
+        record.checkpoints.some((point) => point.details?.resourceId === id ||
+          (point.details?.relativePath !== undefined && referencesDirectory(point.details.relativePath))) ||
+        record.intent.paths.some((item) => {
+          // Legacy backup journals omit namespace; conservatively include them.
+          if (item.namespace === "server") return false;
+          return referencesDirectory(item.relativePath);
+        }))) throw unsafe();
+    if (await this.consumed(directory)) throw unsafe();
+    try { await lstat(path.join(directory,"pinned.json")); throw unsafe(); } catch (error) { if (!missingFile(error)) throw error; }
+  }
+
+  async cleanupExpired(serverId: string): Promise<WorldImportCleanupResponse["data"]> {
+    return this.withLease(() => this.operations.runExclusive(serverId,async () => {
+      const adapter = this.registry.getLocal(serverId);
+      if (!adapter) throw new ServerNotFoundError();
+      const status = await adapter.getStatus();
+      if (status.recoveryRequired || !((status.state === "stopped" && status.ownership === "none") ||
+        (status.state === "running" && status.ownership === "managed"))) throw unsafe();
+      const root = await this.root();
+      const result: WorldImportCleanupResponse["data"] = { removed:[],retained:[] };
+      if (!root) return result;
+      const ids = await readdir(root);
+      if (ids.length > WORLD_IMPORT_UPLOAD_SLOTS || ids.some((id) => !uuid.test(id))) throw unsafe();
+      for (const id of ids.sort()) {
+        let reason: WorldImportCleanupResponse["data"]["retained"][number]["reason"] = "requires-inspection";
+        try {
+          const record = await this.artifact(root,id);
+          if (record.owner.serverId !== serverId) continue;
+          if (record.owner.rootIdentity !== await directoryIdentity(adapter.plan.rootPath) || record.owner.directoryIdentity !== record.identity) throw unsafe();
+          if (await this.receiptExists(id)) { result.retained.push({ id,reason:"discard-pending" }); continue; }
+          reason = "referenced";
+          await this.assertUnreferenced(serverId,id,record.directory,true);
+          reason = "requires-inspection";
+          const lifecycle = await this.lifecycle(record);
+          if (this.clock.now().getTime() < Date.parse(lifecycle.expiresAt)) { result.retained.push({ id,reason:"not-expired" }); continue; }
+          // Recheck metadata and expiry immediately before the shared deletion boundary.
+          const current = await this.lifecycle(await this.artifact(root,id));
+          if (JSON.stringify(current) !== JSON.stringify(lifecycle)) throw unsafe();
+          reason = "cleanup-failed";
+          await this.discardLocked(serverId,id,{ confirmUploadId:id,revision:record.revision },true);
+          result.removed.push(id);
+        } catch { result.retained.push({ id,reason }); }
+      }
+      return result;
+    }));
+  }
 
   /** Shared upload/discard/import lease; callers separately reserve the instance. */
   async withLease<T>(action: () => Promise<T>): Promise<T> {
@@ -147,7 +223,7 @@ export class WorldImportUploadService {
       // Only a durable, identity-bound discard receipt can authorize a retry.
       try { ownerText = await this.ownerText(this.receiptPath(id)); } catch { throw unsafe(); }
     }
-    let owner: { id: string; serverId: string; serverRoot: string; rootIdentity?: string; directoryIdentity?: string };
+    let owner: { id: string; serverId: string; serverRoot: string; rootIdentity?: string; directoryIdentity?: string; createdAt?: string };
     try { owner = JSON.parse(ownerText); } catch { throw unsafe(); }
     if (!owner || owner.id !== id || typeof owner.serverId !== "string" || typeof owner.serverRoot !== "string") throw unsafe();
     const identity = await directoryIdentity(directory);
@@ -182,7 +258,13 @@ export class WorldImportUploadService {
         if (importOperationId && importOperationId !== marker.operationId) throw unsafe();
         importOperationId = marker.operationId;
       }
-      items.push({ id, state: !verified ? "identity-unverified" : consumed ? "consumed" : validated ? "validated" : "incomplete", discardAllowed: verified && !consumed, revision: record.revision, ...(importOperationId ? { importOperationId } : {}) });
+      let lifecycle: WorldImportUploadsResponse["data"]["items"][number]["lifecycle"] = "requires-inspection", expiresAt: string | undefined;
+      if (await this.receiptExists(id)) lifecycle = "discard-pending";
+      else { try { const value = await this.lifecycle(record); lifecycle = value.value.state; expiresAt = value.expiresAt; } catch { /* Legacy or ambiguous lifecycle is retained. */ } }
+      let discardAllowed = verified && !consumed;
+      if (discardAllowed) { try { await this.assertUnreferenced(serverId,id,record.directory); } catch { discardAllowed = false; } }
+      items.push({ id, state: !verified ? "identity-unverified" : consumed ? "consumed" : validated ? "validated" : "incomplete", discardAllowed, revision: record.revision, lifecycle,
+        ...(expiresAt ? { expiresAt } : {}), ...(importOperationId ? { importOperationId } : {}) });
     }
     return { items, occupiedSlots: ids.length, limit: 3 };
   }
@@ -194,9 +276,16 @@ export class WorldImportUploadService {
     if (this.#busy) throw new DomainError(409, "OPERATION_CONFLICT", "正在接收或校验上传，暂不能丢弃", "import-upload-active");
     this.#busy = true;
     try {
-      await this.operations.runExclusive(serverId, async () => {
+      await this.operations.runExclusive(serverId, () => this.discardLocked(serverId,id,body));
+    } finally { this.#busy = false; }
+  }
+
+  private async discardLocked(serverId: string, id: string, body: WorldImportDiscardRequest, expiredOnly = false): Promise<void> {
         const adapter = this.registry.getLocal(serverId);
         if (!adapter) throw new ServerNotFoundError();
+        const status = await adapter.getStatus();
+        if (status.recoveryRequired || !((status.state === "stopped" && status.ownership === "none") ||
+          (status.state === "running" && status.ownership === "managed"))) throw unsafe();
         const root = await this.root();
         if (!root) throw new DomainError(404, "RESOURCE_NOT_FOUND", "暂存记录不存在", "upload-not-found");
         let record;
@@ -206,7 +295,7 @@ export class WorldImportUploadService {
         }
         if (record.owner.serverId !== serverId) throw new DomainError(404, "RESOURCE_NOT_FOUND", "暂存记录不存在", "upload-not-found");
         if (record.owner.rootIdentity !== await directoryIdentity(adapter.plan.rootPath) || record.owner.directoryIdentity !== record.identity || record.revision !== body.revision) throw unsafe();
-        if (await this.consumed(record.directory) || await this.journalOwner(serverId,id)) throw unsafe();
+        await this.assertUnreferenced(serverId,id,record.directory,expiredOnly);
         // Enumerate and validate everything before the first unlink. Never recursively
         // delete or follow a junction. owner.json is last so partial cleanup remains owned.
         const files: string[] = [], directories: string[] = [];
@@ -224,8 +313,18 @@ export class WorldImportUploadService {
           }
         };
         await visit(record.directory, 0);
+        await this.inject?.("cleanup-before-delete");
+        const currentStatus = await adapter.getStatus();
+        if (currentStatus.recoveryRequired || !((currentStatus.state === "stopped" && currentStatus.ownership === "none") ||
+          (currentStatus.state === "running" && currentStatus.ownership === "managed"))) throw unsafe();
         if ((await this.artifact(root, id)).revision !== body.revision) throw unsafe();
         if (record.owner.rootIdentity !== await directoryIdentity(adapter.plan.rootPath)) throw unsafe();
+        await this.assertUnreferenced(serverId,id,record.directory,expiredOnly);
+        if (expiredOnly) {
+          if (await this.receiptExists(id)) throw unsafe();
+          const lifecycle = await this.lifecycle(await this.artifact(root,id));
+          if (this.clock.now().getTime() < Date.parse(lifecycle.expiresAt)) throw unsafe();
+        }
         await this.preserveDiscardOwner(id, record.ownerText);
         const ownerFile = path.join(record.directory, "owner.json");
         files.sort((a,b) => a === ownerFile ? 1 : b === ownerFile ? -1 : a.localeCompare(b));
@@ -247,14 +346,13 @@ export class WorldImportUploadService {
         await plainRestoreDirectory(path.dirname(this.receiptPath(id)));
         await unlink(this.receiptPath(id));
         await syncRestoreDirectory(path.dirname(this.receiptPath(id)));
-      });
-    } finally { this.#busy = false; }
   }
 
   async upload(serverId: string, filename: string, stream: Readable): Promise<WorldImportUploadResponse["data"]> {
     if (!/^[^\\/:<>"|?*\u0000-\u001f\u007f]{1,124}\.zip$/iu.test(filename) || /[. ]$/u.test(filename) || filename.trim() !== filename) {
       throw new DomainError(400, "VALIDATION_ERROR", "请选择不含路径的 .zip 文件", "invalid-import-filename");
     }
+    if (this.automaticCleanup) await this.cleanupExpired(serverId);
     // Serialize global slot admission across servers before creating any directory.
     if (this.#busy) throw new DomainError(409, "OPERATION_CONFLICT", "已有世界上传正在校验，请稍后重试", "import-upload-active");
     this.#busy = true;
@@ -290,11 +388,15 @@ export class WorldImportUploadService {
         await mkdir(directory, { mode: 0o700 });
         await plainRestoreDirectory(directory);
         // Store ownership before receiving bytes; interrupted artifacts stay private.
+        const createdAt = this.clock.now().toISOString(), identity = await directoryIdentity(directory);
+        const lifecycle: Lifecycle = { schemaVersion:1,id,serverId,directoryIdentity:identity,createdAt,state:"receiving" };
         await writeRestoreJson(path.join(directory, "owner.json"), {
           schemaVersion: 1, id, serverId, serverRoot: await realpath(adapter.plan.rootPath),
           rootIdentity: await directoryIdentity(adapter.plan.rootPath), directoryIdentity: await directoryIdentity(directory),
-          minecraftVersion: version, state: "receiving"
+          minecraftVersion: version, state: "receiving", createdAt
         });
+        await writeRestoreJson(path.join(directory,"lifecycle.json"),lifecycle);
+        try {
         const file = await open(path.join(directory, "upload.zip"), "wx", 0o600);
         let bytes = 0;
         const timer = setTimeout(() => stream.destroy(new DomainError(408, "IMPORT_UPLOAD_TIMEOUT", "世界上传超时", "import-timeout")), 60_000);
@@ -318,8 +420,15 @@ export class WorldImportUploadService {
         // Reject a replaced private directory before handing back its opaque ID.
         await plainRestoreDirectory(directory);
         if (!(await lstat(path.join(directory, "validated.json"))).isFile()) throw unsafe();
+        if (await directoryIdentity(directory) !== identity) throw unsafe();
+        await writeRestoreJson(path.join(directory,"lifecycle.json"),{ ...lifecycle,state:"validated" });
         return { id, serverId, minecraftVersion: version, fileCount: staged.files.length,
           sizeBytes: staged.sizeBytes, checksumSha256, state: "validated", executionAvailable: false };
+        } catch (error) {
+          // Preserve the original failure. Never write into a replaced private directory.
+          try { if (await directoryIdentity(directory) === identity) await writeRestoreJson(path.join(directory,"lifecycle.json"),{ ...lifecycle,state:"failed" }); } catch { /* Unknown metadata remains inspection-only. */ }
+          throw error;
+        }
       });
     } finally { this.#busy = false; }
   }

@@ -1,14 +1,20 @@
 # Phase 3 实施与验收计划
 
-状态更新：2026-10-03；P3.0、P3.1a、P3.1b、P3.2、P3.3b 与 P3.3c Real Import Acceptance 已分别通过其切片验收。最新真实 Import run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404` 报告与原始 evidence 已核验，见 [P3.3c 验收报告](./ACCEPTANCE_P33C_2026-10-03.md)。Phase 3 仍 IN PROGRESS：P3.3 世界归档、P3.4 调度/保留及 P3.5 集成最终验收/Review 尚未完成。历史失败保留，合同与安全 Gate 不变。
+最新切片Gate（2026-10-04 12:24）：World Archive真实PASS；失败上传/staging生命周期收尾PASS，最终693项check、Chrome三档6/6及独立SolHigh Review通过。当前P3.3主要切片完成，保留明确none重新激活/Windows平台等已知非阻塞边界。Phase3仍IN PROGRESS；下一步P3.4调度/retention，随后P3.5整体集成验收/Final Review。以下“staging未开始/推进中”均为较早历史检查点，详见PROGRESS与P33_STAGING_LIFECYCLE_2026-10-04.md。
+
+当前覆盖更新（2026-10-04）：P3.3 World Archive 已真实验收PASS，run `p33-archive-1d0662e9-b2b2-4262-857b-2d60045c0a98`，完整磁盘证据已核验。后续`0a729596…`在Archive前TLS服务发现WARN导致BLOCKED，历史保留。下面此前Archive NOT RUN/BLOCKED描述为历史快照。当前推进失败上传/staging生命周期收尾；P3.4/P3.5及Phase3整体仍未完成。
+
+状态更新：2026-10-04；P3.0、P3.1a、P3.1b、P3.2、P3.3b 与 P3.3c Real Import Acceptance 已分别通过其切片验收。真实 Import run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404` 报告与 evidence 已核验，见 [P3.3c 验收报告](./ACCEPTANCE_P33C_2026-10-03.md)，本轮不重做。World Archive实现/API/UI/合成故障重启验证已就绪；独立SolHigh CODE/TOOL及两项P2 delta Review PASS，修复后完整666回归PASS，当前Codex宿主preflight不可用，真实Archive仍BLOCKED/NOT RUN。Phase3仍IN PROGRESS；staging第二阶段、P3.4、P3.5尚未开始。历史失败和安全Gate保留，详见 [Archive报告](./P33_ARCHIVE_2026-10-04.md) / [GLOBAL ISSUE LEDGER](./P33_GLOBAL_ISSUE_LEDGER_2026-10-04.md)。
 
 ## 范围与安全默认值
 
-2026-10-02 用户曾明确要求暂跳 P3.2、推进 P3.3，作为开发顺序例外；既有安全和最终独立签核不变。P3.3 按切片推进：P3.3a 只读计划已通过，P3.2 / P3.3b 的真实启动验收和独立最终 Gate 均已 PASS；Minecraft 日志无 ERROR/WARN，Java 25 依赖兼容性告警已保留并独立评估。计划不持久化、不停服、不改配置、不创建世界；实际执行必须另外确认，在实例锁内重验，不能把预览当成执行授权或事务凭证。受限 ZIP 导入已接通，真实隔离验收和最终 Gate 待完成；归档尚未开放。
+2026-10-04 Archive：仅完整Vanilla world-set、绑定注册root/world/revision/明确archive intent，运行中须allowStop优雅停服并确认退出。先完整verified pinned guard，再持久化rename intent→同卷整树rename→实际manifest/hash/目录身份/源缺失核验→完成；none状态更新亦先intent再写入核验。成功保持停止；Manager重启后none持久化且Start/Restart拒绝NO_ACTIVE_WORLD。非终态/不确定现场保留全部数据和recoveryRequired，无copy/delete fallback或自动回滚。none只能由物理核验archive transaction witness确认。现有Create/Import从none重新激活与归档恢复端点不在本切片。用户本轮禁用Astra，以SolHigh承担独立Review；不改写历史署名。真实验收只全新隔离实例，不访问原世界。
+
+2026-10-02 用户曾明确要求暂跳 P3.2、推进 P3.3，作为开发顺序例外；既有安全和最终独立签核不变。P3.3 按切片推进：P3.3a 只读计划已通过，P3.2 / P3.3b 的真实启动验收和独立最终 Gate 均已 PASS；Minecraft 日志无 ERROR/WARN，Java 25 依赖兼容性告警已保留并独立评估。计划不持久化、不停服、不改配置、不创建世界；实际执行必须另外确认，在实例锁内重验，不能把预览当成执行授权或事务凭证。该日期的受限 ZIP 导入真实隔离验收和最终 Gate 当时待完成；2026-10-03 Import 已 PASS，当前 Archive 实现与待验收状态见顶部更新。
 
 P3.3b 创建首先停服（运行时须显式授权），验证并固定旧世界 guard，保存私有配置副本，再以同卷 rename 更新世界名和 Seed，持久化 pending-generation，默认保持停止。旧世界所有维度原地保留；新世界仅在后续明确 start 时生成。schema-3 journal 绑定注册根目录、前后配置摘要和 guard；非终态或物理核验失败保持人工恢复锁，不自动启动/回滚。已确认历史成功允许后续正常游玩；不确定 committed 必须核验完整磁盘和停止态。Windows 目录 fsync / 断电持久性限制不变。
 
-P3.3c 实际 Import/显式恢复真实隔离验收 PASS（run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404`），包含真实 ZIP 上传、pinned guard、世界切换/旧树保留、显式启动、受控故障、Manager 重启恢复门控、显式恢复及再次启动。历史 BLOCKED report 不改写。自动暂存过期清理未实现；P3.3 世界归档也尚未开放，故 P3.3/Phase 3 整体仍未完成。实现与早期切片 review 见 [Import 审查](./P33C_IMPORT_REVIEW_2026-10-03.md)、[生命周期报告](./P33C_STAGING_REVIEW_2026-10-02.md) 与 [真实验收记录](./ACCEPTANCE_P33C_2026-10-03.md)。限制：压缩 128 MiB、展开 512 MiB、单文件 128 MiB、10,000 条目、深度 32、压缩比 100；仅接纳已验证安全 Vanilla 布局和同版本 NBT，拒绝链接、路径穿越、冲突、ZIP64、加密和异常头/CRC。失败 staging 保留供其所属事务处理。
+P3.3c 实际 Import/显式恢复真实隔离验收 PASS（run `p33-import-dd5f7bee-e0a0-4920-9dc9-484b0ab66404`），包含真实 ZIP 上传、pinned guard、世界切换/旧树保留、显式启动、受控故障、Manager 重启恢复门控、显式恢复及再次启动。历史 BLOCKED report 不改写。自动暂存过期清理未实现；World Archive 实现已就绪但独立 Review 和真实 Gate 待完成，故 P3.3/Phase 3 整体仍未完成。实现与早期切片 review 见 [Import 审查](./P33C_IMPORT_REVIEW_2026-10-03.md)、[生命周期报告](./P33C_STAGING_REVIEW_2026-10-02.md) 与 [真实验收记录](./ACCEPTANCE_P33C_2026-10-03.md)。限制：压缩 128 MiB、展开 512 MiB、单文件 128 MiB、10,000 条目、深度 32、压缩比 100；仅接纳已验证安全 Vanilla 布局和同版本 NBT，拒绝链接、路径穿越、冲突、ZIP64、加密和异常头/CRC。失败 staging 保留供其所属事务处理。
 
 首个可写布局只支持已验证的 Vanilla world set。主世界目录来自后端验证后的 `level-name`；其下的 Nether / End 及其他实际存在的受控文件一同处理，不能只复制主世界表面目录。Paper、Fabric 与插件多世界只保留明确的未支持状态。世界版本无法可靠读取时显示 unavailable，并拒绝恢复或导入的版本兼容性承诺。
 

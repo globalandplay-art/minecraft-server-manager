@@ -588,7 +588,7 @@ export class WorldInventoryService {
   constructor(
     private readonly registry: AdapterRegistry,
     private readonly clock: Clock,
-    private readonly activeWorldState?: Pick<ActiveWorldStateStore, "isActive">
+    private readonly activeWorldState?: Pick<ActiveWorldStateStore, "isActive"> & Partial<Pick<ActiveWorldStateStore, "snapshot">>
   ) {}
 
   async list(serverId: string): Promise<WorldInfo[]> {
@@ -605,6 +605,7 @@ export class WorldInventoryService {
         "unsupported-server-layout"
       );
     }
+    if (this.activeWorldState?.snapshot?.(serverId)?.state === "none") return [];
     const items = await inspectVanillaWorld(serverId, adapter.plan.rootPath, this.clock.now().toISOString());
     if (this.activeWorldState === undefined) return items;
     return items.map((item) => ({

@@ -33,7 +33,7 @@ export function WorldImportUpload({ serverId }: { serverId: string }) {
   return <section className="resource-card page-stack">
     <h2>上传并校验世界 ZIP</h2>
     <p className="muted">先在私有暂存区检查结构和版本。上传不会停止服务器或切换世界；实际导入需要另外校验计划并明确确认。</p>
-    <p className="muted">所有实例共享最多三次暂存上传。失败、中断和成功都计入配额，不会自动清理；网络结果不确定时请先刷新记录，避免重复上传。明确丢弃只删除选中的私有暂存文件，无法恢复，不影响现世界。</p>
+    <p className="muted">所有实例共享最多三次暂存上传。失败、中断和成功都计入配额。自动清理默认关闭；明确开启后，新上传前才会安全清理过期且无引用的暂存。网络结果不确定时请先刷新记录，避免重复上传。明确丢弃只删除选中的私有暂存文件，无法恢复，不影响现世界。</p>
     <div onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
       event.preventDefault(); if (!busy) select(event.dataTransfer.files.length === 1 ? event.dataTransfer.files[0] : undefined);
     }}>
@@ -64,6 +64,10 @@ export function WorldImportUpload({ serverId }: { serverId: string }) {
         {!uploads.items.length ? <p>当前实例没有暂存记录。</p> : uploads.items.map((item) => <div className="page-stack" key={item.id}>
           <p style={{ overflowWrap: 'anywhere' }}>{item.id}</p>
           <p>{item.state === 'validated' ? '校验完成，尚未导入' : item.state === 'incomplete' ? '未完成，可检查后丢弃' : item.state === 'consumed' ? '导入事务已占用，保留暂存且不可丢弃' : '根目录身份未验证，需要人工检查'}</p>
+          {item.lifecycle === 'failed' && <p>上传或校验失败；文件保留，可明确丢弃。</p>}
+          {item.lifecycle === 'discard-pending' && <p>上次清理未完成；确认后可重试丢弃，不会自动删除。</p>}
+          {item.lifecycle === 'requires-inspection' && <p>过期清理信息不完整；需要人工检查，不会自动清理。</p>}
+          {item.expiresAt && item.state !== 'consumed' && <p>保留期限：{new Date(item.expiresAt).toLocaleString()}；过期后仍须通过安全检查才能清理。</p>}
           {item.importOperationId ? <p style={{ overflowWrap: 'anywhere' }}>导入操作 ID：{item.importOperationId}；失败后可在下方检查显式恢复计划。</p> : null}
           {item.state === 'validated' ? <button className="button button--secondary" disabled={busy || Boolean(discarding)} onClick={() => setSelectedImport(item.id)}>选择此暂存规划导入</button> : null}
           <button className="button button--secondary" disabled={busy || Boolean(discarding) || !item.discardAllowed} onClick={() => {

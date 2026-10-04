@@ -16,6 +16,7 @@ import {
   type WorldCreatePlanRequest,
   type WorldCreatePlanResponse,
   type WorldCreateRequest,
+  type WorldArchiveRequest, type WorldArchivesResponse, worldArchivesResponseSchema,
   backupsResponseSchema,
   backupExportResponseSchema,
   type BackupExportResponse,
@@ -279,6 +280,12 @@ export const api = {
     }),
   worlds: (serverId: string, signal?: AbortSignal) =>
     getJson<WorldsResponse>(`/servers/${encodeURIComponent(serverId)}/worlds`, worldsResponseSchema, signal),
+  worldArchives: (serverId: string, signal?: AbortSignal) =>
+    getJson<WorldArchivesResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/archives`, worldArchivesResponseSchema, signal),
+  archiveWorld: (serverId: string, body: WorldArchiveRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/archive`, lifecycleActionResponseSchema, {
+      method:'POST',body,headers:{ 'X-Manager-Intent':'local-ui','Idempotency-Key':key },expectedStatus:202,
+    }),
   worldCreatePlan: (serverId: string, body: WorldCreatePlanRequest) =>
     requestJson<WorldCreatePlanResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/create-plan`, worldCreatePlanResponseSchema, {
       method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200,

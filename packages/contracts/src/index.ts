@@ -338,6 +338,33 @@ export const worldsResponseSchema = strictObject({
 });
 export type WorldsResponse = Static<typeof worldsResponseSchema>;
 
+export const worldArchiveRequestSchema = strictObject({
+  worldId: Type.String({ pattern: "^world-[a-f0-9]{24}$" }),
+  confirmWorldName: Type.String({ minLength: 1, maxLength: 128 }),
+  worldRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  intent: Type.Literal("archive-world-set"),
+  allowStop: Type.Boolean()
+});
+export type WorldArchiveRequest = Static<typeof worldArchiveRequestSchema>;
+export const worldArchiveInfoSchema = strictObject({
+  id: Type.String({ pattern: "^[a-f0-9-]{36}$" }),
+  operationId: Type.String({ pattern: "^[a-f0-9-]{36}$" }),
+  worldId: Type.String({ pattern: "^world-[a-f0-9]{24}$" }),
+  name: Type.String({ minLength: 1, maxLength: 128 }),
+  createdAt: timestampSchema,
+  guardBackupId: Type.String({ pattern: "^[a-f0-9-]{36}$" }),
+  minecraftVersion: Type.String({ minLength: 1, maxLength: 64 }),
+  fileCount: Type.Integer({ minimum: 1 }),
+  sizeBytes: Type.Integer({ minimum: 0 }),
+  checksumSha256: Type.String({ pattern: "^[a-f0-9]{64}$" })
+});
+export type WorldArchiveInfo = Static<typeof worldArchiveInfoSchema>;
+export const worldArchivesResponseSchema = strictObject({
+  data: strictObject({ items: Type.Array(worldArchiveInfoSchema, { maxItems: 1000 }) }),
+  meta: responseMetaSchema
+});
+export type WorldArchivesResponse = Static<typeof worldArchivesResponseSchema>;
+
 export const worldCreatePlanRequestSchema = strictObject({
   name: Type.String({ minLength: 1, maxLength: 64 }),
   seed: Type.String({ maxLength: 20, pattern: "^(?:|-?(?:0|[1-9][0-9]*))$" })
@@ -646,7 +673,9 @@ export const worldImportUploadParamsSchema = strictObject({ serverId: Type.Strin
 export const worldImportUploadsResponseSchema = strictObject({ data: strictObject({
   items: Type.Array(strictObject({ id: uploadIdSchema,
     state: Type.Union([Type.Literal("validated"), Type.Literal("incomplete"), Type.Literal("identity-unverified"), Type.Literal("consumed")]),
-    discardAllowed: Type.Boolean(), revision: Type.String({ pattern: "^[0-9a-f]{64}$" }), importOperationId: Type.Optional(uploadIdSchema)
+    discardAllowed: Type.Boolean(), revision: Type.String({ pattern: "^[0-9a-f]{64}$" }), importOperationId: Type.Optional(uploadIdSchema),
+    lifecycle: Type.Optional(Type.Union([Type.Literal("receiving"), Type.Literal("failed"), Type.Literal("validated"), Type.Literal("discard-pending"), Type.Literal("requires-inspection")])),
+    expiresAt: Type.Optional(Type.String({ pattern: "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}Z$" }))
   }), { maxItems: 3 }), occupiedSlots: Type.Integer({ minimum: 0, maximum: 3 }), limit: Type.Literal(3)
 }), meta: responseMetaSchema });
 export type WorldImportUploadsResponse = Static<typeof worldImportUploadsResponseSchema>;
@@ -654,6 +683,14 @@ export const worldImportDiscardRequestSchema = strictObject({ confirmUploadId: u
 export type WorldImportDiscardRequest = Static<typeof worldImportDiscardRequestSchema>;
 export const worldImportDiscardResponseSchema = strictObject({ data: strictObject({ id: uploadIdSchema, state: Type.Literal("discarded") }), meta: responseMetaSchema });
 export type WorldImportDiscardResponse = Static<typeof worldImportDiscardResponseSchema>;
+export const worldImportCleanupRequestSchema = strictObject({ intent: Type.Literal("cleanup-expired-unclaimed") });
+export const worldImportCleanupResponseSchema = strictObject({ data: strictObject({
+  removed: Type.Array(uploadIdSchema, { maxItems: 3 }),
+  retained: Type.Array(strictObject({ id: uploadIdSchema, reason: Type.Union([
+    Type.Literal("not-expired"), Type.Literal("requires-inspection"), Type.Literal("referenced"), Type.Literal("discard-pending"), Type.Literal("cleanup-failed")
+  ]) }), { maxItems: 3 })
+}), meta: responseMetaSchema });
+export type WorldImportCleanupResponse = Static<typeof worldImportCleanupResponseSchema>;
 
 const importRevisionSchema = Type.String({ pattern: "^[0-9a-f]{64}$" });
 export const worldImportPlanRequestSchema = strictObject({ uploadId: uploadIdSchema, name: Type.String({ minLength: 1, maxLength: 64 }) });

@@ -118,6 +118,7 @@ export class ServerService {
       kind,
       idempotencyKey,
       async (context) => {
+        if (kind !== "stop") this.#assertActiveWorld(serverId);
         if (noOp) return;
         if (kind === "start") {
           await adapter.revalidateBeforeStart();
@@ -127,12 +128,14 @@ export class ServerService {
           await adapter.stop(context);
         } else {
           await adapter.stop(context);
+          this.#assertActiveWorld(serverId);
           await adapter.revalidateBeforeStart();
           await adapter.start(context);
           await this.activeWorldState?.reconcileAfterStart(serverId);
         }
       },
       async () => {
+        if (kind !== "stop") this.#assertActiveWorld(serverId);
         const summary = await this.#getSummary(serverId);
         const { status } = summary;
         if (status.ownership === "external") {
@@ -234,17 +237,18 @@ export class ServerService {
       : status.activeOperationId !== null
         ? "operation-active"
         : server.type !== "vanilla" ? "capability-unsupported" : null;
-    const canStart = blockedReason === null && status.state === "stopped" && adapter.plan.eulaAccepted;
+    const noActiveWorld = this.activeWorldState?.snapshot?.(serverId)?.state === "none";
+    const canStart = blockedReason === null && !noActiveWorld && status.state === "stopped" && adapter.plan.eulaAccepted;
     const canStop = blockedReason === null && status.state === "running" && status.ownership === "managed";
     const canCommand = blockedReason === null && status.state === "running" && commandTransport !== "unavailable";
     const canBackup = blockedReason === null && capabilities.backup &&
       (status.state === "stopped" || (status.state === "running" && status.ownership === "managed"));
     const readiness: Readiness = {
       start: canStart ? available() : unavailable(
-        blockedReason ?? (!adapter.plan.eulaAccepted ? "eula-not-accepted" : statusReason(status, "start"))
+        blockedReason ?? (noActiveWorld ? "NO_ACTIVE_WORLD" : !adapter.plan.eulaAccepted ? "eula-not-accepted" : statusReason(status, "start"))
       ),
       stop: canStop ? available() : unavailable(blockedReason ?? statusReason(status, "stop")),
-      restart: canStop ? available() : unavailable(blockedReason ?? statusReason(status, "restart")),
+      restart: canStop && !noActiveWorld ? available() : unavailable(blockedReason ?? (noActiveWorld ? "NO_ACTIVE_WORLD" : statusReason(status, "restart"))),
       commands: canCommand ? available() : unavailable(
         blockedReason ?? (commandTransport === "unavailable" ? "transport-unavailable" : statusReason(status, "stop"))
       ),
@@ -270,6 +274,11 @@ export class ServerService {
     }
     recent.push(now);
     this.#commandAttempts.set(serverId, recent);
+  }
+
+  #assertActiveWorld(serverId: string): void {
+    if (this.activeWorldState?.snapshot?.(serverId)?.state === "none")
+      throw new DomainError(409,"NO_ACTIVE_WORLD","当前实例没有活动世界，不能启动或重启","NO_ACTIVE_WORLD");
   }
 
   #containsReservedCommand(command: string): boolean {

@@ -1,5 +1,7 @@
 # Minecraft Java Server Manager — 系统架构
 
+Current P3.3 closure: Archive host run `1d0662e9…` is verified PASS (see PROGRESS; historical BLOCKED evidence retained). Upload staging lifecycle uses immutable createdAt/identity owner plus atomic receiving/failed/validated metadata; expiry only selects candidates. A shared global lease and per-instance exclusive admission recheck all journal references, consumed/pinned markers, recovery and canonical identities before existing durable-receipt/nonrecursive deletion. Default automatic cleanup is OFF; opt-in cleanup runs only before new uploads, with a separate locally guarded explicit sweep API. No world/archive/guard/transaction workspace cleanup, no automatic retry of partial deletion. Full policy and verification are in [staging framework](./P33_STAGING_LIFECYCLE_2026-10-04.md).
+
 状态：设计 v1；Phase 1 已在 `apps/api`、`apps/web`、`packages/contracts` 与 `tests/e2e` 实现并通过测试及 GPT-6 Astra UI Review。Phase 2–7 仍为后续设计合同。
 
 ## 1. 需求与第一轮边界
@@ -320,6 +322,10 @@ GPT-5.6 Sol 已做只读文档校验：三份 Markdown 的 fences 成对、相�
 - [Paper server.properties](https://docs.papermc.io/paper/reference/server-properties/)：RCON、server-ip、视距 / 模拟距离和管理协议配置；不据此假设每种 MC 版本范围完全一样。
 - [Fabric Project Structure](https://docs.fabricmc.net/develop/getting-started/project-structure)：fabric.mod.json；[Paper plugin.yml](https://docs.papermc.io/paper/dev/plugin-yml/)：Plugin metadata 与 api-version。
 - [Forge Mod Files](https://docs.minecraftforge.net/en/1.21.x/gettingstarted/modfiles/) 与 [NeoForge Mod Files](https://docs.neoforged.net/docs/gettingstarted/modfiles/)：分别使用的 TOML metadata。
+
+### P3.3 World Archive
+
+2026-10-04 P3.3 World Archive实现：WorldArchiveService复用共享实例admission、guard安全IO及schema5独立journal，将完整Vanilla world-set同卷rename到服务器卷内后端生成的私有归档工作区；不支持分离维度布局、客户端路径、递归copy/delete fallback。源/root/目标身份与完整manifest/checksum在实例锁内重验；切换先durable intent，再文件操作、physical verify和完成。归档receipt/DTO独立于active inventory。none带archiveTransactionId，启动扫描先物理核验root/archive/guard/receipt再给初始化witness；缺失/不确定保留恢复锁，不生成pending状态。Start/Restart admission/executor/readiness明确NO_ACTIVE_WORLD，成功保持停止，无自动start/rollback/delete。历史confirmed archive仍核验不变归档/root；后继确认activation不永久绑定旧none。当前none重新激活/归档恢复API尚未加入。范围和真实Gate缺口见 [Archive报告](./P33_ARCHIVE_2026-10-04.md) / [Ledger](./P33_GLOBAL_ISSUE_LEDGER_2026-10-04.md)，不据实现就绪宣称真实或Phase3 PASS。
 
 ### P3.3c 私有暂存生命周期
 

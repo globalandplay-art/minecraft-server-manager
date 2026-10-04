@@ -9,6 +9,7 @@ vi.mock('../api', async (load) => ({ ...(await load<typeof import('../api')>()),
   worlds: vi.fn(), backups: vi.fn(), createBackup: vi.fn(), operation: vi.fn(), createBackupExport: vi.fn(), backupExport: vi.fn(),
   restoreHistory: vi.fn(async () => ({ data: { items: [] }, meta })),
   worldImportUploads: vi.fn(async () => ({ data: { items: [], occupiedSlots: 0, limit: 3 }, meta })),
+  worldArchives: vi.fn(async () => ({ data:{ items:[] },meta })),
   backupDownloadUrl: (serverId: string, backupId: string) => `/api/v1/servers/${serverId}/backups/${backupId}/download`,
 } }));
 

@@ -1,5 +1,6 @@
 import { apiErrorResponseSchema, serverParamsSchema, worldImportUploadResponseSchema, worldImportUploadsResponseSchema,
   worldImportDiscardRequestSchema, worldImportDiscardResponseSchema, worldImportUploadParamsSchema,
+  worldImportCleanupRequestSchema, worldImportCleanupResponseSchema,
   type WorldImportDiscardRequest, type Mode, type ServerParams } from "@mcsm/contracts";
 import type { FastifyInstance } from "fastify";
 import type { Readable } from "node:stream";
@@ -11,6 +12,18 @@ import { WORLD_IMPORT_ARCHIVE_LIMITS } from "../services/world-import-archive.js
 
 export function registerWorldImportUploadRoutes(app: FastifyInstance, service: WorldImportUploadService, clock: Clock, mode: Mode): void {
   void app.register(async (uploads) => {
+    uploads.post<{ Params: ServerParams; Body: { intent: "cleanup-expired-unclaimed" } }>("/api/v1/servers/:serverId/worlds/import-uploads/cleanup", {
+      preValidation: async (req) => {
+        if (!req.body || typeof req.body !== "object" || Array.isArray(req.body) || req.body.intent !== "cleanup-expired-unclaimed" ||
+          Object.keys(req.body).length !== 1) throw new DomainError(400,"VALIDATION_ERROR","清理请求格式无效","invalid-import-cleanup");
+      },
+      preHandler: installWriteRequestGuard(clock,mode),
+      schema: { params:serverParamsSchema,body:worldImportCleanupRequestSchema,response:{ 200:worldImportCleanupResponseSchema,
+        ...Object.fromEntries([400,403,404,409,415,500].map((code) => [code,apiErrorResponseSchema])) } }
+    },async (req,reply) => {
+      reply.header("Cache-Control","no-store");
+      return { data:await service.cleanupExpired(req.params.serverId),meta:responseMeta(req.id,clock,mode) };
+    });
     uploads.get<{ Params: ServerParams }>("/api/v1/servers/:serverId/worlds/import-uploads", {
       schema: { params: serverParamsSchema, response: { 200: worldImportUploadsResponseSchema,
         ...Object.fromEntries([403,404,409,500].map((code) => [code, apiErrorResponseSchema])) } }

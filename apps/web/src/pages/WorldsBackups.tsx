@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, PageHeading } from '../components/Ui';
 import { RestoreAction, RestoreHistory } from './RestoreAction';
 import { WorldCreatePlan } from './WorldCreatePlan';
 import { WorldImportUpload } from './WorldImportUpload';
+import { WorldArchiveAction, WorldArchiveList } from './WorldArchiveAction';
 
 type Server = ServersResponse['data']['items'][number];
 const metricText = (metric: { status: string; value: unknown }) => metric.status === 'unavailable' ? '不可用' : String(metric.value);
@@ -73,9 +74,11 @@ export function WorldsPage({ server }: { server: Server | undefined }) {
       <div className="resource-card__heading"><div><span className="eyebrow">{world.active ? 'ACTIVE WORLD' : 'WORLD'}</span><h2>{world.name.status === 'unavailable' ? world.worldId : world.name.value}</h2></div><span className="phase-badge">{world.active ? '当前世界' : '只读'}</span></div>
       <dl className="resource-grid"><div><dt>Minecraft 版本</dt><dd>{metricText(world.minecraftVersion)}</dd></div><div><dt>Seed</dt><dd>{metricText(world.seed)}</dd></div><div><dt>占用空间</dt><dd>{world.sizeBytes.status === 'unavailable' ? '不可用' : sizeText(world.sizeBytes.value as number)}</dd></div><div><dt>难度 / 模式</dt><dd>{metricText(world.difficulty)} / {metricText(world.gameMode)}</dd></div><div><dt>维度</dt><dd>{world.dimensions.map((item) => item.kind).join(' · ')}</dd></div><div><dt>视距 / 模拟距离</dt><dd>{metricText(world.viewDistance)} / {metricText(world.simulationDistance)}</dd></div></dl>
     </section>) : <EmptyState title="未发现可管理的世界" description="后端没有返回可确认的世界目录。" />}
+    {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldArchiveAction key={`archive-${server.server.id}`} serverId={server.server.id} world={query.data.data.items.find((world) => world.active)} running={server.status.state === 'running'} allowed={Boolean(server.readiness.worldChanges?.allowed)} /> : null}
     {server?.capabilities.worlds ? <WorldCreatePlan key={server.server.id} serverId={server.server.id} /> : null}
     {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldImportUpload key={`import-${server.server.id}`} serverId={server.server.id} /> : null}
-    <p className="muted">当前支持 Vanilla 世界集盘点、新建与 ZIP 导入。上传后需要校验导入计划并明确确认；创建和导入完成后保持停服，由你另行启动。归档尚未开放。</p>
+    {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldArchiveList serverId={server.server.id} /> : null}
+    <p className="muted">当前支持 Vanilla 世界集盘点、新建、ZIP 导入与归档。创建和导入完成后保持停服，由你另行启动。归档后无活动世界，启动和重启被拒绝；重新激活归档世界需人工恢复流程，当前没有自动恢复入口。</p>
   </div>;
 }
 

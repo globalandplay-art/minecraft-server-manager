@@ -9,6 +9,8 @@ import { isLocalAdapter } from "./adapters/contract.js";
 
 async function main(): Promise<void> {
   const mode = resolveMode(process.env.MCSM_MODE);
+  const importCleanup = process.env.MCSM_IMPORT_AUTO_CLEANUP;
+  if (importCleanup !== undefined && !["true","false"].includes(importCleanup)) throw new Error("Invalid import cleanup option");
   const managerRoot = resolveManagerRoot(process.env.MCSM_MANAGER_ROOT);
   const adapters =
     mode === "mock" ? undefined : await createLocalAdapters(managerRoot, new LocalRuntimeFactory());
@@ -22,6 +24,7 @@ async function main(): Promise<void> {
       }
     },
     mode,
+    importAutomaticCleanup: importCleanup === "true",
     ...(adapters === undefined ? {} : { adapters }),
     operationStore: new JsonOperationStore(managerRoot),
     ...(mode === "local" ? {

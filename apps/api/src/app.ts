@@ -37,6 +37,8 @@ import { WorldImportUploadService } from "./services/world-import-upload-service
 import { registerWorldImportUploadRoutes } from "./routes/world-import-uploads.js";
 import { WorldImportService } from "./services/world-import-service.js";
 import { registerWorldImportRoutes } from "./routes/world-imports.js";
+import { WorldArchiveService } from "./services/world-archive-service.js";
+import { registerWorldArchiveRoutes } from "./routes/world-archives.js";
 
 export interface BuildAppOptions {
   clock?: Clock;
@@ -47,7 +49,8 @@ export interface BuildAppOptions {
   transactionRecovery?: Pick<TransactionJournalStore, "initialize">;
   transactionJournal?: TransactionJournalStore;
   managerRoot?: string;
-  activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "snapshot" | "prepareGeneration" | "installImportedWorld">>;
+  importAutomaticCleanup?: boolean;
+  activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "snapshot" | "prepareGeneration" | "installImportedWorld" | "archiveCurrentWorld">>;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -78,6 +81,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   let restores: RestoreService | undefined;
   let worldCreates: WorldCreateService | undefined;
   let worldImports: WorldImportService | undefined;
+  let worldArchives: WorldArchiveService | undefined;
 
   app.addHook("onRequest", installLocalRequestGuard(clock, mode));
   app.addHook("onReady", async () => {
@@ -85,13 +89,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await restores?.reconcileStartup();
     await worldCreates?.reconcileStartup();
     await worldImports?.reconcileStartup();
+    const archiveWorlds = await worldArchives?.reconcileStartup();
     await operations.initialize();
     const scan = await options.transactionJournal?.scan();
     const restoreWorlds = new Map((scan?.records ?? []).filter((r) => r.intent.restore && ["active", "recovery-required"].includes(r.state))
       .map((r) => [r.intent.serverId, r.intent.restore!.levelName] as const));
     const importWorlds = new Map((scan?.records ?? []).filter((r) => r.intent.worldImport && ["active","recovery-required"].includes(r.state))
       .map((r) => [r.intent.serverId,[r.intent.worldImport!.previousName,r.intent.worldImport!.nextName]] as const));
-    operations.requireRecovery(await options.activeWorldState?.initialize(restoreWorlds,importWorlds) ?? []);
+    const archiveServers = new Set((scan?.records ?? []).filter((r) => r.intent.worldArchive).map((r) => r.intent.serverId));
+    operations.requireRecovery(await options.activeWorldState?.initialize(restoreWorlds,importWorlds,archiveWorlds,archiveServers) ?? []);
   });
   app.addHook("onClose", async () => {
     streams.close();
@@ -102,10 +108,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerOperationRoutes(app, service, clock, mode);
   registerWorldRoutes(app, worlds, clock, mode);
   if (options.transactionJournal !== undefined && options.managerRoot !== undefined) {
-    const uploads = new WorldImportUploadService(registry, operations, options.managerRoot,undefined,options.transactionJournal);
+    const uploads = new WorldImportUploadService(registry, operations, options.managerRoot,undefined,options.transactionJournal,clock,options.importAutomaticCleanup ?? false);
     registerWorldImportUploadRoutes(app, uploads, clock, mode);
     const backups = new BackupService(registry, operations, options.transactionJournal, options.managerRoot, clock);
     const active = options.activeWorldState;
+    if (active?.snapshot && active.archiveCurrentWorld) {
+      worldArchives = new WorldArchiveService(registry,operations,options.transactionJournal,backups,options.managerRoot,
+        { snapshot:active.snapshot.bind(active),archiveCurrentWorld:active.archiveCurrentWorld.bind(active) },clock);
+      registerWorldArchiveRoutes(app,worldArchives,clock,mode);
+    }
     if (active?.snapshot && active.prepareGeneration) {
       worldCreates = new WorldCreateService(registry, operations, options.transactionJournal, backups, options.managerRoot,
         { snapshot: active.snapshot.bind(active), prepareGeneration: active.prepareGeneration.bind(active) }, clock);

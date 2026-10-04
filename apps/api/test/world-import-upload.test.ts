@@ -14,6 +14,8 @@ import { registerWorldImportUploadRoutes } from "../src/routes/world-import-uplo
 import { OperationService } from "../src/services/operation-service.js";
 import { MemoryOperationStore } from "../src/services/operation-store.js";
 import { WorldImportUploadService } from "../src/services/world-import-upload-service.js";
+import { TransactionJournalStore } from "../src/services/transaction-journal.js";
+import { randomUUID } from "node:crypto";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -42,6 +44,151 @@ async function fixture() {
   const service = new WorldImportUploadService(new AdapterRegistry([adapter]), operations, manager);
   return { root, manager, server, state, adapter, operations, service };
 }
+async function lifecycleFixture(inject?: (point: string) => Promise<void>, automatic = false) {
+  const f = await fixture(), journal = new TransactionJournalStore(f.manager);
+  await journal.initialize();
+  let time = Date.parse("2026-10-04T00:00:00Z");
+  const clock = { now:() => new Date(time) };
+  const registry = new AdapterRegistry([f.adapter]);
+  const service = new WorldImportUploadService(registry,f.operations,f.manager,inject,journal,clock,automatic);
+  return { ...f,service,journal,clock,registry,advance:(days: number) => { time += days * 86400000; } };
+}
+describe("staging expiry is not deletion authority",() => {
+  it.each(["root-replaced","junction","hardlink"])("retains expired %s without deleting external data",async (kind) => {
+    const f = await lifecycleFixture(),uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));f.advance(10);
+    const artifact = path.join(f.manager,"world-imports",uploaded.id),outside = path.join(f.root,"outside");
+    await mkdir(outside);await writeFile(path.join(outside,"sentinel"),"preserve");
+    if (kind === "root-replaced") { await rename(f.server,f.server + "-old");await mkdir(f.server); }
+    if (kind === "junction") await symlink(outside,path.join(artifact,"linked"),process.platform === "win32" ? "junction" : "dir");
+    if (kind === "hardlink") await link(path.join(outside,"sentinel"),path.join(artifact,"linked"));
+    expect((await f.service.cleanupExpired("test")).removed).toEqual([]);
+    expect(await readFile(path.join(artifact,"upload.zip"))).toEqual(zip());
+    expect(await readFile(path.join(outside,"sentinel"),"utf8")).toBe("preserve");
+  });
+  it.each(["consumed","lifecycle","runtime"])("rechecks %s after enumeration before the first unlink",async (change) => {
+    const f = await lifecycleFixture();const uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));f.advance(10);
+    const directory = path.join(f.manager,"world-imports",uploaded.id);
+    const changed = new WorldImportUploadService(f.registry,f.operations,f.manager,async (point) => {
+      if (point !== "cleanup-before-delete") return;
+      if (change === "consumed") await writeFile(path.join(directory,"consumed.json"),"{}");
+      else if (change === "runtime") { f.state.state = "running";f.state.ownership = "external"; }
+      else { const marker = path.join(directory,"lifecycle.json"),value = JSON.parse(await readFile(marker,"utf8"));value.createdAt = "2099-01-01T00:00:00Z";await writeFile(marker,JSON.stringify(value)); }
+    },f.journal,f.clock);
+    expect((await changed.cleanupExpired("test")).removed).toEqual([]);
+    expect(await readFile(path.join(directory,"upload.zip"))).toEqual(zip());
+    await expect(readFile(path.join(f.manager,"world-import-discard-owners",uploaded.id + ".json"))).rejects.toMatchObject({ code:"ENOENT" });
+  });
+  it("retains abandoned receiving uploads after recreation until their verified expiry",async () => {
+    const f = await lifecycleFixture(),uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));
+    const directory = path.join(f.manager,"world-imports",uploaded.id),marker = path.join(directory,"lifecycle.json");
+    const value = JSON.parse(await readFile(marker,"utf8"));value.state = "receiving";await writeFile(marker,JSON.stringify(value));await rm(path.join(directory,"validated.json"));
+    const recreated = new WorldImportUploadService(f.registry,f.operations,f.manager,undefined,f.journal,f.clock);
+    expect((await recreated.list("test")).items[0]?.lifecycle).toBe("receiving");
+    expect((await recreated.cleanupExpired("test")).removed).toEqual([]);f.advance(1);
+    expect((await recreated.cleanupExpired("test")).removed).toEqual([uploaded.id]);
+  });
+  it("persists failed state, retains before expiry, cleans after expiry and releases quota without touching worlds",async () => {
+    const f = await lifecycleFixture();
+    await expect(f.service.upload("test","bad.zip",Readable.from(["bad"]))).rejects.toMatchObject({ code:"IMPORT_ARCHIVE_UNSAFE" });
+    const record = (await f.service.list("test")).items[0]!;
+    expect(record).toMatchObject({ lifecycle:"failed",expiresAt:"2026-10-05T00:00:00.000Z" });
+    expect(await f.service.cleanupExpired("test")).toEqual({ removed:[],retained:[{ id:record.id,reason:"not-expired" }] });
+    f.advance(1);
+    expect(await f.service.cleanupExpired("test")).toEqual({ removed:[record.id],retained:[] });
+    expect((await f.service.list("test")).occupiedSlots).toBe(0);
+    expect(await readFile(path.join(f.server,"world","sentinel"),"utf8")).toBe("original");
+  });
+  it("retains validated uploads for seven days and supports safe repeated sweeps",async () => {
+    const f = await lifecycleFixture(),uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));
+    f.advance(6);expect((await f.service.cleanupExpired("test")).removed).toEqual([]);
+    f.advance(1);expect((await f.service.cleanupExpired("test")).removed).toEqual([uploaded.id]);
+    expect(await f.service.cleanupExpired("test")).toEqual({ removed:[],retained:[] });
+  });
+  it.each(["missing","corrupt","future","rebound","unknown-state"])("retains %s lifecycle evidence",async (kind) => {
+    const f = await lifecycleFixture(),uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));
+    const marker = path.join(f.manager,"world-imports",uploaded.id,"lifecycle.json");
+    if (kind === "missing") await rm(marker);
+    else if (kind === "corrupt") await writeFile(marker,"{");
+    else { const value = JSON.parse(await readFile(marker,"utf8"));
+      if (kind === "future") value.createdAt = "2099-01-01T00:00:00Z";
+      if (kind === "rebound") value.directoryIdentity = "a".repeat(64);
+      if (kind === "unknown-state") value.state = "delete-me";
+      await writeFile(marker,JSON.stringify(value));
+    }
+    f.advance(10);
+    expect(await f.service.cleanupExpired("test")).toEqual({ removed:[],retained:[{ id:uploaded.id,reason:"requires-inspection" }] });
+    expect(await readFile(path.join(f.manager,"world-imports",uploaded.id,"upload.zip"))).toEqual(zip());
+  });
+  it.each(["pinned.json","consumed.json"])("retains %s regardless of expiry and refuses manual discard",async (marker) => {
+    const f = await lifecycleFixture(),uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));
+    const before = (await f.service.list("test")).items[0]!;
+    await writeFile(path.join(f.manager,"world-imports",uploaded.id,marker),"{}");f.advance(10);
+    expect((await f.service.cleanupExpired("test")).retained).toEqual([{ id:uploaded.id,reason:"referenced" }]);
+    await expect(f.service.discard("test",uploaded.id,{ confirmUploadId:uploaded.id,revision:before.revision })).rejects.toMatchObject({ code:"IMPORT_STAGING_UNSAFE" });
+  });
+  it.each(["active","committed"] as const)("retains %s manager-path references, including across server IDs",async (state) => {
+    const f = await lifecycleFixture(),uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));
+    const record = await f.journal.createIntent({ operationId:randomUUID(),serverId:"other",kind:"backup",scope:"world-set",resourceId:null,
+      allowStop:false,originalState:"stopped",createdAt:f.clock.now().toISOString(),paths:[{ role:"staging",relativePath:`world-imports/${uploaded.id}` }] });
+    if (state === "committed") await f.journal.setState("other",record.transactionId,"committed",f.clock.now().toISOString());
+    f.advance(10);expect((await f.service.cleanupExpired("test")).retained).toEqual([{ id:uploaded.id,reason:"referenced" }]);
+  });
+  it("retains checkpoint-only references even on terminal journals",async () => {
+    const f = await lifecycleFixture(),uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));
+    const record = await f.journal.createIntent({ operationId:randomUUID(),serverId:"other",kind:"backup",scope:"world-set",resourceId:null,
+      allowStop:false,originalState:"stopped",createdAt:f.clock.now().toISOString(),paths:[] });
+    await f.journal.appendCheckpoint("other",record.transactionId,{ name:"retained-evidence",recordedAt:f.clock.now().toISOString(),details:{ relativePath:`world-imports/${uploaded.id}` } });
+    await f.journal.setState("other",record.transactionId,"committed",f.clock.now().toISOString());f.advance(10);
+    expect((await f.service.cleanupExpired("test")).retained).toEqual([{ id:uploaded.id,reason:"referenced" }]);
+  });
+  it("fails closed on corrupt unknown-server journal and absent scan authority",async () => {
+    const f = await lifecycleFixture(),uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));f.advance(10);
+    await writeFile(path.join(f.manager,"transactions","unknown.json"),"{");
+    expect((await f.service.cleanupExpired("test")).retained).toEqual([{ id:uploaded.id,reason:"referenced" }]);
+    const noScan = new WorldImportUploadService(f.registry,f.operations,f.manager,undefined,undefined,f.clock);
+    expect((await noScan.cleanupExpired("test")).removed).toEqual([]);
+  });
+  it("keeps cleanup failure receipt and requires explicit retry after Manager recreation",async () => {
+    const f = await lifecycleFixture(async (point) => { if (point === "before-final-rmdir") throw Object.assign(new Error("injected rmdir denied"),{ code:"EACCES" }); });
+    const uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));f.advance(10);
+    expect(await f.service.cleanupExpired("test")).toEqual({ removed:[],retained:[{ id:uploaded.id,reason:"cleanup-failed" }] });
+    const restarted = new WorldImportUploadService(f.registry,f.operations,f.manager,undefined,f.journal,f.clock);
+    expect(await restarted.cleanupExpired("test")).toEqual({ removed:[],retained:[{ id:uploaded.id,reason:"discard-pending" }] });
+    const item = (await restarted.list("test")).items[0]!;expect(item.lifecycle).toBe("discard-pending");
+    await restarted.discard("test",uploaded.id,{ confirmUploadId:uploaded.id,revision:item.revision });
+    expect((await restarted.list("test")).occupiedSlots).toBe(0);
+  });
+  it("refuses recovery/active admission and an external Java state",async () => {
+    const f = await lifecycleFixture();f.operations.requireRecovery(["test"]);
+    await expect(f.service.cleanupExpired("test")).rejects.toMatchObject({ code:"RECOVERY_REQUIRED" });
+    const other = await lifecycleFixture();other.state.state = "running";other.state.ownership = "external";
+    await expect(other.service.cleanupExpired("test")).rejects.toMatchObject({ code:"IMPORT_STAGING_UNSAFE" });
+    const busy = await lifecycleFixture();await busy.operations.runExclusive("test",async () => {
+      await expect(busy.service.cleanupExpired("test")).rejects.toMatchObject({ code:"OPERATION_CONFLICT" });
+    });
+  });
+  it.each([true,false])("automatic cleanup enabled=%s only sweeps requested unclaimed expired uploads",async (automatic) => {
+    const f = await lifecycleFixture(undefined,automatic);
+    for (let n=0;n<3;n++) await expect(f.service.upload("test","bad.zip",Readable.from(["bad"]))).rejects.toBeDefined();
+    f.advance(2);
+    if (automatic) { expect((await f.service.upload("test","ok.zip",Readable.from([zip()]))).state).toBe("validated");expect((await f.service.list("test")).occupiedSlots).toBe(1); }
+    else await expect(f.service.upload("test","ok.zip",Readable.from([zip()]))).rejects.toMatchObject({ code:"IMPORT_STAGING_QUOTA" });
+  });
+  it("serves strict locally guarded cleanup HTTP without leaking paths or secrets",async () => {
+    const f = await lifecycleFixture();await expect(f.service.upload("test","bad.zip",Readable.from(["bad"]))).rejects.toBeDefined();f.advance(2);
+    const app = fastify();app.addHook("onRequest",installLocalRequestGuard(f.clock,"local"));
+    app.setErrorHandler((error,req,reply) => reply.code(error instanceof DomainError ? error.statusCode : 400).send(errorResponse(req.id,f.clock,"VALIDATION_ERROR","拒绝","local")));
+    registerWorldImportUploadRoutes(app,f.service,f.clock,"local");
+    const url = "/api/v1/servers/test/worlds/import-uploads/cleanup",headers = { host:"localhost:8080",origin:"http://localhost:3000","x-manager-intent":"local-ui" };
+    try {
+      expect((await app.inject({ method:"POST",url,headers,payload:{ intent:"cleanup-expired-unclaimed",path:"../world" } })).statusCode).toBe(400);
+      expect((await app.inject({ method:"POST",url,headers:{ ...headers,origin:"http://evil.example" },payload:{ intent:"cleanup-expired-unclaimed" } })).statusCode).toBe(403);
+      const response = await app.inject({ method:"POST",url,headers,payload:{ intent:"cleanup-expired-unclaimed" } });
+      expect(response.statusCode).toBe(200);expect(response.json().data.removed).toHaveLength(1);
+      expect(response.body).not.toContain(f.server);expect(response.body).not.toContain("never-public");
+    } finally { await app.close(); }
+  });
+});
 describe("P3.3c private stream upload", () => {
   it("validates a streamed world, binds its private owner and never changes the server", async () => {
     const f = await fixture(), bytes = zip();

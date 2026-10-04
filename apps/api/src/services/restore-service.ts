@@ -7,7 +7,7 @@ import type { AdapterRegistry } from "../adapters/registry.js";
 import type { Clock } from "../clock.js";
 import { parseProperties, readBoundedRegularFile, SERVER_PROPERTIES_LIMIT } from "../config/properties.js";
 import type { RuntimeOperationContext } from "../infra/runtime-contract.js";
-import { worldIdentity } from "./active-world-state-store.js";
+import { worldIdentity, type ActiveWorldState } from "./active-world-state-store.js";
 import type { BackupManifest, BackupService } from "./backup-service.js";
 import { DomainError } from "./domain-errors.js";
 import type { OperationService } from "./operation-service.js";
@@ -115,6 +115,39 @@ export class RestoreService {
     return adapter;
   }
 
+  /** Direct service callers must also respect the durable archived-world gate. */
+  async #assertActiveWorld(serverId: string): Promise<void> {
+    try {
+      await plainRestoreDirectory(this.managerRoot);
+      const directory = path.join(this.managerRoot, "active-worlds");
+      await plainRestoreDirectory(directory);
+      const file = path.join(directory, `${serverId}.json`);
+      const info = await lstat(file);
+      const normalized = (value: string) => process.platform === "win32" ? value.toLowerCase() : value;
+      if (info.nlink !== 1 || normalized(await realpath(file)) !== normalized(path.resolve(file))) throw recovery();
+      const state = JSON.parse(await readBoundedRegularFile(file, 16 * 1024, "活动世界状态")) as Partial<ActiveWorldState> | null;
+      if (!state || Array.isArray(state) || Object.keys(state).some((key) => !["schemaVersion", "serverId", "state", "worldId", "levelName", "archiveTransactionId"].includes(key)) ||
+        state.schemaVersion !== 1 || state.serverId !== serverId) throw recovery();
+      if (state.state === "none") {
+        if (state.worldId !== null || state.levelName !== null || typeof state.archiveTransactionId !== "string" || !/^[0-9a-f-]{36}$/u.test(state.archiveTransactionId)) throw recovery();
+        throw new DomainError(409, "NO_ACTIVE_WORLD", "世界已归档，当前没有活动世界", "archived-world-has-no-active-world");
+      }
+      if (!["active", "pending-generation"].includes(state.state ?? "") || typeof state.levelName !== "string" ||
+        state.levelName.length < 1 || state.levelName.length > 128 || !safeRestorePath(state.levelName) || state.levelName.includes("/") ||
+        state.worldId !== worldIdentity(serverId, state.levelName) || state.archiveTransactionId !== undefined) throw recovery();
+    } catch (error) {
+      if (error instanceof DomainError && error.code === "NO_ACTIVE_WORLD") throw error;
+      if (missingFile(error)) {
+        const scan = await this.journal.scan();
+        // Legacy restore recovery may lack active-state metadata and its tree.
+        // Once an archive exists, missing metadata cannot grant activation.
+        if (!scan.records.some((record) => record.intent.serverId === serverId && record.intent.worldArchive) &&
+          !scan.issues.some((issue) => issue.serverId === serverId)) return;
+      }
+      throw recovery();
+    }
+  }
+
   async #worldName(adapter: LocalMinecraftServerAdapter): Promise<string> {
     await plainRestoreDirectory(adapter.plan.rootPath);
     const props = parseProperties(await readBoundedRegularFile(path.join(adapter.plan.rootPath, "server.properties"), SERVER_PROPERTIES_LIMIT, "server.properties"));
@@ -150,6 +183,7 @@ export class RestoreService {
 
   async plan(serverId: string, backupId: string): Promise<Plan> {
     const adapter = this.#adapter(serverId);
+    await this.#assertActiveWorld(serverId);
     const name = await this.#worldName(adapter);
     const source = await this.#source(serverId, backupId, name);
     this.#version(adapter, source.manifest.minecraftVersion);
@@ -159,6 +193,7 @@ export class RestoreService {
   }
 
   async #checkConfirmation(adapter: LocalMinecraftServerAdapter, plan: Plan, name: string, revision: string): Promise<void> {
+    await this.#assertActiveWorld(adapter.serverId);
     if (plan.worldName !== name || plan.worldRevision !== revision) throw revisionConflict();
     const status = await adapter.getStatus();
     const safe = (status.state === "stopped" && status.ownership === "none") || (status.state === "running" && status.ownership === "managed");
@@ -167,6 +202,7 @@ export class RestoreService {
 
   async restore(serverId: string, backupId: string, body: RestoreRequest, key: string): Promise<Operation> {
     const adapter = this.#adapter(serverId);
+    await this.#assertActiveWorld(serverId);
     return this.operations.requestBackup(serverId, key, JSON.stringify({ backupId, ...body }),
       (ctx) => this.#restore(ctx, adapter, backupId, body),
       async () => { await this.#checkConfirmation(adapter, await this.plan(serverId, backupId), body.confirmWorldName, body.worldRevision); }, "restore");
@@ -231,6 +267,7 @@ export class RestoreService {
   }
 
   async #swap(adapter: LocalMinecraftServerAdapter, record: TransactionJournalRecord, files: readonly RestoreFile[]): Promise<void> {
+    await this.#assertActiveWorld(adapter.serverId);
     await this.#binding(adapter, record);
     const r = record.intent.restore!;
     const workspace = path.join(adapter.plan.rootPath, r.workspaceName);
@@ -244,6 +281,7 @@ export class RestoreService {
       await plainRestoreDirectory(world);
       await this.#checkpoint(record, "move-old-intent");
       await this.inject?.("before:rename-old");
+      await this.#assertActiveWorld(adapter.serverId);
       await rename(world, path.join(workspace, "previous"));
       await syncRestoreDirectory(adapter.plan.rootPath); await syncRestoreDirectory(workspace);
       await this.inject?.("after:rename-old");
@@ -253,6 +291,7 @@ export class RestoreService {
     if (await this.#worldName(adapter) !== r.levelName) throw revisionConflict();
     await this.#checkpoint(record, "install-new-intent");
     await this.inject?.("before:rename-new");
+    await this.#assertActiveWorld(adapter.serverId);
     await rename(path.join(workspace, "incoming"), world);
     await syncRestoreDirectory(adapter.plan.rootPath); await syncRestoreDirectory(workspace);
     await this.inject?.("after:rename-new");
@@ -261,6 +300,7 @@ export class RestoreService {
   }
 
   async #start(adapter: LocalMinecraftServerAdapter, ctx: RuntimeOperationContext, record: TransactionJournalRecord, files: readonly RestoreFile[]): Promise<void> {
+    await this.#assertActiveWorld(adapter.serverId);
     await this.#stopped(adapter);
     if (!record.intent.restore!.startAfter) return;
     await this.#checkpoint(record, "start-intent");
@@ -280,6 +320,7 @@ export class RestoreService {
       await this.#stopped(adapter);
       if (await this.#worldName(adapter) !== r.levelName || worldIdentity(adapter.serverId, r.levelName) !== r.worldId) throw revisionConflict();
       await verifyRestoreTree(path.join(adapter.plan.rootPath, r.levelName), files);
+      await this.#assertActiveWorld(adapter.serverId);
       await adapter.start(ctx);
       // Bounded one-second post-readiness window also flushes the log tailer.
       // Runtime.start already supplies the bounded launch/readiness deadline.
@@ -355,6 +396,7 @@ export class RestoreService {
   }
 
   async #parent(serverId: string, operationId: string): Promise<TransactionJournalRecord> {
+    await this.#assertActiveWorld(serverId);
     await this.operations.assertRecoveryOwner(serverId, operationId);
     const scan = await this.journal.scan();
     const record = scan.records.find((r) => r.intent.serverId === serverId && r.intent.operationId === operationId && r.intent.kind === "restore" && r.intent.restore);
@@ -419,6 +461,7 @@ export class RestoreService {
 
   async rollback(serverId: string, parentOperationId: string, body: RollbackRequest, key: string): Promise<Operation> {
     const adapter = this.#adapter(serverId);
+    await this.#assertActiveWorld(serverId);
     const check = async () => {
       const plan = await this.rollbackPlan(serverId, parentOperationId);
       if (body.confirmWorldName !== plan.worldName || body.worldRevision !== plan.worldRevision) throw revisionConflict();
@@ -428,6 +471,7 @@ export class RestoreService {
   }
 
   async #rollback(ctx: RuntimeOperationContext, adapter: LocalMinecraftServerAdapter, parentOperationId: string, body: RollbackRequest): Promise<void> {
+    await this.#assertActiveWorld(adapter.serverId);
     const parent = await this.#parent(adapter.serverId, parentOperationId);
     const r = parent.intent.restore!;
     if (body.confirmWorldName !== r.levelName || body.worldRevision !== await this.#rollbackRevision(adapter, parent)) throw revisionConflict();

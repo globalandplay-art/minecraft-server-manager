@@ -17,6 +17,7 @@ for (const width of [360,768,1440]) {
     await page.setViewportSize({width,height:900});await page.goto('/worlds?server=vanilla-upload');
     await expect(page.getByRole('heading',{name:'上传并校验世界 ZIP'})).toBeVisible();
     await expect(page.getByText('所有实例共享最多三次暂存上传。',{exact:false})).toBeVisible();
+    await expect(page.getByText('自动清理默认关闭',{exact:false})).toBeVisible();
     await page.getByLabel('世界 ZIP（也可拖入一个文件）').setInputFiles({name:'测试.zip',mimeType:'application/zip',buffer:worldZip()});
     const response=page.waitForResponse((res)=>res.url().endsWith('/worlds/import-uploads')&&res.request().method()==='POST');
     await page.getByRole('button',{name:'上传并校验',exact:true}).click();

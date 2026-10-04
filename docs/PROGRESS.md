@@ -1,9 +1,41 @@
 # 实施进度
 
-更新时间：2026-10-03
+更新时间：2026-10-04
 
 
 ## Phase 3 当前检查点
+
+### 2026-10-04 P3.3 失败上传 / staging 生命周期收尾 PASS
+
+12:24完成：新上传持久化createdAt及identity-bound receiving/failed/validated生命周期；失败/中断保留且计入配额。失败/abandoned24h、validated7d只作为候选；消费、任意终态/非终态journal路径/checkpoint引用、pinned、recovery、身份或元数据不确定全部保留。共享global lease/instance admission，删除前重验root/directory/owner、references、expiry和runtime，复用durable discard receipt及有界非递归删除；partial receipt只允许明确重试。新增本地guarded cleanup API，MCSM_IMPORT_AUTO_CLEANUP默认关闭，显式true仅在新有效上传前执行本实例sweep，无timer/startup扫除。UI显示失败/保留期限/检查及重试信息。
+
+最终冻结源码 `VITEST_MAX_WORKERS=1 npm.cmd run check` exit0，contracts6/API611/Web76共**693 PASS**，lint/typecheck/build PASS；实际Chrome360/768/1440上传/明确丢弃与Import/消费保留**6/6 PASS**，18.7s。捕获的API/Vite helpers全部退出，端口释放，无Minecraft启动或原世界操作。独立SolHigh Review及最终delta PASS，未调用Astra。首次fixture失败、混合源码检查失败、692修复前baseline，以及date-time格式导致的首次Browser6fail均保留，未放宽timeout/断言；首次格式修复后contracts6及Browser6通过，再执行本最终693全套。没有同一问题耗尽三次不同修复。
+
+详见 [生命周期收尾](./P33_STAGING_LIFECYCLE_2026-10-04.md) / [独立Review](./P33_STAGING_LIFECYCLE_REVIEW_2026-10-04.md)。Archive真实PASS不重跑，消费/引用暂存和未知元数据不删除，none重新激活及Windows/E2E边界保留。当前P3.3已知主要切片完成；Phase3仍IN PROGRESS，下一步P3.4计划备份/retention、随后P3.5整体闭环及Final Review。不进入Phase4、不commit/push/PR。
+
+### 2026-10-04 P3.3 World Archive REAL ACCEPTANCE PASS / staging 收尾开始
+
+真实宿主 run `p33-archive-1d0662e9-b2b2-4262-857b-2d60045c0a98`（北京时间11:24–11:25）已只读核验：result/archive=PASS、finalStopped=true。39个文件/9,498,143字节的原始清单、归档和pinned guard逐文件大小/SHA-256一致；三个维度marker region摘要匹配；注册root、归档目录身份、receipt及committed journal一致。Manager重启保留none，Start/Restart实际返回409 NO_ACTIVE_WORLD，无空世界或额外Java启动。报告SHA-256 `d37b2ba46b98cad117860dc5195693476ef56c4fb181f68f5b827f3af18be69e`。结合既有修复后666项回归和独立SolHigh Review，World Archive PASS，保留显式重新激活、Windows fsync及自动E2E teardown限制。
+
+随后11:29 run `p33-archive-0a729596-5834-4331-a50a-f334a80b661a`仍为BLOCKED，保留原报告：Perflib/Get-Counter通过，Minecraft服务发现TLS握手中断产生阻塞WARN，代码ERR_ASSERTION/FINAL_LAUNCH_DIAGNOSTIC_FAILED，发生在Archive前；最终停止。不可将该run改写为PASS，也不推翻此前独立完整PASS。此前Codex预检BLOCKED仅为历史环境记录。
+
+用户授权继续失败上传/staging生命周期收尾。开始时真实额度五小时剩56%、周剩72%，最小56%满足>15% Gate；不调用Astra、不重复已通过真实归档、不进入Phase4、不commit/push。安全清理框架与执行进度另见P33_STAGING_LIFECYCLE_2026-10-04.md。
+
+以下Archive BLOCKED/NOT RUN均为当时的历史检查点，当前状态以本节为准。
+
+### 2026-10-04 P3.3 World Archive IMPLEMENTATION READY / REAL GATE BLOCKED
+
+07:14 一次续接已完成：修复后完整666项及独立Sol High CODE/TOOL Review通过；真实Archive Gate仍BLOCKED/NOT RUN，因此未开始staging或Phase 4。Browser补验前额度快照：五小时剩69%、周剩74%；补验后的最终实查为五小时剩64%、周剩73%，取最小64%，不是额度不足而停。一次性安排已设PAUSED，不创建后续安排；Git保留15个修改文件和14个未跟踪文件，无commit/push。续做需先在健康普通宿主运行隔离Archive验收并核验证据，然后重新检查问题账本和额度Gate。
+
+07:40–07:42 补齐ARC-REVIEW-003修改后的相关Browser Gate：既有Archive E2E隔离合成API，Chrome360/768/1440共3/3 PASS，runner exit0，真实总耗时2.0m。Windows teardown再次挂起，仅核验stdout-owned API/Vite PID2504/2660、node.exe路径与精确启动时间后停止这两个helper；未停止其他Node/worker，不重试或放宽timeout。无源码修改、无Java；666全套不重复。真实Gate仍BLOCKED，staging未开始，上述额度快照与一次安排PAUSED保留。
+
+已实现严格world-ID/name/revision/archive intent/停服确认API、独立归档列表DTO/UI、schema5注册root与world/destination目录身份journal、完整pinned guard、同卷整树rename、persist intent→physical verify→completion、durable none及archiveTransactionId witness。Start/Restart readiness/admission/executor明确NO_ACTIVE_WORLD，包括running Start no-op和Restart停服前拒绝。重启校验所有历史archive/root/guard/receipt；未知committed核验后才确认，非终态/损坏保留全部数据与recoveryRequired，无自动start/rollback/delete。现有Create/Import仍需要active源世界，本切片不添加none激活/归档恢复API。
+
+归档39专项/组件5/Chrome360、768、1440三项PASS；修复前全仓 `npm.cmd run check` 于02:57 exit0：contracts5/API579/Web73共657 PASS，含Archive wrapper11（11/11 PASS），lint/typecheck/build PASS。此前全套646 PASS证据保留。Chrome断言后的Windows helper teardown挂起仅清理本轮身份核验的两个helper，runner最终exit0/3 passed，6.3m真实耗时保留。新helper node --check/PS parser/diff check PASS。独立SolHigh CODE/TOOL Review及P2 delta Review PASS，详见 [独立审查](./P33_ARCHIVE_REVIEW_2026-10-04.md)；writer自检不冒充签核，用户禁用Astra覆盖历史future routing，本轮未调用。
+
+Codex只读preflight run `p33-archive-8e46db7c-561c-4ea7-b3c5-5f9981337eb3` exit1：HOST_PRECONDITION_UNAVAILABLE/HOST_PERFLIB_UNAVAILABLE，ItemNotFoundException/HResult -2146233087，原文 `Cannot find path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Perflib\009' because it does not exist.` CPU Get-Counter PASS。报告SHA256 `76E429E9129362D48FB3C1892B144AF53A8EBF01878A2C903F49A8DAD3C28952`；没有Java/runtime/world/guard/archive/journal，仅保留新私有报告。当前Codex environment-unavailable/inconclusive，不断言宿主损坏、不修Windows、不重复未变化环境Java。真实Archive BLOCKED/NOT RUN；P3.3/Phase3 IN PROGRESS，既有Import真实PASS不重做。
+
+完整边界、宿主隔离命令、问题与原始错误见 [Archive报告](./P33_ARCHIVE_2026-10-04.md) / [GLOBAL P3.3 ISSUE LEDGER](./P33_GLOBAL_ISSUE_LEDGER_2026-10-04.md)。无commit/push，README保留用户现状。07:34真实额度5h73%、周75%剩余；父任务重新检查Gate再决定staging，writer未进第二阶段/Phase4。07:27 Review修复：旧Restore/Rollback在none时direct plan/admission/executor/swap/start均gate，metadata异常保留recovery，未归档missing-tree rollback不受影响；接受操作确定失败重置归档确认/新key且保留错误，interrupted继续跟踪。独立delta CODE/TOOL PASS、UI7/7 PASS、typecheck PASS；归档46+原Restore59专项105/105 PASS（66.93s，single worker）；最终07:36完整check以VITEST_MAX_WORKERS=1 exit0：contracts5/API586/Web75共666 PASS，lint/typecheck/build/diff check PASS；657为修复前baseline。两个P2均由独立Review及回归闭合。续做：健康普通宿主一次真实Gate→Ledger与额度复核→父任务评估staging；当前安全停止，无重复Codex探针或Java试跑。
 
 ### 2026-10-03 P3.3c Real Import Acceptance PASS
 

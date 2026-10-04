@@ -1,5 +1,13 @@
 # Minecraft Java Server Manager — API 合约
 
+## P3.3 staging lifecycle closure (2026-10-04)
+
+`POST /api/v1/servers/:serverId/worlds/import-uploads/cleanup` accepts only `{ "intent": "cleanup-expired-unclaimed" }` with existing local Host/Origin/write-intent guards. Response `data` has `removed: UUID[]` and `retained: { id, reason }[]`; reasons are `not-expired`, `requires-inspection`, `referenced`, `discard-pending`, `cleanup-failed`. Paths, exception text, filenames and secrets are not returned. A 200 sweep can retain every record; it does not imply all staging was deleted. Unknown root layout/admission conflict fails closed.
+
+Upload list adds optional `lifecycle` (`receiving`, `failed`, `validated`, `discard-pending`, `requires-inspection`) and `expiresAt`; existing state/revision/explicit discard contracts remain compatible. Expiry is not authorization: failed/abandoned records use 24 hours, validated unclaimed records 7 days. Consumed/journal/pinned/recovery references override expiry forever pending separately authorized reconciliation. Legacy records without trusted lifecycle are retained automatically.
+
+Automatic cleanup defaults disabled. Backend operator may explicitly set `MCSM_IMPORT_AUTO_CLEANUP=true`; it sweeps only the requested server before a new valid upload. No timer/startup sweep/background scheduler is installed. `false` or unset disables it; other values reject startup. Receipt-bearing partial cleanup requires explicit manual retry, not automatic continuation. See [framework](./P33_STAGING_LIFECYCLE_2026-10-04.md).
+
 状态：设计 v1；Phase 1 已在 `packages/contracts` 与 `apps/api` 实现 §4 的四个 GET 端点并通过测试。其余为后续合约，不创建空操作端点；实现必须与 [ARCHITECTURE.md](./ARCHITECTURE.md) 和 [UI_SPEC.md](./UI_SPEC.md) 一致。
 
 ## 1. 连接与责任边界
@@ -261,9 +269,9 @@ type WsMessage =
 
 ## 6. Phase 3：Worlds 与 Backups
 
-2026-10-02 P3.3a 已实现只读预览 `POST /api/v1/servers/:serverId/worlds/create-plan`，JSON `{ name: string, seed: string }`（seed 留空表示后续随机生成）。返回 200 `{ data: { serverId, name, seed: string | null, minecraftVersion, currentWorldName, worldRevision: string | null, requiresStop, generation: 'on-explicit-start', executionAvailable: false }, meta }`，Cache-Control: no-store。请求需允许的 Host / Origin 和 X-Manager-Intent: local-ui；不接受路径或额外字段；在 AJV 自动转换前拒绝非字符串，Seed 精确校验 signed int64。拒绝危险/保留名、已有目标（不区分大小写）、链接目录、未知版本、外部/未知进程及恢复门控。此接口不持久化、不需要 Idempotency-Key、不改世界或配置；其 revision 只是预览，后续执行必须重新在实例锁内比对。以下实际 create/import/archive endpoint 仍为后续设计，并未因提供计划而开放。
+2026-10-02 P3.3a 已实现只读预览 `POST /api/v1/servers/:serverId/worlds/create-plan`，JSON `{ name: string, seed: string }`（seed 留空表示后续随机生成）。返回 200 `{ data: { serverId, name, seed: string | null, minecraftVersion, currentWorldName, worldRevision: string | null, requiresStop, generation: 'on-explicit-start', executionAvailable: false }, meta }`，Cache-Control: no-store。请求需允许的 Host / Origin 和 X-Manager-Intent: local-ui；不接受路径或额外字段；在 AJV 自动转换前拒绝非字符串，Seed 精确校验 signed int64。拒绝危险/保留名、已有目标（不区分大小写）、链接目录、未知版本、外部/未知进程及恢复门控。此接口不持久化、不需要 Idempotency-Key、不改世界或配置；其 revision 只是预览，后续执行必须重新在实例锁内比对。该日期的实际 create/import/archive endpoint 尚未开放；当前开放状态见下表及各日期契约。
 
-2026-10-02 P3.3b 已开放实际创建 `POST /api/v1/servers/:serverId/worlds`：严格 JSON `{ name: string, seed: string, confirmWorldName: string, worldRevision: string, allowStop: boolean }`，必须携带 UUID-v4 Idempotency-Key，返回 202 Operation。缺少 key 返回 428；原始非字符串 Seed 在 AJV 转换前拒绝。实例锁内重验名称、revision、活动世界身份和停服授权；先创建 pinned world-set guard，再保存私有配置前后副本、journal 化原子更新 `level-name` / `level-seed` 与 pending-generation 状态。旧世界目录原地完整保留；不隐式启动，不自动回滚。中断保持恢复门控并保留配置副本与 guard，暂不提供自动解决创建中断的 API。重复请求复用同一操作。配置切换成功后须另行明确 start 才生成新世界。运行实例仅允许 managed，且必须 allowStop=true。计划接口的 executionAvailable 现在表示创建写入者是否存在且 revision 可用；worldChanges readiness 同时反映活动状态和恢复/操作门控。Import / archive 仍未开放。
+2026-10-02 P3.3b 已开放实际创建 `POST /api/v1/servers/:serverId/worlds`：严格 JSON `{ name: string, seed: string, confirmWorldName: string, worldRevision: string, allowStop: boolean }`，必须携带 UUID-v4 Idempotency-Key，返回 202 Operation。缺少 key 返回 428；原始非字符串 Seed 在 AJV 转换前拒绝。实例锁内重验名称、revision、活动世界身份和停服授权；先创建 pinned world-set guard，再保存私有配置前后副本、journal 化原子更新 `level-name` / `level-seed` 与 pending-generation 状态。旧世界目录原地完整保留；不隐式启动，不自动回滚。中断保持恢复门控并保留配置副本与 guard，暂不提供自动解决创建中断的 API。重复请求复用同一操作。配置切换成功后须另行明确 start 才生成新世界。运行实例仅允许 managed，且必须 allowStop=true。计划接口的 executionAvailable 现在表示创建写入者是否存在且 revision 可用；worldChanges readiness 同时反映活动状态和恢复/操作门控。该日期的 Import / archive 尚未开放；后续契约见下文。
 
 worldId 指向后端识别出的 world set；包含 dimensions 和 active 状态。详情字段为 `name, seed, minecraftVersion, sizeBytes, difficulty, gameMode, hardcore, pvp, viewDistance, simulationDistance`，其中每项可探测值以 Metric 包装并注明来源（NBT / properties 来源标签在世界 DTO 另设 fieldSources）。26.3 实际生成 Seed 从 `data/minecraft/world_gen_settings.dat` 的 `data.seed` 读取，fieldSources.seed 为 `world-data`；旧布局仍使用 `level-dat`。有界 NBT 解码保留 signed int64 精度，文件缺失/损坏仍 unavailable，禁止以 server.properties 配置 Seed 冒充世界实际 Seed。世界级不可读值 unavailable，不使用空字符串 / 0 假值。
 
@@ -275,9 +283,10 @@ worldId 指向后端识别出的 world set；包含 dimensions 和 active 状态
 | POST /servers/:id/worlds/import-uploads | 已实现：原始 application/zip 流 + X-Upload-Filename；201 仅代表暂存校验，无世界切换 |
 | GET /servers/:id/worlds/import-uploads | 已实现：当前实例记录、归属 revision、丢弃可用性和全局配额，无私有路径 |
 | POST /servers/:id/worlds/import-uploads/:uploadId/discard | 已实现：JSON confirmUploadId + revision；200 仅丢弃私有暂存，不影响当前世界 |
-| POST /servers/:id/worlds/import | 尚未实现；后续消费已校验暂存 ID + 显式确认/allowStop；202 Operation；与 create 相同的切换保护 |
+| POST /servers/:id/worlds/import | 已实现：已校验 uploadId/name/uploadRevision/worldRevision/confirmWorldName/allowStop + Idempotency-Key；202 Operation；pinned guard、同卷切换和恢复门控，成功保持停止 |
 | GET /servers/:id/worlds/:worldId/download | 只下载已完成不可变归档；活动世界无已生成快照则 409，GET 不停服 |
-| POST /servers/:id/worlds/:worldId/archive | `{ allowStop: boolean }`，202 Operation；inactive 世界直接归档，active 世界先一致性快照并停止使用，不能运行中移走目录 |
+| POST /servers/:id/worlds/archive | 已实现：完整active Vanilla world-set归档，绑定worldId/name/revision/intent/allowStop；202 Operation；verified pinned guard和同卷rename，成功持久化none，保持停止 |
+| GET /servers/:id/worlds/archives | 已实现：完成且物理核验的独立归档列表；不返回私有路径/秘密，不自动恢复或删除 |
 | POST /servers/:id/backups | `{ scope: 'world-set' \| 'server-snapshot', label?, allowStop: boolean }`，202 Operation |
 | GET /servers/:id/backups | `{ items: BackupInfo[], nextCursor: null }`；当前首版不分页 |
 | GET /servers/:id/backups/:backupId/download | 仅已完成且通过秘密扫描的 world-set attachment；server-snapshot 返回 403 / EXPORT_NOT_SUPPORTED，扫描命中秘密返回 SENSITIVE_ARCHIVE |
@@ -373,6 +382,24 @@ Phase 1 合约测试验证四个 GET、envelope、feature map、Mock 来源、�
 - `POST /worlds/import`：`{ uploadId, name, uploadRevision, worldRevision, confirmWorldName, allowStop }`，要求 UUID `Idempotency-Key`，202 返回生命周期 operation。重验源内容、版本和活动世界 revision；必要停服必须明确授权。pinned guard、同卷 staging、切换 journal 均保留，成功后保持停服。
 - `POST /worlds/import-recovery-plan`：`{ operationId }`，200 返回 serverId、operationId、previousWorldName、importedWorldName、recoveryRevision、executionAvailable、preservesAllTrees。仅核验拥有当前恢复锁的导入事务，不绕过其他恢复锁。
 - `POST /worlds/import-recovery`：`{ operationId, confirmWorldName, recoveryRevision }`，要求新的 UUID `Idempotency-Key`，202 返回 operation。明确恢复旧配置与活动世界记录，所有世界树、上传与 guard 保留，不自动启动。
+
+### 2026-10-04 World Archive当前契约
+
+`POST /api/v1/servers/:serverId/worlds/archive` 严格JSON请求：
+
+```json
+{
+  "worldId": "world-0123456789abcdef01234567",
+  "confirmWorldName": "world",
+  "worldRevision": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "intent": "archive-world-set",
+  "allowStop": false
+}
+```
+
+要求正常JSON写门控和UUID v4 Idempotency-Key。202返回生命周期envelope，operation.kind=world-archive，result.resourceId为archive ID，rollbackAvailable=false。确认仅active且安全Vanilla完整world-set；拒绝所有路径/额外字段、隐式类型转换、不符ID/名称/revision、未知/外部进程、分离维度及recovery。运行中allowStop=false返回409 SERVER_MUST_BE_STOPPED；未经确认不停止。成功完整guard/rename/none之后仍stopped；API没有自动rollback、archive restore/delete或none激活入口。
+
+`GET /api/v1/servers/:serverId/worlds/archives` 返回 `{ data: { items: [{ id, operationId, worldId, name, createdAt, guardBackupId, minecraftVersion, fileCount, sizeBytes, checksumSha256 }] }, meta }`，Cache-Control:no-store。仅committed且实际root/archive/guard/receipt核验通过的条目；核验失败409 RECOVERY_REQUIRED且保留全部数据，不返回路径/配置。World inventory在verified none时items=[]。Start/Restart admission和executor返回409 NO_ACTIVE_WORLD，readiness.reason同名；Manager重启后继续拒绝，防止旧level-name生成空世界。历史confirmed archive仍核验不变归档/root，不用旧hash永久锁定合法后继active世界。完整范围/真实Gate见 [Archive报告](./P33_ARCHIVE_2026-10-04.md)。
 
 消费后的暂存列表 state 为 `consumed`，discardAllowed 为 false，可附 importOperationId 供人工检查显式恢复；即使消费标记丢失，持久 journal 引用仍阻止丢弃。缺少已验证 guard / 配置副本的早期中断保持人工恢复锁，不自动猜测或清理。不确定写请求仅允许用户明确使用原 body/key 确认，不自动重试。
 

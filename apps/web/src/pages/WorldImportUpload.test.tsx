@@ -9,6 +9,15 @@ const id = '00000000-0000-4000-8000-000000000001';
 beforeEach(() => { vi.mocked(api.worldImportUploads).mockResolvedValue({ data: { items: [], occupiedSlots: 0, limit: 3 }, meta }); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 describe('world ZIP upload preview', () => {
+  it('explains retained failed lifecycle and expiry without deleting on mount',async () => {
+    vi.mocked(api.worldImportUploads).mockResolvedValue({ data:{ items:[{ id,state:'incomplete',discardAllowed:true,revision:'a'.repeat(64),lifecycle:'failed',expiresAt:'2026-10-05T00:00:00Z' }],occupiedSlots:1,limit:3 },meta });
+    render(<WorldImportUpload serverId="test" />);
+    expect(await screen.findByText('上传或校验失败；文件保留，可明确丢弃。')).toBeVisible();
+    expect(screen.getByText(/过期后仍须通过安全检查/)).toBeVisible();
+    expect(screen.getByText(/自动清理默认关闭/)).toBeVisible();
+    expect(screen.queryByText(/不会自动清理；网络/)).not.toBeInTheDocument();
+    expect(api.discardWorldImportUpload).not.toHaveBeenCalled();
+  });
   it('rejects non-ZIP and empty files without calling API', () => {
     render(<WorldImportUpload serverId="test" />);
     const input = screen.getByLabelText('世界 ZIP（也可拖入一个文件）');
