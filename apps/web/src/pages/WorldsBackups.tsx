@@ -8,6 +8,8 @@ import { RestoreAction, RestoreHistory } from './RestoreAction';
 import { WorldCreatePlan } from './WorldCreatePlan';
 import { WorldImportUpload } from './WorldImportUpload';
 import { WorldArchiveAction, WorldArchiveList } from './WorldArchiveAction';
+import { BackupSchedule } from './BackupSchedule';
+import { BackupRetention } from './BackupRetention';
 
 type Server = ServersResponse['data']['items'][number];
 const metricText = (metric: { status: string; value: unknown }) => metric.status === 'unavailable' ? '不可用' : String(metric.value);
@@ -165,6 +167,8 @@ export function BackupsPage({ server }: { server: Server | undefined }) {
   };
   return <div className="page-stack">
     <PageHeading eyebrow="LOCAL SNAPSHOTS" title="Backups" description="创建并校验 Vanilla 世界集快照。运行中的受管实例只有在你明确允许停服后才会操作。" />
+    {server && list.data?.meta.mode === 'local' ? <BackupSchedule key={`schedule-${server.server.id}`} serverId={server.server.id} /> : null}
+    {server && list.data?.meta.mode === 'local' ? <BackupRetention key={`retention-${server.server.id}`} serverId={server.server.id} /> : null}
     <section className="resource-card backup-create">
       <div className="resource-card__heading"><div><span className="eyebrow">MANUAL BACKUP</span><h2><DatabaseBackup size={19} /> 创建世界备份</h2></div><span className="phase-badge">world-set</span></div>
       <label className="field-label">备份备注<input value={label} maxLength={128} disabled={Boolean(pendingSubmission)} placeholder="例如：大型改动前" onChange={(event) => setLabel(event.target.value)} /></label>
@@ -183,7 +187,7 @@ export function BackupsPage({ server }: { server: Server | undefined }) {
     </section>
       <div className="resource-card__heading"><div><span className="eyebrow">BACKUP ARCHIVES</span><h2>备份记录</h2></div><button className="button button--secondary" onClick={() => void list.refetch()} disabled={list.isFetching}><RefreshCw size={15} />刷新</button></div>
     {!server ? <EmptyState title="尚无服务器实例" description="接入本地服务器后显示备份记录。" /> : list.isPending ? <p className="muted">正在读取备份…</p> : list.isError ? <ErrorState description={errorMessage(list.error)} retry={() => void list.refetch()} /> : list.data?.data.items.length ? list.data.data.items.map((backup) => <section className="resource-card backup-row" key={backup.id}>
-      <div><span className="eyebrow">{backup.scope === 'server-snapshot' ? 'PRIVATE SNAPSHOT' : backup.pinned ? 'PROTECTED WORLD SET' : 'MANUAL WORLD SET'}</span><h3>{backup.label ?? new Date(backup.createdAt).toLocaleString()}</h3><p>{backup.minecraftVersion ?? '版本未知'} · {backup.fileCount.toLocaleString()} 个文件 · {sizeText(backup.sizeBytes)}</p></div><span className="phase-badge">SHA-256 已记录</span>
+      <div><span className="eyebrow">{backup.scope === 'server-snapshot' ? 'PRIVATE SNAPSHOT' : backup.pinned ? 'PROTECTED WORLD SET' : backup.kind === 'auto' ? 'SCHEDULED WORLD SET' : 'MANUAL WORLD SET'}</span><h3>{backup.label ?? new Date(backup.createdAt).toLocaleString()}</h3><p>{backup.minecraftVersion ?? '版本未知'} · {backup.fileCount.toLocaleString()} 个文件 · {sizeText(backup.sizeBytes)}</p></div><span className="phase-badge">SHA-256 已记录</span>
       <BackupDownload key={`${server.server.id}.${backup.id}`} serverId={server.server.id} backup={backup} />
       {backup.scope === 'world-set' ? <RestoreAction key={`restore.${server.server.id}.${backup.id}`} serverId={server.server.id} resourceId={backup.id} /> : null}
     </section>) : <EmptyState title="还没有备份" description="成功结束且具有有效清单的备份会显示在这里。" />}

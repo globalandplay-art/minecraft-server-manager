@@ -423,6 +423,53 @@ export const backupCreateRequestSchema = strictObject({
 });
 export type BackupCreateRequest = Static<typeof backupCreateRequestSchema>;
 
+export const backupScheduleSettingsSchema = strictObject({
+  enabled: Type.Boolean(),
+  localTime: Type.String({ pattern: "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$" }),
+  timezone: Type.String({ minLength: 1, maxLength: 64 }),
+  allowStop: Type.Boolean()
+});
+export type BackupScheduleSettings = Static<typeof backupScheduleSettingsSchema>;
+export const backupScheduleUpdateSchema = strictObject({
+  revision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  settings: backupScheduleSettingsSchema
+});
+export type BackupScheduleUpdate = Static<typeof backupScheduleUpdateSchema>;
+export const backupScheduleRunSchema = strictObject({
+  id: Type.String({ pattern: "^[a-f0-9-]{36}$" }),
+  localDate: Type.String({ pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }),
+  timezone: Type.String({ minLength: 1, maxLength: 64 }),
+  localTime: Type.String({ pattern: "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$" }),
+  claimedAt: timestampSchema,
+  operationId: Type.Union([Type.String({ pattern: "^[a-f0-9-]{36}$" }), Type.Null()]),
+  state: Type.Union([Type.Literal("claimed"), Type.Literal("submitted"), Type.Literal("succeeded"), Type.Literal("failed"), Type.Literal("skipped"), Type.Literal("interrupted")]),
+  code: Type.Union([Type.String({ maxLength: 128 }), Type.Null()])
+});
+export type BackupScheduleRun = Static<typeof backupScheduleRunSchema>;
+export const backupScheduleResponseSchema = strictObject({
+  data: strictObject({ revision: Type.String({ pattern: "^[a-f0-9]{64}$" }), settings: backupScheduleSettingsSchema,
+    runs: Type.Array(backupScheduleRunSchema, { maxItems: 30 }) }),
+  meta: responseMetaSchema
+});
+export type BackupScheduleResponse = Static<typeof backupScheduleResponseSchema>;
+
+export const backupRetentionSettingsSchema = strictObject({ enabled: Type.Boolean(),
+  retainCount: Type.Integer({ minimum: 1, maximum: 100 }), retainDays: Type.Integer({ minimum: 1, maximum: 365 }) });
+export type BackupRetentionSettings = Static<typeof backupRetentionSettingsSchema>;
+export const backupRetentionUpdateSchema = strictObject({ revision: Type.String({ pattern: "^[a-f0-9]{64}$" }), settings: backupRetentionSettingsSchema });
+export type BackupRetentionUpdate = Static<typeof backupRetentionUpdateSchema>;
+export const backupRetentionRunRequestSchema = strictObject({ revision: Type.String({ pattern: "^[a-f0-9]{64}$" }), intent: Type.Literal("apply-backup-retention") });
+export type BackupRetentionRunRequest = Static<typeof backupRetentionRunRequestSchema>;
+export const backupRetentionResultSchema = strictObject({ completedAt: timestampSchema,
+  state: Type.Union([Type.Literal("completed"), Type.Literal("blocked"), Type.Literal("partial")]),
+  code: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]),
+  removed: Type.Array(Type.String({ pattern: "^[a-f0-9-]{36}$" }), { maxItems: 1000 }),
+  retained: Type.Array(strictObject({ id: Type.String({ maxLength: 128 }), reason: Type.String({ maxLength: 128 }) }), { maxItems: 1000 }) });
+export type BackupRetentionResult = Static<typeof backupRetentionResultSchema>;
+export const backupRetentionResponseSchema = strictObject({ data: strictObject({ revision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  settings: backupRetentionSettingsSchema, lastRun: Type.Union([backupRetentionResultSchema, Type.Null()]) }), meta: responseMetaSchema });
+export type BackupRetentionResponse = Static<typeof backupRetentionResponseSchema>;
+
 export const backupsResponseSchema = strictObject({
   data: strictObject({ items: Type.Array(backupInfoSchema, { maxItems: 1000 }), nextCursor: Type.Null() }),
   meta: responseMetaSchema

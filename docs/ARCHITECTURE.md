@@ -210,6 +210,10 @@ Phase 3 restore 仅接受同一 serverId 的 world-set 备份；server-snapshot 
 
 默认 retention：最近 10 份 manual / auto、最近 7 天；满足两项任一者保留。pinned、pre-restore、pre-upgrade / pre-addon-change 不自动清理。只清理同 serverId 的已完成备份，成功新建后再运行 retention，不触碰 staging 与失败现场。Scheduled Backup 使用明确 IANA timezone + daily time，每实例不重叠；首次默认 disabled，运行中默认跳过并提示，用户可明确开启允许停服。漏掉的计划不会堆积补跑。
 
+2026-10-04 P3.4 实现：计划与保留策略均默认关闭，私有策略绑定注册 root 身份和 revision，写操作使用共享 instance lease。调度先 durable claim 再提交，规范化 timezone 的日期高水位跨重启保留，DST fold/时钟倒退不重复、gap/漏分钟不补跑；提交/admission/executor 重验 root/active/closed。损坏策略按实例隔离，不对未知绑定重写。
+
+新普通备份增加私有 owner.json（root/directory 身份、serverId、createdAt），旧无可信 owner 的备份和 pinned guard 保留。retention 无启动 sweep/timer，仅新成功普通备份或明确手动请求触发，要求 stopped/ownership=none/no recovery；runtime 不安全返回 blocked，不自行停服。删除前重验完整 world-set 清单/hash、owner、所有 journal/recovery/reference，在目录外落盘 deleting receipt，再按有界验证清单非递归 unlink/rmdir。未知文件、链接、多链接、遗留引用均保留；部分删除在重启和 manifest 缺失后仍由外部 receipt 呈现 partial/inspection-required，不自动续删。关闭同时封闭调度与保留入口，再等待拥有操作终态。Windows fsync 和同用户外部变更边界不提升。详见 [P3.4](./P34_SCHEDULER_RETENTION_2026-10-04.md)。
+
 ## 9. Addons 与 Properties（Phase 4 / 5）
 
 Addons 以 opaque addonId 绑定文件记录，metadata 只读，不执行 JAR。Mod 解析 fabric.mod.json、META-INF/mods.toml、META-INF/neoforge.mods.toml；Plugin 解析 plugin.yml / paper-plugin.yml。兼容性为 compatible / incompatible / unknown，带依据；Plugin api-version 不能证明完整 Minecraft 版本兼容性；占位版本未解析就报告 unknown。

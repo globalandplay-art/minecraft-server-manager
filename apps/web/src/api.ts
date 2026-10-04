@@ -1,4 +1,6 @@
 import {
+  backupScheduleResponseSchema, type BackupScheduleResponse, type BackupScheduleUpdate,
+  backupRetentionResponseSchema, type BackupRetentionResponse, type BackupRetentionUpdate,
   worldImportUploadResponseSchema,
   type WorldImportUploadResponse,
   worldImportUploadsResponseSchema, worldImportDiscardResponseSchema,
@@ -293,6 +295,22 @@ export const api = {
   createWorld: (serverId: string, body: WorldCreateRequest, key: string) =>
     requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds`, lifecycleActionResponseSchema, {
       method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202,
+    }),
+  backupRetention: (serverId: string, signal?: AbortSignal) =>
+    getJson<BackupRetentionResponse>(`/servers/${encodeURIComponent(serverId)}/backup-retention`, backupRetentionResponseSchema, signal),
+  saveBackupRetention: (serverId: string, body: BackupRetentionUpdate) =>
+    requestJson<BackupRetentionResponse>(`/servers/${encodeURIComponent(serverId)}/backup-retention`, backupRetentionResponseSchema, {
+      method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200,
+    }),
+  runBackupRetention: (serverId: string, revision: string) =>
+    requestJson<BackupRetentionResponse>(`/servers/${encodeURIComponent(serverId)}/backup-retention/run`, backupRetentionResponseSchema, {
+      method: 'POST', body: { revision, intent: 'apply-backup-retention' }, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 300_000,
+    }),
+  backupSchedule: (serverId: string, signal?: AbortSignal) =>
+    getJson<BackupScheduleResponse>(`/servers/${encodeURIComponent(serverId)}/backup-schedule`, backupScheduleResponseSchema, signal),
+  saveBackupSchedule: (serverId: string, body: BackupScheduleUpdate) =>
+    requestJson<BackupScheduleResponse>(`/servers/${encodeURIComponent(serverId)}/backup-schedule`, backupScheduleResponseSchema, {
+      method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200,
     }),
   backups: (serverId: string, signal?: AbortSignal) =>
     getJson<BackupsResponse>(`/servers/${encodeURIComponent(serverId)}/backups`, backupsResponseSchema, signal),

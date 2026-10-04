@@ -1,5 +1,7 @@
 # Phase 3 实施与验收计划
 
+最新P3.4 Gate（2026-10-04）：每日计划和安全并集保留实现及独立SolHigh源码Review通过，三档Browser3/3 PASS，最终冻结完整check exit0（contracts6/API654/Web82共742），lint/typecheck/build/diff PASS。**P3.4 PASS**，Phase3仍IN PROGRESS；下一步P3.5独立真实测试世界浏览器闭环和Final Review。用户禁用Astra覆盖历史未来路由，由独立SolHigh签核，不改写既有Astra历史证据。详见 [P3.4](./P34_SCHEDULER_RETENTION_2026-10-04.md)。下文为历史检查点。
+
 最新切片Gate（2026-10-04 12:24）：World Archive真实PASS；失败上传/staging生命周期收尾PASS，最终693项check、Chrome三档6/6及独立SolHigh Review通过。当前P3.3主要切片完成，保留明确none重新激活/Windows平台等已知非阻塞边界。Phase3仍IN PROGRESS；下一步P3.4调度/retention，随后P3.5整体集成验收/Final Review。以下“staging未开始/推进中”均为较早历史检查点，详见PROGRESS与P33_STAGING_LIFECYCLE_2026-10-04.md。
 
 当前覆盖更新（2026-10-04）：P3.3 World Archive 已真实验收PASS，run `p33-archive-1d0662e9-b2b2-4262-857b-2d60045c0a98`，完整磁盘证据已核验。后续`0a729596…`在Archive前TLS服务发现WARN导致BLOCKED，历史保留。下面此前Archive NOT RUN/BLOCKED描述为历史快照。当前推进失败上传/staging生命周期收尾；P3.4/P3.5及Phase3整体仍未完成。

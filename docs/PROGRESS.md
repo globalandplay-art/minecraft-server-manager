@@ -5,6 +5,12 @@
 
 ## Phase 3 当前检查点
 
+### 2026-10-04 P3.4 每日计划 / retention PASS
+
+已实现默认关闭的 IANA 每日计划、日期先持久化 claim、跨重启 / DST / 时钟倒退去重、错过不补跑、root/revision/active/关闭门控；仅明确 allowStop 才停服。默认关闭的并集 retention 保护 pinned、legacy、失败和任意事务/恢复引用；仅停止态运行，新备份私有 owner、全清单校验、外置 durable receipt、有界非递归删除，部分现场跨重启持续显示 inspection-required，不自动续删。
+
+独立 Sol High CODE/TOOL/TEST-SOURCE Review PASS，六项 P2 已闭合；实际 Chrome360/768/1440共3/3 PASS，真实API删除两份旧合成备份保留最新一份，helpers退出/端口释放。最终冻结 `VITEST_MAX_WORKERS=1 npm.cmd run check` exit0：contracts6/API654/Web82共 **742 PASS**，lint/typecheck/production build PASS，git diff --check PASS。首次混合源码check：contracts6/Web82通过，API652通过、1既有Archive测试超时（5秒原时限），整体exit1；保持代码/时限/断言单独复核两分支2/2通过，再完成上述冻结全套，历史失败保留。不调用Astra、不启动Java、不访问原世界、不进入P3.5/Phase4。P3.4 PASS，Phase3仍IN PROGRESS；下一步P3.5独立真实测试世界浏览器备份→修改→恢复→故障→显式回滚和Phase3 Final Review。详见 [P3.4实现与问题账本](./P34_SCHEDULER_RETENTION_2026-10-04.md) / [独立Review](./P34_REVIEW_2026-10-04.md)。用户此前已授权每切片完成后专用GitHub智能体做安全检查/上传，本次在所有Gate通过后执行；源码与运行时证据分离，私有数据不上传。
+
 ### 2026-10-04 P3.3 失败上传 / staging 生命周期收尾 PASS
 
 12:24完成：新上传持久化createdAt及identity-bound receiving/failed/validated生命周期；失败/中断保留且计入配额。失败/abandoned24h、validated7d只作为候选；消费、任意终态/非终态journal路径/checkpoint引用、pinned、recovery、身份或元数据不确定全部保留。共享global lease/instance admission，删除前重验root/directory/owner、references、expiry和runtime，复用durable discard receipt及有界非递归删除；partial receipt只允许明确重试。新增本地guarded cleanup API，MCSM_IMPORT_AUTO_CLEANUP默认关闭，显式true仅在新有效上传前执行本实例sweep，无timer/startup扫除。UI显示失败/保留期限/检查及重试信息。

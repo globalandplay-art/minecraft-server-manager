@@ -15,6 +15,8 @@ import type { OperationService } from "./operation-service.js";
 import { ServerNotFoundError } from "./server-service.js";
 import type { TransactionJournalStore } from "./transaction-journal.js";
 import { inspectVanillaWorld } from "./world-inventory-service.js";
+import { backupDirectoryIdentity } from "./backup-identity.js";
+import { writeRestoreJson } from "./restore-files.js";
 
 const MAX_FILES = 100_000;
 const MAX_BYTES = 250 * 1024 ** 3;
@@ -174,11 +176,12 @@ export class BackupService {
     return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  async create(serverId: string, body: BackupCreateRequest, idempotencyKey: string): Promise<Operation> {
+  async create(serverId: string, body: BackupCreateRequest, idempotencyKey: string, origin: "manual" | "auto" = "manual", additionalPreflight?: () => void | Promise<void>): Promise<Operation> {
     const adapter = this.#adapter(serverId);
-    return this.operations.requestBackup(serverId, idempotencyKey, JSON.stringify(body),
-      (context) => this.#create(context, adapter, body),
+    return this.operations.requestBackup(serverId, idempotencyKey, JSON.stringify(body) + (origin === "auto" ? "\nauto" : ""),
+      async (context) => { await additionalPreflight?.(); return this.#create(context, adapter, body, origin); },
       async () => {
+        await additionalPreflight?.();
         if (adapter.plan.serverInfo.type !== "vanilla") {
           throw new DomainError(501, "CAPABILITY_UNSUPPORTED", "当前服务端类型暂不支持备份", "unsupported-server-type");
         }
@@ -197,10 +200,11 @@ export class BackupService {
     return adapter;
   }
 
-  async #create(context: RuntimeOperationContext, adapter: LocalMinecraftServerAdapter, request: BackupCreateRequest): Promise<void> {
+  async #create(context: RuntimeOperationContext, adapter: LocalMinecraftServerAdapter, request: BackupCreateRequest, origin: "manual" | "auto"): Promise<void> {
     const beganAt = Date.now();
     const serverRoot = adapter.plan.rootPath;
     await plainDirectory(serverRoot);
+    const registeredRootIdentity = await backupDirectoryIdentity(serverRoot);
     await mkdir(this.managerRoot, { recursive: true, mode: 0o700 });
     const managerCanonical = await realpath(this.managerRoot);
     const normalize = (value: string) => process.platform === "win32" ? value.toLowerCase() : value;
@@ -333,7 +337,7 @@ export class BackupService {
         id: backupId,
         serverId: adapter.serverId,
         scope: request.scope,
-        kind: request.scope === "server-snapshot" ? "snapshot" : "manual",
+        kind: request.scope === "server-snapshot" ? "snapshot" : origin,
         label: request.label ?? null,
         state: "complete",
         pinned: request.scope === "server-snapshot",
@@ -356,6 +360,9 @@ export class BackupService {
       });
       await rename(staging, completed);
       await syncDirectory(serverBackupRoot);
+      if (registeredRootIdentity !== await backupDirectoryIdentity(serverRoot)) throw unsafe("server-root-changed");
+      await writeRestoreJson(path.join(completed, "owner.json"), { schemaVersion: 1, id: backupId, serverId: adapter.serverId,
+        rootIdentity: registeredRootIdentity, directoryIdentity: await backupDirectoryIdentity(completed), createdAt: info.createdAt });
       await context.onStep("backup-complete");
       let restarted = false;
       if (wasRunning) {
@@ -376,6 +383,7 @@ export class BackupService {
         name: "server-restored", recordedAt: this.clock.now().toISOString()
       });
       await this.journal.setState(adapter.serverId, journal.transactionId, "committed", this.clock.now().toISOString());
+      await context.onResult?.({ resourceId: backupId, rollbackAvailable: false });
     } catch {
       // Preserve failure evidence and leave the server stopped. Only the completed
       // archive path above may restart a server; failures require manual inspection.
