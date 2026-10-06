@@ -1,5 +1,11 @@
 # Minecraft Java Server Manager — API 合约
 
+## P5.1b 扩展只读清单（2026-10-05，历史检查点）
+
+`GET /api/v1/servers/:serverId/addons`：仅注册本地 Paper/Fabric，固定 plugins/disabled-plugins 或 mods/disabled-mods，客户端不能传路径。data包含items、opaque revision、writeSupported=false；item包含opaque id、kind、enabled/disabled state、filename、sizeBytes、sha256、nullable name/version/loader/minecraftConstraint、metadataStatus(parsed/invalid/missing)、compatibility=unknown。返回 no-store 和 quoted revision ETag；不返回metadata原文、文件内容、绝对路径或秘密。revision仅为当前进程只读快照，不是未来持久写契约。
+
+未知实例404 SERVER_NOT_FOUND；Mock/不支持类型501 ADDON_UNSUPPORTED；不安全目录/文件409 ADDON_INVENTORY_UNSAFE；单实例reader忙429 ADDON_SCAN_BUSY。仍受现有loopback Host/Origin安全门控。名称/version/Loader来自保守metadata解析，不代表实际可加载或兼容。此段记录 2026-10-05 当时只读阶段；上传/安装和生命周期 API 的当前状态见本节 Phase 5 路由及 [P5.3 生命周期记录](./P53_ADDON_LIFECYCLE_2026-10-06.md)。
+
 ## P3.4 每日备份计划与保留策略（2026-10-04）
 
 本地受支持实例新增以下端点。写请求均要求现有 Host / Origin / `X-Manager-Intent: local-ui` 门控、严格 JSON 类型和当前 64 位 hex revision；未知字段、路径字段及隐式类型转换拒绝。冲突返回 409，不自动重试。响应有 meta，公开 DTO 不含私有 owner/root/path 或密码。
@@ -356,18 +362,19 @@ SafeProperties 是 properties 键名白名单：`max-players`（1–10000 的产
 
 | 方法 / 路径 | 合约 |
 | --- | --- |
-| GET /servers/:id/addons?kind=mod\|plugin&state=enabled\|disabled\|trashed | `{ items: AddonInfo[] }`；kind 必填，state 默认返回全部 |
-| POST /servers/:id/addons?kind=mod\|plugin | multipart 单 .jar，202 addon-change Operation；完成 result.resourceId 指向 addonId |
-| POST /servers/:id/addons/:addonId/disable | 202 addon-change Operation |
-| POST /servers/:id/addons/:addonId/restore | 202 addon-change Operation，恢复 disabled / trashed；重名 409 |
-| DELETE /servers/:id/addons/:addonId | 202 addon-change Operation，只移到 trash；重复删除幂等 |
+| GET /servers/:id/addons | `{ data: { items, revision, writeSupported }, meta }`；类型从可信服务端 Adapter 推导；只列 enabled / disabled |
+| POST /servers/:id/addons/uploads | 原始 `application/java-archive` JAR 上传；返回受限的 validated staging DTO，不执行 JAR |
+| POST /servers/:id/addons/install | 严格 JSON `{ uploadId, uploadRevision, inventoryRevision }`；202 addon-change Operation |
+| GET /servers/:id/addons/trash | `{ data: { items, revision }, meta }`；Trash 独立列出，不混入正常 inventory |
+| POST /servers/:id/addons/:addonId/disable\|enable\|trash | 严格 JSON `{ revision }`；202 addon-change Operation |
+| POST /servers/:id/addons/trash/:trashId/restore | 严格 JSON `{ revision }`；202 addon-change Operation，恢复到 Trash 前的 enabled / disabled 状态 |
 | GET /servers/:id/performance | `Metrics`，Phase 6 才是真采集 |
 | GET /servers/:id/crashes | `{ items: CrashInfo[] }`，仅注册日志路径 |
 | GET /servers/:id/crashes/:crashId/analysis | `{ findings: Finding[], confidence, evidence: LogEntry[], limitations: string[] }` |
 
-`AddonInfo` 包括 id、kind、filename、state、entries（name / version / loader / minecraftRange）、compatibility（status / reason）、checksum、revision、restartRequired。metadata 缺失保留安全文件名并标记 unknown；不返回路径。文件状态与运行中是否已经加载区分，restartRequired 表示磁盘变更待应用，不能宣称运行实例已禁用某插件。disabled restore 到 enabled；trashed restore 到删除前的状态，不把原来 disabled 的文件直接启用。
+Addon inventory 条目包括 opaque `id`、`kind`、`filename`、`state`、大小、SHA-256、解析到的 name / version / loader / Minecraft 约束及 metadata 状态；兼容性仍为 `unknown`，不代表实际可加载。列表用不透明 revision 绑定目录和每个文件的物理身份及内容摘要；响应不返回路径、私有目录、journal 或 JAR 字节。Trash 条目另含 `trashId`、`addonId`、原状态与恢复资格，必须通过独立回收区端点访问。
 
-Addon 所有写操作默认要求 stopped；单文件写前创建文件回滚副本，失败即停止。操作完成提供 `restartRequired` 的可查询 AddonInfo；UI 提供稍后 / 立即重启的明确选择。“立即重启”只在 readiness.restart.allowed=true 时使用 restart API，已停止实例则提供“启动服务器”。普通上传绝不隐含重启。批量大改将来使用独立 batch endpoint、pre-change server-snapshot 与完整回滚工作流，不能拼多个并行请求绕开快照。
+Addon 安装与生命周期写入需要本地写意图、UUIDv4 `Idempotency-Key` 及 JSON revision；无幂等键返回 428，revision / 状态冲突返回 409。单实例操作串行执行，写前创建完整 pinned 私有 server-snapshot，再写入 transaction journal 并进行文件身份、内容和父目录复核。Disable / Enable / Trash / Restore 仅通过受控同卷无覆盖发布与受控源 unlink 完成；不永久删除、不自动清理 Trash、不自动启动或重启 Minecraft。操作成功返回 `restartRequired=true`，客户端必须等待 operation 成功后再提示用户显式启动 / 重启；旧的“立即重启”UI 尚未实现。
 
 Crash Analysis 是本地规则，finding 含 ruleId、severity、title、explanation、evidenceIds、suggestedAction；把推测明确标记为推测。不可自动删除 Mod、修改 properties 或上传日志到外部服务。
 

@@ -11,6 +11,8 @@ import { Servers } from './pages/Servers';
 import { ConsolePage } from './pages/Console';
 import { BackupsPage, WorldsPage } from './pages/WorldsBackups';
 import { PlayersPage } from './pages/Players';
+import { PropertiesPage } from './pages/Properties';
+import { AddonsPage } from './pages/Addons';
 
 function interval(visibleMs: number, hiddenMs?: number) {
   return () => document.hidden ? (hiddenMs ?? false) : visibleMs;
@@ -196,12 +198,12 @@ export function App() {
         } />
         <Route path="/players" element={invalidSelection ? <InvalidSelection /> : mode === 'local' && healthQuery.data?.data.features.players.implemented ? <PlayersPage key={selectedId} server={selectedServer} /> : phaseRoute('players')} />
         <Route path="/worlds" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <WorldsPage server={selectedServer} /> : phaseRoute('worlds')} />
-        <Route path="/addons" element={phaseRoute('addons')} />
+        <Route path="/addons" element={invalidSelection ? <InvalidSelection /> : <AddonsPage key={selectedId} server={selectedServer} />} />
         <Route path="/console" element={consoleRoute} />
         <Route path="/performance" element={phaseRoute('performance')} />
         <Route path="/backups" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <BackupsPage server={selectedServer} /> : phaseRoute('backups')} />
         <Route path="/crashes" element={phaseRoute('crashes')} />
-        <Route path="/settings" element={invalidSelection ? <InvalidSelection /> : <SettingsPage features={healthQuery.data?.data.features} />} />
+        <Route path="/settings" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <PropertiesPage key={selectedId} server={selectedServer} /> : <SettingsPage features={healthQuery.data?.data.features} />} />
         <Route path="*" element={<Navigate to={`/dashboard${selectedId ? `?server=${encodeURIComponent(selectedId)}` : ''}`} replace />} />
       </Routes>
     </AppShell>

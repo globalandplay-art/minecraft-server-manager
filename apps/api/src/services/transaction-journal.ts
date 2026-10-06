@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readdir, realpath, rename, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -18,7 +18,9 @@ export type TransactionKind =
   | "world-create"
   | "world-import"
   | "world-archive"
-  | "properties-write";
+  | "properties-write"
+  | "addon-install"
+  | "addon-lifecycle";
 export type TransactionState = "active" | "recovery-required" | "committed" | "rolled-back";
 export type JournalPathRole = "source" | "target" | "staging" | "rollback" | "archive";
 
@@ -90,11 +92,48 @@ export interface TransactionIntent {
     readonly guardId: string;
     readonly workspaceName: string;
   };
+  readonly addonInstall?: {
+    readonly rootIdentity: string;
+    readonly adapterIdentitySha256: string;
+    readonly addonRootIdentity: string;
+    readonly kind: "mod" | "plugin";
+    readonly filename: string;
+    readonly uploadId: string;
+    readonly uploadRevision: string;
+    readonly uploadSha256: string;
+    readonly guardBackupId: string;
+    readonly guardChecksum: string;
+    readonly workspaceName: string;
+  };
+  readonly addonLifecycle?: {
+    readonly rootIdentity: string;
+    readonly adapterIdentitySha256: string;
+    readonly addonRootIdentity: string;
+    readonly kind: "mod" | "plugin";
+    readonly action: "disable" | "enable" | "trash" | "restore";
+    readonly addonId: string;
+    readonly filename: string;
+    readonly sourceState: "enabled" | "disabled" | "trashed";
+    readonly targetState: "enabled" | "disabled" | "trashed";
+    readonly sourceDirectoryIdentity: string;
+    readonly targetDirectoryIdentity: string;
+    readonly sourcePhysicalIdentity: string;
+    readonly sourceSha256: string;
+    readonly metadataName: string | null;
+    readonly metadataVersion: string | null;
+    readonly metadataLoader: "fabric" | "paper" | null;
+    readonly minecraftConstraint: string[] | null;
+    readonly metadataStatus: "parsed" | "invalid" | "missing";
+    readonly trashId: string | null;
+    readonly guardBackupId: string;
+    readonly guardChecksum: string;
+  };
 }
 
 export interface CheckpointDetails {
   readonly relativePath?: string;
   readonly checksumSha256?: string;
+  readonly filesystemIdentity?: string;
   readonly resourceId?: string;
 }
 
@@ -106,7 +145,7 @@ export interface TransactionCheckpoint {
 }
 
 export interface TransactionJournalRecord {
-  readonly schemaVersion: typeof SCHEMA_VERSION | 2 | 3 | 4 | 5 | 6;
+  readonly schemaVersion: typeof SCHEMA_VERSION | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   readonly transactionId: string;
   readonly intent: TransactionIntent;
   readonly state: TransactionState;
@@ -175,10 +214,10 @@ function normalizeRelativePath(value: string): string {
 function validateIntent(value: unknown): value is TransactionIntent {
   if (!isObject(value) || !hasOnlyKeys(value, [
     "operationId", "serverId", "kind", "scope", "resourceId", "allowStop",
-    "originalState", "paths", "createdAt", "restore", "worldChange", "worldImport", "worldArchive", "propertiesWrite"
+    "originalState", "paths", "createdAt", "restore", "worldChange", "worldImport", "worldArchive", "propertiesWrite", "addonInstall", "addonLifecycle"
   ])) return false;
   if (!UUID.test(String(value.operationId)) || !SERVER_ID.test(String(value.serverId))) return false;
-  if (!(["backup", "restore", "rollback", "world-create", "world-import", "world-archive", "properties-write"] as unknown[])
+  if (!(["backup", "restore", "rollback", "world-create", "world-import", "world-archive", "properties-write", "addon-install", "addon-lifecycle"] as unknown[])
     .includes(value.kind)) return false;
   if (!["world-set", "server-snapshot", null].includes(value.scope as never)) return false;
   if (value.resourceId !== null && !isOpaqueId(value.resourceId)) return false;
@@ -253,11 +292,68 @@ function validateIntent(value: unknown): value is TransactionIntent {
       item.role === e.role && item.namespace === e.namespace && item.relativePath === e.relativePath))) return false;
   }
   if (value.kind === "properties-write" && value.propertiesWrite === undefined) return false;
+  if (value.addonInstall !== undefined) {
+    const a = value.addonInstall;
+    if (value.kind !== "addon-install" || value.scope !== "server-snapshot" || value.allowStop !== false || value.originalState !== "stopped" ||
+      value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldArchive !== undefined || value.propertiesWrite !== undefined ||
+      !isObject(a) || !hasOnlyKeys(a, ["rootIdentity", "adapterIdentitySha256", "addonRootIdentity", "kind", "filename", "uploadId", "uploadRevision", "uploadSha256", "guardBackupId", "guardChecksum", "workspaceName"]) ||
+      ![a.rootIdentity, a.adapterIdentitySha256, a.addonRootIdentity, a.uploadRevision, a.uploadSha256, a.guardChecksum].every((item) => typeof item === "string" && SHA256.test(item)) ||
+      !["mod", "plugin"].includes(String(a.kind)) || typeof a.filename !== "string" || a.filename.length < 5 || a.filename.length > 200 ||
+      /[\\/:<>"|?*\u0000-\u001f\u007f]/u.test(a.filename) || !UUID.test(String(a.uploadId)) || !UUID.test(String(a.guardBackupId)) ||
+      a.workspaceName !== `.manager-addon-${value.operationId}` || value.resourceId !== a.uploadId) return false;
+    const folder = a.kind === "mod" ? "mods" : "plugins";
+    const expected = [
+      { role: "source", namespace: "manager", relativePath: `addon-uploads/${a.uploadId}/payload.jar` },
+      { role: "target", namespace: "server", relativePath: `${folder}/${a.filename}` },
+      { role: "staging", namespace: "server", relativePath: `${a.workspaceName}/prepared.jar` },
+      { role: "rollback", namespace: "manager", relativePath: `backups/${value.serverId}/${a.guardBackupId}` }
+    ];
+    const paths = value.paths as unknown[];
+    if (paths.length !== expected.length || !expected.every((e) => paths.some((item: unknown) => isObject(item) &&
+      item.role === e.role && item.namespace === e.namespace && item.relativePath === e.relativePath))) return false;
+  }
+  if (value.kind === "addon-install" && value.addonInstall === undefined) return false;
+  if (value.addonLifecycle !== undefined) {
+    const a = value.addonLifecycle;
+    const states = ["enabled", "disabled", "trashed"];
+    const actions = ["disable", "enable", "trash", "restore"];
+    if (value.kind !== "addon-lifecycle" || value.scope !== "server-snapshot" || value.allowStop !== false || value.originalState !== "stopped" ||
+      value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldArchive !== undefined || value.propertiesWrite !== undefined || value.addonInstall !== undefined ||
+      !isObject(a) || !hasOnlyKeys(a, ["rootIdentity", "adapterIdentitySha256", "addonRootIdentity", "kind", "action", "addonId", "filename", "sourceState", "targetState", "sourceDirectoryIdentity", "targetDirectoryIdentity", "sourcePhysicalIdentity", "sourceSha256", "metadataName", "metadataVersion", "metadataLoader", "minecraftConstraint", "metadataStatus", "trashId", "guardBackupId", "guardChecksum"]) ||
+      ![a.rootIdentity, a.adapterIdentitySha256, a.addonRootIdentity, a.sourceDirectoryIdentity, a.targetDirectoryIdentity, a.sourcePhysicalIdentity, a.sourceSha256, a.guardChecksum].every((item) => typeof item === "string" && SHA256.test(item)) ||
+      !["mod", "plugin"].includes(String(a.kind)) || !actions.includes(String(a.action)) || !states.includes(String(a.sourceState)) || !states.includes(String(a.targetState)) ||
+      typeof a.addonId !== "string" || !SHA256.test(a.addonId) || typeof a.filename !== "string" || a.filename.length < 5 || a.filename.length > 200 ||
+      !/\.jar$/iu.test(a.filename) || a.filename !== a.filename.normalize("NFC") || /[\\/:<>"|?*]/u.test(a.filename) ||
+      (a.metadataName !== null && (typeof a.metadataName !== "string" || a.metadataName.length > 128)) || (a.metadataVersion !== null && (typeof a.metadataVersion !== "string" || a.metadataVersion.length > 128)) ||
+      (a.metadataLoader !== null && a.metadataLoader !== (a.kind === "mod" ? "fabric" : "paper")) ||
+      (a.minecraftConstraint !== null && (!Array.isArray(a.minecraftConstraint) || a.minecraftConstraint.length > 16 || !a.minecraftConstraint.every((v) => typeof v === "string" && v.length <= 128))) ||
+      !["parsed", "invalid", "missing"].includes(String(a.metadataStatus)) ||
+      (a.trashId !== null && !UUID.test(String(a.trashId))) || !UUID.test(String(a.guardBackupId)) || value.resourceId !== (a.trashId ?? a.addonId)) return false;
+    if ((a.action === "disable" && (a.sourceState !== "enabled" || a.targetState !== "disabled")) ||
+      (a.action === "enable" && (a.sourceState !== "disabled" || a.targetState !== "enabled")) ||
+      (a.action === "trash" && (!(["enabled", "disabled"] as unknown[]).includes(a.sourceState) || a.targetState !== "trashed")) ||
+      (a.action === "restore" && (a.sourceState !== "trashed" || !(["enabled", "disabled"] as unknown[]).includes(a.targetState))) ||
+      ((a.sourceState === "trashed" || a.targetState === "trashed") !== (a.trashId !== null))) return false;
+    const folder = a.kind === "mod" ? "mods" : "plugins";
+    const disabled = a.kind === "mod" ? "disabled-mods" : "disabled-plugins";
+    const enabledPath = folder + "/" + a.filename, disabledPath = disabled + "/" + a.filename;
+    const trashPath = "trash/addons/" + value.serverId + "/" + a.trashId + "/payload.jar";
+    const sourcePath = a.sourceState === "enabled" ? enabledPath : a.sourceState === "disabled" ? disabledPath : trashPath;
+    const targetPath = a.targetState === "enabled" ? enabledPath : a.targetState === "disabled" ? disabledPath : trashPath;
+    const expected = [
+      { role: "source", namespace: "server", relativePath: sourcePath },
+      { role: "target", namespace: "server", relativePath: targetPath },
+      { role: "rollback", namespace: "manager", relativePath: "backups/" + value.serverId + "/" + a.guardBackupId }
+    ];
+    const paths = value.paths as unknown[];
+    if (paths.length !== expected.length || !expected.every((e) => paths.some((p: unknown) => isObject(p) && p.role === e.role && p.namespace === e.namespace && p.relativePath === e.relativePath))) return false;
+  }
+  if (value.kind === "addon-lifecycle" && value.addonLifecycle === undefined) return false;
   const roles = new Set<string>();
   for (const item of value.paths) {
     if (!isObject(item) || !hasOnlyKeys(item, ["role", "relativePath", "namespace"])) return false;
-    if ((value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldArchive !== undefined || value.propertiesWrite !== undefined) && !["manager", "server"].includes(String(item.namespace))) return false;
-    if (value.restore === undefined && value.worldChange === undefined && value.worldImport === undefined && value.worldArchive === undefined && value.propertiesWrite === undefined && item.namespace !== undefined) return false;
+    if ((value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldArchive !== undefined || value.propertiesWrite !== undefined || value.addonInstall !== undefined || value.addonLifecycle !== undefined) && !["manager", "server"].includes(String(item.namespace))) return false;
+    if (value.restore === undefined && value.worldChange === undefined && value.worldImport === undefined && value.worldArchive === undefined && value.propertiesWrite === undefined && value.addonInstall === undefined && value.addonLifecycle === undefined && item.namespace !== undefined) return false;
     if (!["source", "target", "staging", "rollback", "archive"].includes(String(item.role))) return false;
     if (roles.has(String(item.role)) || typeof item.relativePath !== "string") return false;
     roles.add(String(item.role));
@@ -269,7 +365,7 @@ function validateIntent(value: unknown): value is TransactionIntent {
 }
 
 function validateDetails(value: unknown): value is CheckpointDetails {
-  if (!isObject(value) || !hasOnlyKeys(value, ["relativePath", "checksumSha256", "resourceId"])) return false;
+  if (!isObject(value) || !hasOnlyKeys(value, ["relativePath", "checksumSha256", "filesystemIdentity", "resourceId"])) return false;
   if (value.relativePath !== undefined) {
     if (typeof value.relativePath !== "string") return false;
     try {
@@ -278,6 +374,8 @@ function validateDetails(value: unknown): value is CheckpointDetails {
   }
   if (value.checksumSha256 !== undefined &&
       (typeof value.checksumSha256 !== "string" || !SHA256.test(value.checksumSha256))) return false;
+  if (value.filesystemIdentity !== undefined &&
+      (typeof value.filesystemIdentity !== "string" || !SHA256.test(value.filesystemIdentity))) return false;
   return value.resourceId === undefined || isOpaqueId(value.resourceId);
 }
 
@@ -285,7 +383,7 @@ function validateRecord(value: unknown): value is TransactionJournalRecord {
   if (!isObject(value) || !hasOnlyKeys(value, [
     "schemaVersion", "transactionId", "intent", "state", "checkpoints", "updatedAt"
   ])) return false;
-  if (![SCHEMA_VERSION, 2, 3, 4, 5, 6].includes(value.schemaVersion as never) || !UUID.test(String(value.transactionId)) ||
+  if (![SCHEMA_VERSION, 2, 3, 4, 5, 6, 7, 8].includes(value.schemaVersion as never) || !UUID.test(String(value.transactionId)) ||
       !validateIntent(value.intent) ||
       !["active", "recovery-required", "committed", "rolled-back"].includes(String(value.state)) ||
       !Array.isArray(value.checkpoints) || value.checkpoints.length > MAX_CHECKPOINTS ||
@@ -295,6 +393,8 @@ function validateRecord(value: unknown): value is TransactionJournalRecord {
   if ((value.schemaVersion === 4) !== (value.intent.worldImport !== undefined)) return false;
   if ((value.schemaVersion === 5) !== (value.intent.worldArchive !== undefined)) return false;
   if ((value.schemaVersion === 6) !== (value.intent.propertiesWrite !== undefined)) return false;
+  if ((value.schemaVersion === 7) !== (value.intent.addonInstall !== undefined)) return false;
+  if ((value.schemaVersion === 8) !== (value.intent.addonLifecycle !== undefined)) return false;
   let previousTime = Date.parse(value.intent.createdAt);
   for (let index = 0; index < value.checkpoints.length; index += 1) {
     const checkpoint = value.checkpoints[index];
@@ -461,10 +561,12 @@ export class TransactionJournalStore {
         ...(input.worldChange === undefined ? {} : { worldChange: structuredClone(input.worldChange) }),
         ...(input.worldImport === undefined ? {} : { worldImport: structuredClone(input.worldImport) }),
         ...(input.worldArchive === undefined ? {} : { worldArchive: structuredClone(input.worldArchive) }),
-        ...(input.propertiesWrite === undefined ? {} : { propertiesWrite: structuredClone(input.propertiesWrite) })
+        ...(input.propertiesWrite === undefined ? {} : { propertiesWrite: structuredClone(input.propertiesWrite) }),
+        ...(input.addonInstall === undefined ? {} : { addonInstall: structuredClone(input.addonInstall) }),
+        ...(input.addonLifecycle === undefined ? {} : { addonLifecycle: structuredClone(input.addonLifecycle) })
       };
       const record: TransactionJournalRecord = {
-        schemaVersion: input.propertiesWrite !== undefined ? 6 : input.worldArchive !== undefined ? 5 : input.worldImport !== undefined ? 4 : input.worldChange !== undefined ? 3 : input.restore === undefined ? SCHEMA_VERSION : 2,
+        schemaVersion: input.addonLifecycle !== undefined ? 8 : input.addonInstall !== undefined ? 7 : input.propertiesWrite !== undefined ? 6 : input.worldArchive !== undefined ? 5 : input.worldImport !== undefined ? 4 : input.worldChange !== undefined ? 3 : input.restore === undefined ? SCHEMA_VERSION : 2,
         transactionId,
         intent,
         state: "active",

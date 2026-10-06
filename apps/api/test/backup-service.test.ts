@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -15,7 +15,7 @@ import { MemoryOperationStore } from "../src/services/operation-store.js";
 const roots: string[] = [];
 const now = new Date("2026-09-30T00:00:00.000Z");
 
-async function fixture(running = false, availableBytes?: (directory: string) => Promise<number>) {
+async function fixture(running = false, availableBytes?: (directory: string) => Promise<number>, type: "vanilla" | "paper" | "fabric" = "vanilla") {
   const parent = await mkdtemp(path.join(tmpdir(), "mcsm-backup-"));
   roots.push(parent);
   const managerRoot = path.join(parent, "manager");
@@ -38,7 +38,7 @@ async function fixture(running = false, availableBytes?: (directory: string) => 
       rootPath: serverRoot,
       jarPath: path.join(serverRoot, "server.jar"),
       eulaAccepted: true,
-      serverInfo: { type: "vanilla", minecraftVersion: "1.21.1" }
+      serverInfo: { type, minecraftVersion: "1.21.1" }
     },
     getStatus: async () => ({
       state,
@@ -72,6 +72,30 @@ async function waitForCompletion(operations: OperationService, id: string) {
 }
 
 describe("BackupService manual snapshots", () => {
+  it.each(["paper", "fabric"] as const)("creates a complete private pinned %s addon protection snapshot", async (type) => {
+    const f = await fixture(false, undefined, type);
+    const enabled = type === "paper" ? "plugins" : "mods";
+    const disabled = type === "paper" ? "disabled-plugins" : "disabled-mods";
+    for (const folder of [enabled, disabled, "config", type === "paper" ? ".paper" : ".fabric", "libraries", "versions", "world", "trash", "plugins-archive"]) {
+      await mkdir(path.join(f.serverRoot, folder), { recursive: true });
+      await writeFile(path.join(f.serverRoot, folder, folder === enabled ? "addon.jar" : "state.txt"), `fixture:${folder}`);
+    }
+    await mkdir(path.join(f.serverRoot, "world", "dimensions", "minecraft", "the_nether"), { recursive: true });
+    await writeFile(path.join(f.serverRoot, "world", "dimensions", "minecraft", "the_nether", "level.dat"), "nether world state");
+    const guard = await f.backups.createAddonProtectionSnapshot({
+      operationId: "423e4567-e89b-42d3-a456-426614174000", signal: new AbortController().signal,
+      onStep: async () => {}, onResult: async () => {}
+    }, "vanilla-test", type);
+    const manifest = await f.backups.privateSnapshot("vanilla-test", guard.id);
+    expect(manifest).toMatchObject({ id: guard.id, scope: "server-snapshot", pinned: true, serverType: type });
+    expect(manifest.includedRoots).toEqual((await readdir(f.serverRoot)).sort());
+    expect(manifest.files.map((item) => item.path)).toContain(`${enabled}/addon.jar`);
+    expect(manifest.files.map((item) => item.path)).toContain("world/dimensions/minecraft/the_nether/level.dat");
+    expect(manifest.files.map((item) => item.path)).toContain("trash/state.txt");
+    expect(manifest.checksumSha256).toBe(guard.checksumSha256);
+    await expect(f.backups.exportSource("vanilla-test", guard.id)).rejects.toMatchObject({ code: "EXPORT_NOT_SUPPORTED" });
+  });
+
   it("creates a stopped world-set with all dimension files and a verified manifest", async () => {
     const fixtureState = await fixture();
     for (const dimension of ["DIM-1", "DIM1"]) {

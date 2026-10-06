@@ -77,10 +77,16 @@ function Sidebar({
           </button>
         </div>
         <nav className="nav-list" aria-label="主导航">
-          {navItems.map(({ to, label, feature, icon: Icon }) => {
+          {navItems.map(({ to, label: defaultLabel, feature, icon: Icon }) => {
+            const label = feature === 'addons' && selectedServer
+              ? selectedServer.server.type === 'paper' && selectedServer.capabilities.plugins ? 'Plugins'
+                : selectedServer.server.type === 'fabric' && selectedServer.capabilities.mods ? 'Mods' : defaultLabel
+              : defaultLabel;
             const badge = feature === 'addons' && addonsUnsupported
               ? '不支持'
-              : phaseLabel(feature, features);
+              : feature === 'addons' && (selectedServer?.capabilities.mods || selectedServer?.capabilities.plugins)
+                ? null
+                : phaseLabel(feature, features);
             return (
               <NavLink
                 key={to}

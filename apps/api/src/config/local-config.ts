@@ -7,6 +7,8 @@ import { DomainError } from "../services/domain-errors.js";
 import { TransactionJournalStore } from "../services/transaction-journal.js";
 import { assertPropertiesBootstrapSafety } from "../services/properties-bootstrap.js";
 import { JsonOperationStore } from "../services/operation-store.js";
+import { backupDirectoryIdentity } from "../services/backup-identity.js";
+import { readPrivatePropertiesFile } from "../services/properties-private-file.js";
 import {
   EULA_LIMIT,
   SERVER_PROPERTIES_LIMIT,
@@ -28,6 +30,17 @@ const SERVER_KEYS = new Set([
 export interface ValidatedRegistration {
   readonly plan: ValidatedLaunchPlan;
   readonly revalidateBeforeStart: () => Promise<void>;
+  readonly identity?: import("../infra/runtime-contract.js").RegisteredExecutionIdentity;
+}
+
+async function executionIdentity(paths: { rootPath: string; jarPath: string; javaExecutable: string }) {
+  const [rootIdentity, launcher, java] = await Promise.all([
+    backupDirectoryIdentity(paths.rootPath),
+    readPrivatePropertiesFile(paths.jarPath, 64 * 1024 ** 2),
+    readPrivatePropertiesFile(paths.javaExecutable, 128 * 1024 ** 2)
+  ]);
+  return { rootIdentity, launcherIdentity: launcher.identity, launcherSha256: launcher.checksum,
+    javaIdentity: java.identity, javaSha256: java.checksum };
 }
 
 export interface RawServerConfig {
@@ -271,8 +284,10 @@ async function validateRegistration(config: RawServerConfig): Promise<ValidatedR
     id: config.id,
     name: config.name,
     jarPath: paths.jarPath,
-    javaExecutable: paths.javaExecutable
+    javaExecutable: paths.javaExecutable,
+    rootPath: paths.rootPath
   });
+  const registeredIdentity = await executionIdentity(paths);
   const configuredHost = state.properties.get("server-ip") ?? "";
   if (!["", "127.0.0.1", "localhost"].includes(configuredHost)) {
     serverInfo.detection.warnings.push("Minecraft 当前可能监听非本地地址");
@@ -322,8 +337,13 @@ async function validateRegistration(config: RawServerConfig): Promise<ValidatedR
       id: config.id,
       name: config.name,
       jarPath: paths.jarPath,
-      javaExecutable: paths.javaExecutable
+      javaExecutable: paths.javaExecutable,
+      rootPath: paths.rootPath
     });
+    const currentIdentity = await executionIdentity(paths);
+    if (JSON.stringify(currentIdentity) !== JSON.stringify(registeredIdentity)) {
+      throw new DomainError(409, "ACTION_UNAVAILABLE", "服务端根目录、Java或启动JAR在注册后发生变化", "execution-identity-changed");
+    }
     if (
       currentDetection.type !== serverInfo.type ||
       currentDetection.minecraftVersion !== serverInfo.minecraftVersion ||
@@ -378,7 +398,7 @@ async function validateRegistration(config: RawServerConfig): Promise<ValidatedR
       };
     }
   };
-  return { plan, revalidateBeforeStart };
+  return { plan, revalidateBeforeStart, identity: registeredIdentity };
 }
 
 export async function loadLocalRegistrations(managerRoot: string): Promise<ValidatedRegistration[]> {

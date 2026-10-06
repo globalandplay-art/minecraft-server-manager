@@ -60,13 +60,41 @@ it("commits exact non-target bytes with immutable old slot and verified pinned g
   expect(await readFile(path.join(f.server, record.intent.propertiesWrite!.workspaceName, "old.properties"), "utf8")).toBe(f.original);
 });
 
-it.each(["properties-prepare-intent", "properties-old-moved", "properties-installed", "properties-before-commit"])("retains recovery evidence at %s without automatic rollback", async (point) => {
+it.each(["properties-intent-created", "properties-guard-complete", "properties-workspace-intent",
+  "properties-workspace-verified", "properties-prepare-intent", "properties-prepared-verified",
+  "properties-old-move-intent", "properties-old-moved", "properties-install-intent", "properties-installed",
+  "properties-installed-file-verified", "properties-installed-verified", "properties-before-commit",
+  "properties-after-commit"])("retains recovery evidence at %s without automatic rollback", async (point) => {
   const f = await fixture(async (current) => { if (current === point) throw new Error("isolated interruption"); });
   await expect(f.service.save(f.id, f.request, randomUUID())).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" });
   const record = (await f.journal.scan()).records[0]!;
-  expect(record.state).toBe("recovery-required");
+  expect(record.state).toBe(point === "properties-after-commit" ? "committed" : "recovery-required");
   const guard = path.join(f.manager, "properties-backups", f.id, record.intent.propertiesWrite!.guardId, "original.properties");
-  expect(await readFile(guard, "utf8")).toBe(f.original);
+  if (point !== "properties-intent-created") expect(await readFile(guard, "utf8")).toBe(f.original);
+  else expect(await readFile(path.join(f.server, "server.properties"), "utf8")).toBe(f.original);
+  const freshJournal = new TransactionJournalStore(f.manager);
+  const store = new MemoryOperationStore();
+  await store.save({ idempotencyKey: randomUUID(), requestFingerprint: "interrupted-fixture",
+    expiresAt: new Date(Date.now() + 60000).toISOString(), operation: {
+      id: record.intent.operationId, serverId: f.id, kind: "properties-write", state: "running", step: "writing",
+      progress: null, createdAt: record.intent.createdAt, updatedAt: record.updatedAt,
+      result: { resourceId: record.intent.propertiesWrite!.guardId, rollbackAvailable: false }, error: null } });
+  const operations = new OperationService(store, { now: () => new Date() }, freshJournal);
+  const states = { snapshot: () => ({ schemaVersion: 1 as const, serverId: f.id, state: "active" as const,
+    levelName: "world", worldId: worldIdentity(f.id, "world") }) };
+  await new PropertiesWriteService(f.service.registry, operations, freshJournal, f.manager, states,
+    { now: () => new Date() }).reconcileStartup();
+  await operations.initialize();
+  expect(operations.getServerState(f.id).recoveryRequired).toBe(point !== "properties-after-commit");
+  expect((await store.list())[0]!.operation.state).toBe(point === "properties-after-commit" ? "succeeded" : "interrupted");
+  const restarted = (await freshJournal.scan()).records[0]!;
+  expect(restarted.state).toBe(record.state);
+  const old = path.join(f.server, record.intent.propertiesWrite!.workspaceName, "old.properties");
+  const originalPreserved = await readFile(old, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+    return readFile(path.join(f.server, "server.properties"), "utf8");
+  });
+  expect(originalPreserved).toBe(f.original);
 });
 
 it("rejects a stale approval before creating a journal or altering config", async () => {

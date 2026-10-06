@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, lstat, mkdir, open, opendir, realpath, rename, statfs } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, opendir, readdir, realpath, rename, statfs } from "node:fs/promises";
 import path from "node:path";
 
 import { backupInfoSchema, type BackupCreateRequest, type BackupInfo, type BackupScope, type Operation, type ServerStatus } from "@mcsm/contracts";
@@ -180,7 +180,7 @@ export class BackupService {
   async create(serverId: string, body: BackupCreateRequest, idempotencyKey: string, origin: "manual" | "auto" = "manual", additionalPreflight?: () => void | Promise<void>): Promise<Operation> {
     const adapter = this.#adapter(serverId);
     return this.operations.requestBackup(serverId, idempotencyKey, JSON.stringify(body) + (origin === "auto" ? "\nauto" : ""),
-      async (context) => { await additionalPreflight?.(); return this.#create(context, adapter, body, origin); },
+      async (context) => { await additionalPreflight?.(); await this.#create(context, adapter, body, origin); },
       async () => {
         await additionalPreflight?.();
         if (adapter.plan.serverInfo.type !== "vanilla") {
@@ -194,6 +194,62 @@ export class BackupService {
       });
   }
 
+  /** Create a private addon guard while the caller owns the server operation slot. */
+  async createAddonProtectionSnapshot(
+    context: RuntimeOperationContext,
+    serverId: string,
+    type: "paper" | "fabric"
+  ): Promise<{ id: string; checksumSha256: string; files: number }> {
+    const adapter = this.#adapter(serverId);
+    if (adapter.plan.serverInfo.type !== type) throw new DomainError(409, "ADDON_ADAPTER_UNTRUSTED", "服务端身份已变化", "addon-adapter-untrusted");
+    const state = await adapter.getStatus();
+    if (state.state !== "stopped" || state.ownership !== "none" || state.recoveryRequired) {
+      throw new DomainError(409, "SERVER_MUST_BE_STOPPED", "扩展变更保护备份要求服务器已停止", "addon-server-not-stopped");
+    }
+    // The outer addon operation holds admission. Give the nested durable backup
+    // record a distinct operation ID so journal ownership stays unambiguous.
+    const child: RuntimeOperationContext = { ...context, operationId: randomUUID(),
+      onStep: async (step) => context.onStep(`protection-${step}`), onResult: async () => undefined };
+    const id = await this.#create(child, adapter,
+      { scope: "server-snapshot", allowStop: false, label: "Before Addon Change" }, "manual");
+    const manifest = await this.privateSnapshot(serverId, id);
+    return { id, checksumSha256: manifest.checksumSha256, files: manifest.fileCount };
+  }
+
+  /** Internal-only full manifest access for validating a private pinned guard. */
+  async privateSnapshot(serverId: string, backupId: string): Promise<BackupManifest> {
+    this.#adapter(serverId);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(backupId)) throw unsafe("invalid-backup-id");
+    const directory = path.join(this.managerRoot, "backups", serverId, backupId);
+    for (const component of [this.managerRoot, path.join(this.managerRoot, "backups"), path.dirname(directory), directory]) await plainDirectory(component);
+    const value: unknown = JSON.parse(await readBoundedRegularFile(path.join(directory, "manifest.json"), MAX_MANIFEST_BYTES, "backup manifest"));
+    if (!this.#valid(value, serverId, backupId) || value.scope !== "server-snapshot" || !value.pinned) throw unsafe("invalid-private-snapshot");
+    const owner: unknown = JSON.parse(await readBoundedRegularFile(path.join(directory, "owner.json"), 16 * 1024, "backup owner"));
+    if (!owner || typeof owner !== "object" || Array.isArray(owner) || (owner as Record<string, unknown>).id !== backupId ||
+      (owner as Record<string, unknown>).serverId !== serverId ||
+      (owner as Record<string, unknown>).directoryIdentity !== await backupDirectoryIdentity(directory)) throw unsafe("private-snapshot-owner-mismatch");
+    const payload = path.join(directory, "payload");
+    await plainDirectory(payload);
+    for (const item of value.files) {
+      const segments = item.path.split("/");
+      if (!segments.every(safeSegment)) throw unsafe("invalid-private-snapshot-path");
+      const file = path.join(payload, ...segments);
+      let ancestor = path.dirname(file);
+      while (ancestor !== payload) {
+        if (!ancestor.startsWith(payload + path.sep)) throw unsafe("private-snapshot-path-escape");
+        await plainDirectory(ancestor); ancestor = path.dirname(ancestor);
+      }
+      const before = await lstat(file);
+      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size !== item.sizeBytes) throw unsafe("private-snapshot-file-unsafe");
+      const hash = createHash("sha256");
+      for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
+      const after = await lstat(file);
+      if (!after.isFile() || after.isSymbolicLink() || after.nlink !== 1 || after.dev !== before.dev || after.ino !== before.ino ||
+        after.size !== before.size || after.mtimeMs !== before.mtimeMs || hash.digest("hex") !== item.sha256) throw unsafe("private-snapshot-file-changed");
+    }
+    return structuredClone(value);
+  }
+
   #adapter(serverId: string): LocalMinecraftServerAdapter {
     const adapter = this.registry.get(serverId);
     if (!adapter) throw new ServerNotFoundError();
@@ -201,7 +257,7 @@ export class BackupService {
     return adapter;
   }
 
-  async #create(context: RuntimeOperationContext, adapter: LocalMinecraftServerAdapter, request: BackupCreateRequest, origin: "manual" | "auto"): Promise<void> {
+  async #create(context: RuntimeOperationContext, adapter: LocalMinecraftServerAdapter, request: BackupCreateRequest, origin: "manual" | "auto"): Promise<string> {
     const beganAt = Date.now();
     const serverRoot = adapter.plan.rootPath;
     await plainDirectory(serverRoot);
@@ -227,6 +283,9 @@ export class BackupService {
     requireBackupState(original, request.allowStop);
     const wasRunning = original.state === "running";
     const roots = await this.#roots(adapter, request.scope);
+    const completeAddonSnapshot = request.scope === "server-snapshot" &&
+      (adapter.plan.serverInfo.type === "paper" || adapter.plan.serverInfo.type === "fabric");
+    const rootEntriesBeforeCopy = completeAddonSnapshot ? (await readdir(serverRoot)).sort() : undefined;
     await requireCapacity(serverBackupRoot, await estimateRoots(serverRoot, roots), this.availableBytes);
     const journal = await this.journal.createIntent({
       operationId: context.operationId,
@@ -266,6 +325,7 @@ export class BackupService {
       const files: FileEntry[] = [];
       let total = 0;
       const sources: Array<{ source: string; relative: string; sizeBytes: number; mtimeMs: number; dev: number; ino: number }> = [];
+      const directorySnapshots: Array<{ directory: string; identity: string; entries: string[] }> = [];
       const collectOne = async (source: string, relative: string) => {
         if (relative.length > 4096 || relative.split("/").length > 64 || !relative.split("/").every(safeSegment)) throw unsafe("unsafe-relative-path");
         const sourceInfo = await lstat(source);
@@ -278,6 +338,8 @@ export class BackupService {
       };
       const walk = async (directoryPath: string, relativeRoot: string) => {
         await plainDirectory(directoryPath);
+        if (completeAddonSnapshot) directorySnapshots.push({ directory: directoryPath,
+          identity: await backupDirectoryIdentity(directoryPath), entries: (await readdir(directoryPath)).sort() });
         const directory = await opendir(directoryPath);
         for await (const entry of directory) {
           if (!safeSegment(entry.name)) throw unsafe("unsafe-filename");
@@ -297,6 +359,13 @@ export class BackupService {
         if (info.isDirectory()) await walk(source, relative);
         else if (info.isFile()) await collectOne(source, relative);
         else throw unsafe("invalid-root");
+      }
+      if (completeAddonSnapshot && JSON.stringify((await readdir(serverRoot)).sort()) !== JSON.stringify(rootEntriesBeforeCopy)) {
+        throw unsafe("snapshot-root-changed");
+      }
+      for (const snapshot of directorySnapshots) {
+        if (await backupDirectoryIdentity(snapshot.directory) !== snapshot.identity ||
+          JSON.stringify((await readdir(snapshot.directory)).sort()) !== JSON.stringify(snapshot.entries)) throw unsafe("snapshot-directory-changed");
       }
       const volume = await statfs(serverBackupRoot);
       const freeBytes = Number(volume.bavail) * Number(volume.bsize);
@@ -336,6 +405,13 @@ export class BackupService {
           sourceAfterCopy.mtimeMs !== item.mtimeMs) throw new Error("Source changed while copying");
         files.push({ path: relative, sizeBytes: copied.size, sha256: hash.digest("hex") });
       }
+      if (completeAddonSnapshot && JSON.stringify((await readdir(serverRoot)).sort()) !== JSON.stringify(rootEntriesBeforeCopy)) {
+        throw unsafe("snapshot-root-changed-during-copy");
+      }
+      for (const snapshot of directorySnapshots) {
+        if (await backupDirectoryIdentity(snapshot.directory) !== snapshot.identity ||
+          JSON.stringify((await readdir(snapshot.directory)).sort()) !== JSON.stringify(snapshot.entries)) throw unsafe("snapshot-directory-changed-during-copy");
+      }
       for (const directory of [...touchedDirectories].sort((a, b) => b.length - a.length)) await syncDirectory(directory);
       if (files.length === 0) throw new DomainError(409, "BACKUP_EMPTY", "没有可备份的文件", "backup-empty");
       files.sort((a, b) => a.path.localeCompare(b.path));
@@ -350,8 +426,10 @@ export class BackupService {
         state: "complete",
         pinned: request.scope === "server-snapshot",
         createdAt: this.clock.now().toISOString(),
-        minecraftVersion: (await inspectVanillaWorld(adapter.serverId, serverRoot, this.clock.now().toISOString()))
-          .find((world) => world.active)?.minecraftVersion.value ?? null,
+        minecraftVersion: adapter.plan.serverInfo.type === "vanilla"
+          ? (await inspectVanillaWorld(adapter.serverId, serverRoot, this.clock.now().toISOString()))
+            .find((world) => world.active)?.minecraftVersion.value ?? null
+          : adapter.plan.serverInfo.minecraftVersion,
         serverType: adapter.plan.serverInfo.type,
         includedRoots: roots,
         fileCount: files.length,
@@ -392,6 +470,7 @@ export class BackupService {
       });
       await this.journal.setState(adapter.serverId, journal.transactionId, "committed", this.clock.now().toISOString());
       await context.onResult?.({ resourceId: backupId, rollbackAvailable: false });
+      return backupId;
     } catch {
       // Preserve failure evidence and leave the server stopped. Only the completed
       // archive path above may restart a server; failures require manual inspection.
@@ -410,6 +489,12 @@ export class BackupService {
     if (scope === "world-set") return [world];
     const jarRelative = path.relative(adapter.plan.rootPath, adapter.plan.jarPath).split(path.sep).join("/");
     if (!jarRelative.split("/").every(safeSegment)) throw unsafe("jar-outside-server-root");
+    if (scope === "server-snapshot" && adapter.plan.serverInfo.type === "paper") {
+      return (await readdir(adapter.plan.rootPath)).sort();
+    }
+    if (scope === "server-snapshot" && adapter.plan.serverInfo.type === "fabric") {
+      return (await readdir(adapter.plan.rootPath)).sort();
+    }
     const roots = [world, jarRelative, "server.properties", "eula.txt"];
     for (const candidate of ["mods", "plugins", "config"]) {
       try { await lstat(path.join(adapter.plan.rootPath, candidate)); roots.push(candidate); }

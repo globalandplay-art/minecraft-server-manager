@@ -1,5 +1,7 @@
 # P4 Properties — 安全写入核心设计
 
+2026-10-05当前状态：配置reader/guard/journal/cutover/bootstrap/API/UI已实现并通过工程Gate，真实隔离配置验收run `p44-properties-80690902-6c9b-48ab-98d9-42413ca0788f` PASS；整体FinalGate以PROGRESS最新记录为准。下文“尚未实现/保守拒绝”等为2026-10-04设计阶段历史快照，保留原始语义，不描述当前状态。
+
 2026-10-04；用户要求优先高工作量核心任务。本文件实施设计已完成独立 Sol High DESIGN PASS，不代表接口已实现。P4.1 完成执行 Gate 后按本设计先实现文件安全/事务内核，再接普通表单；无 Astra。
 
 当前实现检查点：reader/精确 patcher 前置核心已通过 Review 和 867 项冻结全套；schema 6 journal、私有 guard 和 bootstrap 前置拒绝已进入独立准备切片验证，见 [P4.3 准备记录](./P43_PROPERTIES_FOUNDATION_2026-10-04.md)。以下描述完整保存方案；真正配置切换、终态物理收敛、配置 API 和 UI 尚未实现。当前 bootstrap 保守拒绝整个本地 API，不以此冒充最终按实例恢复 UX。

@@ -593,7 +593,8 @@ export const operationSchema = strictObject({
   result: Type.Union([
     strictObject({
       resourceId: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
-      rollbackAvailable: Type.Boolean()
+      rollbackAvailable: Type.Boolean(),
+      restartRequired: Type.Optional(Type.Boolean())
     }),
     Type.Null()
   ]),
@@ -801,3 +802,42 @@ export const worldImportRecoveryPlanResponseSchema = strictObject({ data: strict
   executionAvailable: Type.Literal(true), preservesAllTrees: Type.Literal(true)
 }), meta: responseMetaSchema });
 export type WorldImportRecoveryPlanResponse = Static<typeof worldImportRecoveryPlanResponseSchema>;
+
+export const addonsResponseSchema = strictObject({ data: strictObject({
+  items: Type.Array(strictObject({ id: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+    kind: Type.Union([Type.Literal("mod"), Type.Literal("plugin")]), state: Type.Union([Type.Literal("enabled"), Type.Literal("disabled")]),
+    filename: Type.String({ maxLength: 200 }), sizeBytes: Type.Integer({ minimum: 1, maximum: 67108864 }), sha256: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+    name: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]), version: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]),
+    loader: Type.Union([Type.Literal("fabric"), Type.Literal("paper"), Type.Null()]), compatibility: Type.Literal("unknown"),
+    minecraftConstraint: Type.Union([Type.Array(Type.String({ maxLength: 128 }), { maxItems: 16 }), Type.Null()]),
+    metadataStatus: Type.Union([Type.Literal("parsed"), Type.Literal("invalid"), Type.Literal("missing")]) }), { maxItems: 1000 }),
+  revision: Type.String({ pattern: "^[a-f0-9]{64}$" }), writeSupported: Type.Boolean()
+}), meta: responseMetaSchema });
+export type AddonsResponse = Static<typeof addonsResponseSchema>;
+export const addonTrashResponseSchema = strictObject({ data: strictObject({
+  items: Type.Array(strictObject({ id: Type.String({ format: "uuid" }), addonId: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+    kind: Type.Union([Type.Literal("mod"), Type.Literal("plugin")]), filename: Type.String({ minLength: 5, maxLength: 200 }),
+    originalState: Type.Union([Type.Literal("enabled"), Type.Literal("disabled")]), sizeBytes: Type.Integer({ minimum: 1, maximum: 67108864 }),
+    sha256: Type.String({ pattern: "^[a-f0-9]{64}$" }), name: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]),
+    version: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]), loader: Type.Union([Type.Literal("fabric"), Type.Literal("paper"), Type.Null()]),
+    compatibility: Type.Literal("unknown"), minecraftConstraint: Type.Union([Type.Array(Type.String({ maxLength: 128 }), { maxItems: 16 }), Type.Null()]),
+    metadataStatus: Type.Union([Type.Literal("parsed"), Type.Literal("invalid"), Type.Literal("missing")]),
+    createdAt: timestampSchema, restoreAllowed: Type.Literal(true) }), { maxItems: 1000 }),
+  revision: Type.String({ pattern: "^[a-f0-9]{64}$" })
+}), meta: responseMetaSchema });
+export type AddonTrashResponse = Static<typeof addonTrashResponseSchema>;
+export const addonLifecycleRequestSchema = strictObject({ revision: Type.String({ pattern: "^[a-f0-9]{64}$" }) });
+export type AddonLifecycleRequest = Static<typeof addonLifecycleRequestSchema>;
+export const addonUploadResponseSchema = strictObject({ data: strictObject({
+  id: Type.String({ format: "uuid" }), kind: Type.Union([Type.Literal("mod"), Type.Literal("plugin")]),
+  filename: Type.String({ minLength: 5, maxLength: 200 }), sizeBytes: Type.Integer({ minimum: 1, maximum: 67108864 }),
+  checksumSha256: Type.String({ pattern: "^[a-f0-9]{64}$" }), revision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  name: Type.String({ minLength: 1, maxLength: 128 }), version: Type.String({ minLength: 1, maxLength: 128 }),
+  loader: Type.Union([Type.Literal("fabric"), Type.Literal("paper")]),
+  minecraftConstraint: Type.Union([Type.Array(Type.String({ maxLength: 128 }), { maxItems: 16 }), Type.Null()]),
+  state: Type.Literal("validated"), executionAvailable: Type.Literal(false)
+}), meta: responseMetaSchema });
+export type AddonUploadResponse = Static<typeof addonUploadResponseSchema>;
+export const addonInstallRequestSchema = strictObject({ uploadId: Type.String({ format: "uuid" }),
+  uploadRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }), inventoryRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }) });
+export type AddonInstallRequest = Static<typeof addonInstallRequestSchema>;

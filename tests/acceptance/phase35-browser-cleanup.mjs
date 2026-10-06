@@ -21,7 +21,7 @@ export async function cleanupBrowserHelpers(h) {
   if (h.helperError) errors.push(h.helperError);
   try {
     const socket = net.createServer();
-    try { await new Promise((resolve, reject) => { socket.once('error', reject); socket.listen({ host: '127.0.0.1', port: 3000, exclusive: true }, resolve); }); }
+    try { await new Promise((resolve, reject) => { socket.once('error', reject); socket.listen({ host: '127.0.0.1', port: h.helperPort ?? 3000, exclusive: true }, resolve); }); }
     finally { if (socket.listening) await new Promise((resolve) => socket.close(resolve)); }
   } catch (error) { errors.push(error); }
   if (report.browserHelper) {

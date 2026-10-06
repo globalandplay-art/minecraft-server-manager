@@ -14,10 +14,12 @@
     "prepare:local-test": "tsx src/cli/prepare-local-test.ts"
   },
   "dependencies": {
-    "@mcsm/contracts": "*",
     "@fastify/websocket": "11.3.1",
+    "@mcsm/contracts": "*",
     "@sinclair/typebox": "0.34.52",
+    "@types/js-yaml": "^4.0.9",
     "fastify": "5.12.5",
+    "js-yaml": "^4.3.2",
     "yauzl": "3.4.0"
   },
   "devDependencies": {

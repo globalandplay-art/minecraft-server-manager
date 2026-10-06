@@ -1,5 +1,51 @@
 # 实施进度
 
+### 2026-10-06 P5.3 Addon Lifecycle Core — ENGINEERING PASS
+
+Disable、Enable、软删除到受控 Trash、从 Trash 恢复（保留原 enabled/disabled 状态）已接入受信 Paper/Fabric 实例的 API 与 durable operation/journal。生命周期写操作在停止且无恢复锁的实例中创建完整 pinned 私有快照；同卷无覆盖 hardlink 发布后受控 unlink，逐步记录意图、物理身份、哈希与回收凭证。没有永久删除、自动清理、隐式启动或重启。Trash 独立查询，恢复记录消费后继续通过 journal 化的后继移动验证。
+
+独立 GPT-6.1 Sol / High delta Review：PASS，审查范围内无 P1/P2/P3；先前提出的读写竞态、junction 越界、旧回收记录后继证明、启动未应用事务发布顺序和覆盖缺口均已修复并复核。P5.3 专项 57/57 PASS。新冻结单 worker 全套：contracts 6 + API 984 + Web 108 = 1098 PASS；lint、typecheck、production build、`git diff --check` PASS。首次默认并行完整检查保留 9 个既有 5 秒事务用例超时/仍运行失败；在不改 timeout 和断言的单 worker 全套中 984 项全部通过。两个机械 lint 问题在最终检查前修正。
+
+真实 Paper/Fabric Minecraft 启动验收 NOT RUN；用户原世界未触碰。P5.3 是核心工程及合成回归 PASS，不代表真实加载 PASS、P5.4 UI PASS 或 Phase 5 Final PASS。当前分支为 `codex/phase-4-players-properties`，工作树还包含此前 P4/P5.1/P5.2 的未提交内容，本轮没有提交或推送。详见 [P5.3 生命周期记录](./P53_ADDON_LIFECYCLE_2026-10-06.md)。下一步是 P5.4 Mods / Plugins UI 与浏览器交互，不在本轮开始。
+
+### 2026-10-05 P5.2 后端核心 PASS
+
+P5.2a–e 后端核心已完成并独立 Sol High delta Review PASS：Paper/Fabric 可信启动身份绑定、完整私有 pinned server snapshot、受限惰性 JAR staging、安装事务、消耗记录及管理器启动 reconciliation。保护快照覆盖注册服务端根目录全部条目（世界/新旧维度、启用/禁用扩展、配置、trash、启动依赖及未知根条目）；备份期间复核根与各目录身份/条目集合。JAR 普通成员均进行有界实际解压、输入消耗、长度与 CRC 校验。安装预检和发布前复核清单 JAR 数/总字节/启用目录条目额度；重启逐次核验 committed 或未应用 rolled-back 的物理状态，证据不符保持 recovery gate。
+
+最终冻结回归：contracts 6 + API 926 + Web 108 = 1040 项 PASS；lint、typecheck、production build、`git diff --check` PASS。初次标准 `npm.cmd run check` 在默认并发下有多个已有 5 秒事务测试和一个 20 秒压力测试超时，另有安装用例等待超时；未改 timeout 或断言。受影响的五套测试受控复跑 225/225 PASS，随后 API 全套以 2 workers 运行 926/926 PASS，contracts/Web 全套分别 6/6、108/108 PASS。四项 P2 及补出的目录条目额度边界均经独立 Sol High 只读审查关闭。未启动 Paper/Fabric Java、未操作用户原世界；未 commit/push。UI、Disable/Restore/Trash 与真实 Paper/Fabric 验收仍未完成；Phase 5 继续 IN PROGRESS。详见 [P5.2 收尾记录](./P52_INSTALL_TRANSACTION_2026-10-05.md)。下方历史检查点保留原状。
+
+### 2026-10-05 P5.1b 只读工程切片 PASS
+
+新冻结check CHECK_EXIT=0：contracts6/API900/Web108共1014PASS，lint/typecheck/production build通过，57专项PASS。独立SolHigh CODE/补测/cleanup delta审查PASS，无未关闭P1/P2。完整回归旧3000端口EADDRINUSE失败保留；首次实质修复及新完整回归通过。P5.1b metadata/GET inventory工程切片PASS，完整Adapter识别/生命周期、上传安装、禁用恢复trash/UI和真实Paper/Fabric仍未完成，Phase5 IN PROGRESS。P5.2前置设计已核验：必须先补版本绑定私有Protection profile、锁内guard入口和可信启动证据，不能仅放宽现有Vanilla门控。详见P51_METADATA_API_2026-10-05.md和P52_PROTECTION_PREREQUISITES.md。未运行Java、未commit/push。下方保留原待验证检查点。
+
+### 2026-10-05 P5.1b 只读元数据/API — 最终回归进行中
+
+Fabric/Paper 安全 metadata reader、固定启用/禁用清单、GET addons API/contracts 已接入，writeSupported=false。57专项PASS，独立SolHigh CODE及补测delta REVIEW PASS。空名称/版本拒绝、有效ZIP到HTTP正向、descriptor CRC、symlink及末尾内容变化已补测。首轮完整check exit1：旧清理测试依赖外部3000端口，EADDRINUSE令2项断言失败；未kill未知进程。首次实质修复将合成测试端口隔离，真实默认3000不变；3专项与独立delta PASS。新完整回归p51-metadata-api-check-v2.log待核验，不能将P5.1b或Phase5标PASS。历史失败保留，详见P51_METADATA_API_2026-10-05.md。下一步P5.2先补可信Paper/Fabric Adapter与完整私有Protection profile，现有Vanilla BackupService不能直接用于安装。未运行Java、未commit/push。
+
+### 2026-10-05 Phase 5 已授权 — P5.0 / P5.1只读基础进行中
+
+用户已提供Fabric26.2与Paper26.2测试来源，顶层JAR及eula=true只读核对；详见P5_TEST_SOURCES_2026-10-05.md。未操作来源世界，未开停服；后续freshUUID验收前仍需内部识别/Java/依赖白名单核验。此前“路径未提供”为历史检查点，现已补齐。
+
+最新：P5.0设计独立SolHigh PASS；P5.1a未接线基础工程Gate PASS，14专项及新冻结970测试、lint/typecheck/build/diff PASS。独立审查P2实际字节配额竞态第1次修复通过并复审关闭。首轮完整源码变化不计最终基线。详见P51_INVENTORY_2026-10-05.md；P5.1完整/API/metadata/上传/禁用恢复trash/UI/真实PaperFabric仍未完成，不能将Phase5标PASS。用户正在准备测试实例，路径未提供。
+
+用户明确授权Mods/Plugins开发并取消本轮额度Gate，Phase4 PASS不变；旧“不进入Phase5”是此前停止点。本轮不commit/push、不调用Astra。建立PHASE5_PLAN，复用现有Adapter/Runtime而不重写生命周期。新增未接线AddonInventory：固定Paper插件/Fabric模组目录、descriptor身份与摘要/根目录双重核验、大小总量与数量限制、禁用目录状态、unsafe文件名/硬链接拒绝，不执行JAR、不解析/伪造metadata、不创建目录、writeSupported=false。12专项/typecheck/lintPASS，新完整check与独立SolHigh审查进行中。还未接公共API/UI/上传/文件变更，Phase5及P5.1整体未PASS。后续先完成有界metadata+可信识别/列表API，再进入上传与受保护的禁用/恢复/trash事务。
+
+### 2026-10-05 Phase 4 Final Gate PASS
+
+P4.0–P4.4全范围独立SolHigh FINAL TECHNICAL SIGNOFF PASS。设计要求的14点配置中断/新journal/真实OperationService重启矩阵已补齐，29专项PASS；新冻结完整check显式exit0，contracts6/API842/web108共956PASS，lint/typecheck/build/diff PASS。原真实宿主run `p44-properties-80690902-6c9b-48ab-98d9-42413ca0788f`证据独立核验，产品源码未变继续适用。无未解决P1/P2或必须测试缺口。P3能力宣告/Settings只读标签残留明确DEFERRED NON-BLOCKER；空玩家样本、进程内重建、无掉电验收/跨导航receipt等边界保留。未commit/push，不进入Phase5。详见 [Phase4 Final Gate](./PHASE4_FINAL_GATE_2026-10-05.md)。以下保留历史待签核状态。
+
+### 2026-10-05 P4.4 宿主真实验收 PASS — Phase 4 Final Gate 待收口
+
+已读取最新宿主run `p44-properties-80690902-6c9b-48ab-98d9-42413ca0788f`原始报告，properties/players/result PASS；两次Java fresh Done/cleanDiagnostics/exit0，私有保护备份、配置保存、生效、Manager重开后同key及三维marker通过，finalStopped/sourceInputsUnchanged与全部finalState=true。未新增Java运行、未commit/push。历史Codex预检BLOCKED保留；真实空名单不等于玩家连接验收，进程内Manager重建不等于断电。下一步Phase4整体独立SolHigh Final Review与最终文档/Gate收口，不进入Phase5。见 [真实验收记录](./P44_REAL_ACCEPTANCE_2026-10-05.md)。
+
+### 2026-10-05 P4.4 真实验收准备 — 宿主预检 BLOCKED
+
+新增fresh UUID的配置/玩家真实验收脚本，Node/PowerShell语法、lint/diff PASS，独立SolHigh PRE-RUN SAFETY REVIEW PASS；绑定/重开后同key/完整终态断言已补。Codex预检run `p44-properties-cddda35f-ab27-423e-9bec-b12fbea98c20` exit1：HOST_PRECONDITION_UNAVAILABLE / HOST_PERFLIB_UNAVAILABLE；Get-Counter PASS，当前会话无法读取Perflib009，HResult -2146233087。未启动Java、未操作配置/原世界、未修系统、未commit/push。需要普通宿主验收，不把环境不可用说成Windows故障，不把946合成基线说成真实PASS。见 [P4.4记录](./P44_REAL_ACCEPTANCE_2026-10-05.md)。
+
+### 2026-10-05 P4.3 配置 UI — 工程切片 PASS
+
+本地 Settings 已接入后端字段规则、差异确认、保护备份保存及 operation 结果核验；202 不冒充成功，不自动启动/重启。独立 Sol High 草稿撤销 P2 已修复；冲突必须成功刷新并重新确认。21 专项 PASS，三宽 HTTP/Chrome SYNTHETIC_PASS，helper/Chrome 关闭、端口释放，无真实 Java。新冻结完整check exit0：contracts6/API832/web108共946 PASS，lint/typecheck/build PASS；独立 Sol High UI CODE/TEST-SOURCE/HARNESS/DOC REVIEW PASS，无未解决P1/P2。P4.3 / Phase 4 未 PASS。跨导航 receipt 不持久是明确限制。未 commit/push。见 [UI 记录](./P43_PROPERTIES_UI_2026-10-05.md)。以下保留历史检查点。
+
 ### 2026-10-05 P4.3 API 与启动接线 — 后端工程切片 PASS
 
 收尾额度Gate：五小时剩余8%、周剩余28%，不再开启新大型切片。当前测试和fixture已结束；下次从配置UI/浏览器交互继续，之后fresh isolated Vanilla验收，不重做已通过后端核心。git diff --check exit0；未commit/push。

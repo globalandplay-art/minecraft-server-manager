@@ -1,5 +1,9 @@
 # Phase 4 — Players / server.properties
 
+2026-10-05终态：P4.0–P4.4与Phase4 Final Gate PASS；独立SolHigh全范围签核、新冻结956测试/lint/typecheck/build/diff通过，真实配置/玩家空名单验收PASS。P3能力声明残留明确暂缓；范围与限制见PHASE4_FINAL_GATE_2026-10-05.md。未commit/push，未进入Phase5；下文旧pending均为历史检查点。
+
+2026-10-05 UI最新状态：Settings配置UI工程切片PASS，21专项、新冻结946完整测试、lint/typecheck/build及三宽HTTP/Chrome合成验收通过，独立SolHigh审查PASS；真实Java配置保存/显式启动生效与P4.4最终Gate尚待完成。P4.3/Phase4整体未PASS。详见P43_PROPERTIES_UI_2026-10-05.md；下文保留历史接线检查点。
+
 2026-10-05最新接线：配置bootstrap/app/GET/PATCH后端工程切片及独立SolHigh审查PASS，108专项及新冻结925完整测试PASS、lint/typecheck/build PASS；UI及真实配置保存/启动验收尚待完成，P4.3/Phase 4整体未PASS。以PROGRESS顶部及P43_API_STARTUP_2026-10-05.md为准；下面初始顺序和历史阶段范围保留。
 
 2026-10-04: 用户明确授权进入 Phase 4。Phase 3 Final PASS 基线为 `39beabc`；PR #1 未合并，不修改 main。在 `codex/phase-4-players-properties` 保留依赖并独立开发。不调用 Astra。

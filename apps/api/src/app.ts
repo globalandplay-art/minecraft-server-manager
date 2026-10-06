@@ -11,6 +11,7 @@ import type { Clock } from "./clock.js";
 import { systemClock } from "./clock.js";
 import { PropertiesWriteService } from "./services/properties-write-service.js";
 import { registerPropertiesRoutes } from "./routes/properties.js";
+import { registerAddonInstallRoutes, registerAddonLifecycleRoutes, registerAddonRoutes, registerAddonUploadRoutes } from "./routes/addons.js";
 import { JSON_BODY_LIMIT_BYTES } from "./config/runtime.js";
 import { createMockAdapters } from "./fixtures/servers.js";
 import { errorResponse, installLocalRequestGuard } from "./infra/http.js";
@@ -31,6 +32,10 @@ import { ServerService } from "./services/server-service.js";
 import type { TransactionJournalStore } from "./services/transaction-journal.js";
 import type { ActiveWorldStateStore } from "./services/active-world-state-store.js";
 import { BackupService } from "./services/backup-service.js";
+import { AddonUploadService } from "./services/addon-upload-service.js";
+import { AddonInstallService } from "./services/addon-install-service.js";
+import { AddonInventory } from "./services/addon-inventory.js";
+import { AddonLifecycleService } from "./services/addon-lifecycle-service.js";
 import { BackupExportService } from "./services/backup-export-service.js";
 import { WorldInventoryService } from "./services/world-inventory-service.js";
 import { RestoreService } from "./services/restore-service.js";
@@ -82,7 +87,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const service = new ServerService(registry, operations, options.activeWorldState,
     options.transactionJournal !== undefined && options.managerRoot !== undefined,
     options.transactionJournal !== undefined && options.managerRoot !== undefined &&
-      options.activeWorldState?.snapshot !== undefined && options.activeWorldState.prepareGeneration !== undefined);
+      options.activeWorldState?.snapshot !== undefined && options.activeWorldState.prepareGeneration !== undefined,
+    options.transactionJournal !== undefined && options.managerRoot !== undefined);
   const worlds = new WorldInventoryService(registry, clock, options.activeWorldState);
   const streams = new EventStreamService(registry, operations);
   let restores: RestoreService | undefined;
@@ -92,6 +98,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   let backupSchedules: BackupScheduleService | undefined;
   let backupRetention: BackupRetentionService | undefined;
   let properties: PropertiesWriteService | undefined;
+  let addonInstalls: AddonInstallService | undefined;
+  let addonLifecycle: AddonLifecycleService | undefined;
 
   app.addHook("onRequest", installLocalRequestGuard(clock, mode));
   app.addHook("onReady", async () => {
@@ -101,6 +109,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await worldImports?.reconcileStartup();
     const archiveWorlds = await worldArchives?.reconcileStartup();
     await properties?.reconcileStartup();
+    await addonInstalls?.reconcileStartup();
+    await addonLifecycle?.reconcileStartup();
     await operations.initialize();
     const scan = await options.transactionJournal?.scan();
     const restoreWorlds = new Map((scan?.records ?? []).filter((r) => r.intent.restore && ["active", "recovery-required"].includes(r.state))
@@ -118,7 +128,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     streams.close();
     await service.close();
   });
-  registerHealthRoute(app, clock, mode);
+  registerHealthRoute(app, clock, mode, options.transactionJournal !== undefined && options.managerRoot !== undefined);
+  const addonInventory = new AddonInventory();
+  registerAddonRoutes(app, registry, clock, mode, addonInventory, options.transactionJournal !== undefined && options.managerRoot !== undefined);
   registerServerRoutes(app, service, clock, mode);
   registerOperationRoutes(app, service, clock, mode);
   registerWorldRoutes(app, worlds, clock, mode);
@@ -126,6 +138,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const uploads = new WorldImportUploadService(registry, operations, options.managerRoot,undefined,options.transactionJournal,clock,options.importAutomaticCleanup ?? false);
     registerWorldImportUploadRoutes(app, uploads, clock, mode);
     const backups = new BackupService(registry, operations, options.transactionJournal, options.managerRoot, clock);
+    const addonUploads = new AddonUploadService(registry, operations, options.managerRoot, clock);
+    registerAddonUploadRoutes(app, addonUploads, clock, mode);
+    addonInstalls = new AddonInstallService(registry, operations, options.transactionJournal, backups, addonUploads,
+      addonInventory, options.managerRoot, clock);
+    registerAddonInstallRoutes(app, addonInstalls, clock, mode);
+    addonLifecycle = new AddonLifecycleService(registry, operations, options.transactionJournal, backups, addonInventory, options.managerRoot, clock);
+    registerAddonLifecycleRoutes(app, addonLifecycle, clock, mode);
     backupRetention = new BackupRetentionService(registry, operations, backups, options.transactionJournal, options.managerRoot, clock);
     registerBackupRetentionRoutes(app, backupRetention, clock, mode);
     if (options.activeWorldState?.snapshot) {

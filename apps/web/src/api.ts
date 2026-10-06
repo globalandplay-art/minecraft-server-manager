@@ -1,4 +1,6 @@
 import {
+  propertiesResponseSchema, propertiesWriteResponseSchema,
+  type PropertiesResponse, type PropertiesWriteRequest, type PropertiesWriteResponse,
   playersResponseSchema, type PlayersResponse,
   backupScheduleResponseSchema, type BackupScheduleResponse, type BackupScheduleUpdate,
   backupRetentionResponseSchema, type BackupRetentionResponse, type BackupRetentionUpdate,
@@ -42,8 +44,21 @@ import {
   type RestoreHistoryResponse,
   type RestoreRequest,
   type RollbackRequest,
+  addonsResponseSchema,
+  addonTrashResponseSchema,
+  addonUploadResponseSchema,
+  type AddonsResponse,
+  type AddonTrashResponse,
+  type AddonUploadResponse,
+  type AddonInstallRequest,
+  type AddonLifecycleRequest,
 } from '@mcsm/contracts';
+import { FormatRegistry } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+
+if (!FormatRegistry.Has('uuid')) {
+  FormatRegistry.Set('uuid', (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value));
+}
 
 export type ApiFailureKind = 'network' | 'http' | 'schema';
 
@@ -80,7 +95,7 @@ async function getJson<T>(path: string, schema: unknown, signal?: AbortSignal): 
 
 interface RequestOptions {
   signal?: AbortSignal | undefined;
-  method?: 'GET' | 'POST' | undefined;
+  method?: 'GET' | 'POST' | 'PATCH' | undefined;
   body?: unknown | undefined;
   headers?: Record<string, string> | undefined;
   expectedStatus?: number | undefined;
@@ -164,6 +179,11 @@ async function requestJson<T>(path: string, schema: unknown, options: RequestOpt
 }
 
 export const api = {
+  properties: (serverId: string, signal?: AbortSignal) =>
+    getJson<PropertiesResponse>(`/servers/${encodeURIComponent(serverId)}/properties`, propertiesResponseSchema, signal),
+  saveProperties: (serverId: string, body: PropertiesWriteRequest, revision: string, key: string) =>
+    requestJson<PropertiesWriteResponse>(`/servers/${encodeURIComponent(serverId)}/properties`, propertiesWriteResponseSchema,
+      { method: 'PATCH', body, headers: { 'X-Manager-Intent': 'local-ui', 'If-Match': `"${revision}"`, 'Idempotency-Key': key }, expectedStatus: 202 }),
   players: (serverId: string, signal?: AbortSignal) =>
     getJson<PlayersResponse>(`/servers/${encodeURIComponent(serverId)}/players`, playersResponseSchema, signal),
   worldImportPlan: (serverId: string, body: { uploadId: string; name: string }) =>
@@ -331,6 +351,53 @@ export const api = {
     getJson<BackupExportResponse>(`/servers/${encodeURIComponent(serverId)}/backups/${encodeURIComponent(backupId)}/exports`, backupExportResponseSchema, signal),
   backupDownloadUrl: (serverId: string, backupId: string) =>
     `/api/v1/servers/${encodeURIComponent(serverId)}/backups/${encodeURIComponent(backupId)}/download`,
+  addons: (serverId: string, signal?: AbortSignal) =>
+    getJson<AddonsResponse>(`/servers/${encodeURIComponent(serverId)}/addons`, addonsResponseSchema, signal),
+  addonTrash: (serverId: string, signal?: AbortSignal) =>
+    getJson<AddonTrashResponse>(`/servers/${encodeURIComponent(serverId)}/addons/trash`, addonTrashResponseSchema, signal),
+  uploadAddon: async (serverId: string, file: File): Promise<AddonUploadResponse> => {
+    const timeout = new AbortController();
+    const timer = window.setTimeout(() => timeout.abort(), 120_000);
+    try {
+      let response: Response;
+      try {
+        response = await fetch(`/api/v1/servers/${encodeURIComponent(serverId)}/addons/uploads`, {
+          method: 'POST', body: file,
+          headers: { Accept: 'application/json', 'Content-Type': 'application/java-archive',
+            'X-Manager-Intent': 'local-ui', 'X-Upload-Filename': encodeURIComponent(file.name) },
+          signal: timeout.signal,
+        });
+      } catch {
+        throw new ApiClientError('上传结果未确认；为避免重复暂存，本次不会自动重试。', 'network');
+      }
+      let payload: unknown;
+      try { payload = await response.json(); }
+      catch { throw new ApiClientError('扩展上传响应格式异常。', 'schema', response.status); }
+      if (!response.ok) {
+        const error = readError(payload);
+        throw new ApiClientError(error.message ?? '扩展上传被拒绝。', 'http', response.status, error.code, error.requestId);
+      }
+      if (response.status !== 201 || !Value.Check(addonUploadResponseSchema, payload)) {
+        throw new ApiClientError('扩展上传校验结果格式异常。', 'schema', response.status, 'SCHEMA_INVALID', readError(payload).requestId);
+      }
+      return payload;
+    } finally { window.clearTimeout(timer); }
+  },
+  installAddon: (serverId: string, body: AddonInstallRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/addons/install`, lifecycleActionResponseSchema, {
+      method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202,
+      timeoutMs: 120_000,
+    }),
+  mutateAddon: (serverId: string, addonId: string, action: 'disable' | 'enable' | 'trash', body: AddonLifecycleRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/addons/${encodeURIComponent(addonId)}/${action}`, lifecycleActionResponseSchema, {
+      method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202,
+      timeoutMs: 120_000,
+    }),
+  restoreAddon: (serverId: string, trashId: string, body: AddonLifecycleRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/addons/trash/${encodeURIComponent(trashId)}/restore`, lifecycleActionResponseSchema, {
+      method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202,
+      timeoutMs: 120_000,
+    }),
 };
 
 export function shouldRetry(failureCount: number, error: Error) {

@@ -82,7 +82,8 @@ export class ServerService {
     operations: OperationService,
     private readonly activeWorldState?: Pick<ActiveWorldStateStore, "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "snapshot">>,
     private readonly restoreEnabled = false,
-    private readonly worldCreateEnabled = false
+    private readonly worldCreateEnabled = false,
+    private readonly addonChangesEnabled = false
   ) {
     this.#registry = registry;
     this.#operations = operations;
@@ -298,7 +299,16 @@ export class ServerService {
       worldChanges: !this.worldCreateEnabled ? unavailable("feature-not-implemented") :
         canBackup && this.activeWorldState?.snapshot?.(serverId)?.state === "active" ? available() :
           unavailable(blockedReason ?? "world-state-unavailable"),
-      addonChanges: unavailable("feature-not-implemented"),
+      addonChanges: (() => {
+        const supported = (server.type === "paper" && capabilities.plugins) || (server.type === "fabric" && capabilities.mods);
+        const reason = !supported ? "capability-unsupported"
+          : !this.addonChangesEnabled ? "feature-not-implemented"
+            : status.recoveryRequired ? "recovery-required"
+              : status.activeOperationId !== null ? "operation-active"
+                : status.state !== "stopped" ? status.ownership === "external" ? "external-process" : `state-${status.state}`
+                  : status.ownership !== "none" ? "server-ownership-uncertain" : null;
+        return reason === null ? available() : unavailable(reason);
+      })(),
       propertiesChanges: unavailable("feature-not-implemented"),
       commandTransport
     };

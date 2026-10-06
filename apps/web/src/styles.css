@@ -270,6 +270,46 @@ h1, h2, h3, p { margin-top: 0; }
 .backup-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .backup-row h3 { margin: 6px 0; font-size: 14px; }
 .backup-row p { margin: 0; color: var(--muted); font-size: 11px; }
+.addons-page { min-width: 0; overflow-wrap: anywhere; }
+.addon-banner { display: flex; flex-direction: column; gap: 7px; padding: 14px 16px; color: #f2d99e; background: #302818; border: 1px solid #68542b; border-radius: 10px; font-size: 13px; }
+.addon-banner p { margin: 0; color: #e0ca98; }
+.addon-banner--danger { color: #ffd4d4; background: #321e25; border-color: #6d3845; }
+.addon-banner--danger p { color: #e8b9bf; }
+.addon-banner--restart { color: #c9e6d8; background: #172c27; border-color: #315c4d; }
+.addon-banner--restart p { color: #b9d9cb; }
+.addon-banner .button { align-self: flex-start; }
+.addon-upload { display: flex; min-width: 0; flex-direction: column; gap: 14px; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.addon-section-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
+.addon-section-heading h2 { margin: 4px 0 0; font-size: 17px; }
+.addon-section-heading > svg { flex: 0 0 auto; color: var(--muted); }
+.addon-dropzone { display: flex; min-height: 112px; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 18px; text-align: center; background: #111a27; border: 1px dashed #526987; border-radius: 10px; }
+.addon-dropzone--active { background: #1a2b47; border-color: var(--accent); }
+.addon-dropzone p { margin: 0; color: var(--muted); font-size: 13px; }
+.addon-stage { display: flex; min-width: 0; flex-direction: column; gap: 12px; padding: 16px; background: #12241f; border: 1px solid #315c4d; border-radius: 10px; }
+.addon-stage > div:first-child { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.addon-stage > div:first-child strong { color: #b9ead4; }
+.addon-stage > div:first-child span { color: var(--muted); font-size: 12px; }
+.addon-stage dl, .addon-card__details { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.addon-stage dl > div, .addon-card__details > div { min-width: 0; }
+.addon-stage dt, .addon-card__details dt { color: var(--muted); font-size: 11px; }
+.addon-stage dd, .addon-card__details dd { margin: 3px 0 0; color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
+.addon-list { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.addon-card { display: flex; min-width: 0; flex-direction: column; gap: 14px; padding: 16px; background: #111a27; border: 1px solid var(--border); border-radius: 10px; }
+.addon-trash-entry { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.addon-card__title { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.addon-card__title > div { min-width: 0; }
+.addon-card__title h3 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.addon-card__title p { margin: 5px 0 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.addon-state { flex: 0 0 auto; padding: 4px 7px; color: #d4deed; background: #1d2a3c; border: 1px solid #33445d; border-radius: 6px; font-size: 10px; font-weight: 700; }
+.addon-state--installed { color: #b9ead4; border-color: #315c4d; background: #172c27; }
+.addon-state--disabled { color: #f2d99e; border-color: #68542b; background: #302818; }
+.addon-state--trashed { color: #e1c6ca; border-color: #65404a; background: #2b2026; }
+.addon-card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.addon-card__actions .button { flex: 1 1 auto; }
+.addon-trash-state { margin: 0; color: var(--muted); font-size: 11px; }
+.addon-dialog-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: rgba(2, 6, 11, .78); }
+.addon-confirm { width: min(100%, 480px); max-height: calc(100vh - 32px); overflow: auto; }
+@media (max-width: 767px) { .addon-list { grid-template-columns: 1fr; } .addon-upload { padding: 16px; } .addon-card__title { align-items: flex-start; } .addon-card__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .addon-card__actions .button { min-height: 44px; padding: 0 8px; font-size: 12px; } .addon-confirm .confirm-dialog__actions { flex-direction: column-reverse; } .addon-confirm .confirm-dialog__actions .button { width: 100%; min-height: 44px; } }
 @media (max-width: 700px) { .resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .backup-row { align-items: flex-start; flex-direction: column; } }
 .spin { animation: spin 1s linear infinite; }
 .drawer-overlay { display: none; }
@@ -357,6 +397,10 @@ h1, h2, h3, p { margin-top: 0; }
   .metrics-grid { grid-template-columns: 1fr; }
   .detail-list { grid-template-columns: 1fr; }
 }
+
+.properties-page { overflow-wrap: anywhere; }
+.settings-panel.properties-fields > div { grid-template-columns: minmax(100px, 0.3fr) minmax(0, 1fr); }
+@media (max-width: 700px) { .settings-panel.properties-fields > div { display: block; } .properties-fields label { display: block; margin-bottom: 8px; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

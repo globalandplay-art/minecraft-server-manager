@@ -31,7 +31,7 @@ function createAdapter(initialStatus: ServerStatus, type: ServerType = "vanilla"
     },
     getServerInfo: async () => adapter.plan.serverInfo,
     getCapabilities: async () => ({
-      mods: false, plugins: false, rcon: false, console: true,
+      mods: type === "fabric", plugins: type === "paper", rcon: false, console: true,
       backup: type === "vanilla", worlds: type === "vanilla", properties: false
     }),
     getStatus: async () => status,
@@ -59,14 +59,45 @@ function status(state: ServerStatus["state"], ownership: ServerStatus["ownership
 async function createService(
   adapter: LocalMinecraftServerAdapter,
   store: OperationStore = new MemoryOperationStore(),
-  activeWorldState?: { reconcileAfterStart(serverId: string): Promise<void> }
+  activeWorldState?: { reconcileAfterStart(serverId: string): Promise<void> },
+  addonChangesEnabled = false
 ) {
   const operations = new OperationService(store, clock);
   await operations.initialize();
-  return new ServerService(new AdapterRegistry([adapter]), operations, activeWorldState);
+  return new ServerService(new AdapterRegistry([adapter]), operations, activeWorldState, false, false, addonChangesEnabled);
 }
 
 describe("ServerService lifecycle no-op contract", () => {
+  it("advertises Addon readiness only for supported, configured, safely stopped local adapters", async () => {
+    const paper = createAdapter(status("stopped", "none"), "paper");
+    const paperService = await createService(paper.adapter, new MemoryOperationStore(), undefined, true);
+    expect((await paperService.get("local-test")).readiness.addonChanges).toEqual({ allowed: true, reason: null });
+    expect((await paperService.get("local-test")).capabilities).toMatchObject({ plugins: true, mods: false });
+
+    const fabric = createAdapter(status("stopped", "none"), "fabric");
+    const fabricService = await createService(fabric.adapter, new MemoryOperationStore(), undefined, true);
+    expect((await fabricService.get("local-test")).readiness.addonChanges).toEqual({ allowed: true, reason: null });
+    expect((await fabricService.get("local-test")).capabilities).toMatchObject({ plugins: false, mods: true });
+
+    const vanilla = createAdapter(status("stopped", "none"), "vanilla");
+    expect((await (await createService(vanilla.adapter, new MemoryOperationStore(), undefined, true)).get("local-test")).readiness.addonChanges)
+      .toEqual({ allowed: false, reason: "capability-unsupported" });
+    expect((await (await createService(paper.adapter)).get("local-test")).readiness.addonChanges)
+      .toEqual({ allowed: false, reason: "feature-not-implemented" });
+  });
+
+  it.each([
+    ["running", "managed", false, "state-running"],
+    ["running", "external", false, "external-process"],
+    ["unknown", "unknown", false, "state-unknown"],
+    ["stopped", "managed", false, "server-ownership-uncertain"],
+    ["stopped", "none", true, "recovery-required"]
+  ] as const)("keeps Addon readiness closed for status %s/%s/recovery=%s", async (state, ownership, recoveryRequired, reason) => {
+    const fixture = createAdapter({ ...status(state, ownership), recoveryRequired }, "paper");
+    const service = await createService(fixture.adapter, new MemoryOperationStore(), undefined, true);
+    expect((await service.get("local-test")).readiness.addonChanges).toEqual({ allowed: false, reason });
+  });
+
   it("reflects backup readiness only for safe stopped or managed Vanilla instances", async () => {
     const stopped = createAdapter(status("stopped", "none"));
     const stoppedService = await createService(stopped.adapter);

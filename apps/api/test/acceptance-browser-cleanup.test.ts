@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import net from "node:net";
 import { afterEach, expect, it, vi } from "vitest";
 const moduleUrl = new URL("../../../tests/acceptance/phase35-browser-cleanup.mjs", import.meta.url).href;
 const { cleanupBrowserHelpers } = await import(moduleUrl);
@@ -15,12 +16,28 @@ it.each(["reject", "hang"])("still closes exact Vite and flushes logs when brows
     if (mode === "hang") vi.useFakeTimers();
     const run = cleanupBrowserHelpers({ browser: { close: () => mode === "reject" ? Promise.reject(new Error("SYNTHETIC_BROWSER_CLOSE_FAILURE")) : new Promise(() => {}) },
       browserServer: { close: () => Promise.reject(new Error("SYNTHETIC_CHROME_SERVER_CLOSE_FAILURE")), kill: chromeKill, process: () => chrome },
-      vite: { kill: viteKill }, helperClosed: () => closed, helperLog: "synthetic helper log", report, evidenceRoot: root, wait: () => Promise.resolve() });
+      vite: { kill: viteKill }, helperPort: 0, helperClosed: () => closed, helperLog: "synthetic helper log", report, evidenceRoot: root, wait: () => Promise.resolve() });
     const outcome = expect(run).rejects.toMatchObject({ message: "BROWSER_HELPER_CLEANUP_FAILED" });
     if (mode === "hang") await vi.advanceTimersByTimeAsync(10_001);
     await outcome;
     expect(viteKill).toHaveBeenCalledExactlyOnceWith("SIGTERM"); expect(chromeKill).toHaveBeenCalledTimes(1);
     expect(await readFile(path.join(root, "vite.log"), "utf8")).toBe("synthetic helper log");
-    expect(report.browserHelper.closed).toBe(true); expect(report.browserHelper.cleanupErrors).toHaveLength(2);
+    expect(report.browserHelper.closed).toBe(true); expect(report.browserHelper.cleanupErrors, JSON.stringify(report.browserHelper.cleanupErrors)).toHaveLength(2);
   } finally { vi.useRealTimers(); await rm(root, { recursive: true, force: true }); }
+});
+it("still rejects an occupied explicitly selected helper port", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "mcsm-p35-port-")); const occupied = net.createServer();
+  try {
+    await new Promise<void>((resolve, reject) => { occupied.once("error", reject); occupied.listen({ host: "127.0.0.1", port: 0 }, resolve); });
+    const port = (occupied.address() as net.AddressInfo).port;
+    const report = { browserHelper: { cleanupErrors: [] as string[], closed: false } };
+    await expect(cleanupBrowserHelpers({ helperPort: port, helperClosed: () => true, helperLog: "port evidence", report, evidenceRoot: root }))
+      .rejects.toMatchObject({ message: "BROWSER_HELPER_CLEANUP_FAILED" });
+    expect(report.browserHelper.cleanupErrors).toHaveLength(1);
+    expect(report.browserHelper.cleanupErrors[0]).toContain("EADDRINUSE");
+    expect(await readFile(path.join(root, "vite.log"), "utf8")).toBe("port evidence");
+  } finally {
+    if (occupied.listening) await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
 });

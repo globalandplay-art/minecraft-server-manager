@@ -17,6 +17,7 @@ import type {
   RuntimeStreamReplay,
   RuntimeStreamSnapshot
 } from "../infra/runtime-contract.js";
+import type { RegisteredExecutionIdentity } from "../infra/runtime-contract.js";
 import type { LocalMinecraftServerAdapter } from "./contract.js";
 
 export class LocalJavaAdapter implements LocalMinecraftServerAdapter {
@@ -39,8 +40,8 @@ export class LocalJavaAdapter implements LocalMinecraftServerAdapter {
 
   async getCapabilities(): Promise<Capabilities> {
     return {
-      mods: false,
-      plugins: false,
+      mods: this.plan.serverInfo.type === "fabric",
+      plugins: this.plan.serverInfo.type === "paper",
       rcon: true,
       console: true,
       backup: true,
@@ -70,6 +71,11 @@ export class LocalJavaAdapter implements LocalMinecraftServerAdapter {
 
   getRuntime(): MinecraftRuntime {
     return this.#runtime;
+  }
+
+  getRegisteredExecutionIdentity(): RegisteredExecutionIdentity {
+    if (!this.#registration.identity) throw new Error("registered-execution-identity-unavailable");
+    return this.#registration.identity;
   }
 
   async getCommandTransport(): Promise<"rcon" | "stdin" | "unavailable"> {

@@ -25,17 +25,18 @@ export const FEATURES: Features = {
   remoteAccess: { implemented: false, phase: 7 }
 };
 
-export function featuresForMode(mode: Mode): Features {
+export function featuresForMode(mode: Mode, addonTransactionsEnabled = false): Features {
   if (mode === "mock") return structuredClone(FEATURES);
   return {
     ...structuredClone(FEATURES),
     lifecycle: { implemented: true, phase: 2 },
     console: { implemented: true, phase: 2 },
-    players: { implemented: true, phase: 4 }
+    players: { implemented: true, phase: 4 },
+    addons: { implemented: addonTransactionsEnabled, phase: 5 }
   };
 }
 
-export function registerHealthRoute(app: FastifyInstance, clock: Clock, mode: Mode = "mock"): void {
+export function registerHealthRoute(app: FastifyInstance, clock: Clock, mode: Mode = "mock", addonTransactionsEnabled = false): void {
   app.get<{ Reply: HealthResponse }>(
     "/api/v1/health",
     {
@@ -48,7 +49,7 @@ export function registerHealthRoute(app: FastifyInstance, clock: Clock, mode: Mo
       }
     },
     async (request) => ({
-      data: { status: "ok", apiVersion: "1", features: featuresForMode(mode) },
+      data: { status: "ok", apiVersion: "1", features: featuresForMode(mode, addonTransactionsEnabled) },
       meta: responseMeta(request.id, clock, mode)
     })
   );

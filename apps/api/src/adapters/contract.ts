@@ -15,6 +15,7 @@ import type {
   RuntimeOperationContext,
   RuntimeStreamReplay,
   RuntimeStreamSnapshot,
+  RegisteredExecutionIdentity,
   ValidatedLaunchPlan
 } from "../infra/runtime-contract.js";
 
@@ -33,6 +34,7 @@ export interface MinecraftServerAdapter {
 export interface LocalMinecraftServerAdapter extends MinecraftServerAdapter {
   readonly mode: "local";
   readonly plan: ValidatedLaunchPlan;
+  getRegisteredExecutionIdentity?(): RegisteredExecutionIdentity;
   getRuntime(): MinecraftRuntime;
   getCommandTransport(): Promise<"rcon" | "stdin" | "unavailable">;
   revalidateBeforeStart(): Promise<void>;

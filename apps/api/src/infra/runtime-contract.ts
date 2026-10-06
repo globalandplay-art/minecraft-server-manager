@@ -29,6 +29,14 @@ export interface ValidatedLaunchPlan {
   readonly getRconConnection: () => Promise<PrivateRconConnection | null>;
 }
 
+export interface RegisteredExecutionIdentity {
+  readonly rootIdentity: string;
+  readonly javaIdentity: string;
+  readonly javaSha256: string;
+  readonly launcherIdentity: string;
+  readonly launcherSha256: string;
+}
+
 export interface RuntimeOperationContext {
   readonly operationId: string;
   readonly signal: AbortSignal;
