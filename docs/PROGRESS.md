@@ -1,5 +1,13 @@
 # 实施进度
 
+### 2026-10-08 Phase 5 Final Gate — PASS
+
+P5.0–P5.5 全部切片完成；整体 Adapter/Addon 安全独立 Sol High Review 及容量修复 delta PASS，P1=0/P2=0/P3=2（均非阻断）。审查发现生命周期容量根因：Restore 数量/字节、Enable/Disable 目标条目、Trash retained entries；最小修复在 intent/发布前核验容量，最终路径身份/目标不存在/同卷检查置于容量扫描之后。新增 7 个回归，容量/链接专项 64/64 PASS；原先 fixture 状态及 journal 计数失败保留，没有改变 timeout 或安全断言。
+
+新冻结完整 `npm.cmd run check` v3 exit0：contracts6/API1047/Web131，共 **1184 PASS**；lint/typecheck/production build/diff PASS。验收 helper 145/145 PASS，首轮缺 TS loader 的 ERR_MODULE_NOT_FOUND 保留。P5.5 两个已独立核验的真实 PASS run、14 次显式启动与历史 BLOCKED 报告/SHA 均保留。本轮未启动 Minecraft、未触碰用户原世界，仅最小容量拒绝修复和文档收口。
+
+两项 P3：无可信回执的 unknown 保持人工核验锁；三槽 staging 包含 consumed/failed 且暂未清理。其余 Windows fsync/同用户文件系统边界、无突然断电/玩家会话验收、bundle >500 kB 等限制保留。详见 [Phase 5 Final Gate](./PHASE5_FINAL_GATE_2026-10-08.md)。工作树保留未提交收尾修改；未 commit/push/PR。下一阶段为 Phase 6 Performance / Crash Analysis，本轮停止，不自动进入。
+
 ### 2026-10-08 P5.5 真实隔离验收与独立证据 Review — PASS
 
 Paper `p55-paper-bf6c7480-b3c8-481f-937e-d446086a9266`、Fabric `p55-fabric-2fe6b07e-dce6-46ec-9e1d-ba19f0db9232` 均 result/addons PASS、finalStopped=true。各 7 次显式启动及 8 次扩展变更完成；安装/禁用/启用/Trash/恢复 enabled/恢复 disabled 的实际 marker 与原生加载/未加载证据一致。Manager 重建同 key 回放、16 个 committed transaction、22 个 succeeded operation、16 个完整 pinned guard 及 2,240 个 payload 文件独立物理核验通过。107 个 Paper / 51 个 Fabric 来源白名单文件与 Java 身份未变化；用户原世界未访问。

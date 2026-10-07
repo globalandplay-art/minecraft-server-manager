@@ -372,7 +372,7 @@ SafeProperties 是 properties 键名白名单：`max-players`（1–10000 的产
 | GET /servers/:id/crashes | `{ items: CrashInfo[] }`，仅注册日志路径 |
 | GET /servers/:id/crashes/:crashId/analysis | `{ findings: Finding[], confidence, evidence: LogEntry[], limitations: string[] }` |
 
-Addon inventory 条目包括 opaque `id`、`kind`、`filename`、`state`、大小、SHA-256、解析到的 name / version / loader / Minecraft 约束及 metadata 状态；兼容性仍为 `unknown`，不代表实际可加载。列表用不透明 revision 绑定目录和每个文件的物理身份及内容摘要；响应不返回路径、私有目录、journal 或 JAR 字节。Trash 条目另含 `trashId`、`addonId`、原状态与恢复资格，必须通过独立回收区端点访问。
+Addon inventory 条目包括 opaque `id`、`kind`、`filename`、`state`、大小、SHA-256、解析到的 name / version / loader / Minecraft 约束及 metadata 状态；兼容性仍为 `unknown`，不代表实际可加载。列表用不透明 revision 绑定目录和每个文件的物理身份及内容摘要；响应不返回路径、私有目录、journal 或 JAR 字节。Trash 条目使用 `id`（用于 `:trashId` 路径参数），另含 `addonId`、原状态与恢复资格，必须通过独立回收区端点访问。
 
 Addon 安装与生命周期写入需要本地写意图、UUIDv4 `Idempotency-Key` 及 JSON revision；无幂等键返回 428，revision / 状态冲突返回 409。单实例操作串行执行，写前创建完整 pinned 私有 server-snapshot，再写入 transaction journal 并进行文件身份、内容和父目录复核。Disable / Enable / Trash / Restore 仅通过受控同卷无覆盖发布与受控源 unlink 完成；不永久删除、不自动清理 Trash、不自动启动或重启 Minecraft。操作成功返回 `restartRequired=true`，客户端必须等待 operation 成功后再提示用户显式启动 / 重启；旧的“立即重启”UI 尚未实现。
 
@@ -382,7 +382,7 @@ Crash Analysis 是本地规则，finding 含 ruleId、severity、title、explana
 
 - 精确 Host / Origin allowlist 与 127.0.0.1 监听见 ARCHITECTURE §10。写请求 JSON / multipart 均要求 `X-Manager-Intent: local-ui`，此标记是本地浏览器请求保护的一部分，不是身份认证。
 - GET 无副作用；禁用 CORS 通配符；WS 不能靠 CORS 保护，必须在 Upgrade 检查 Origin，拒绝 null / 缺失 Origin。
-- JSON body ≤64 KiB；单 JAR ≤100 MiB；ZIP ≤2 GiB，解包 ≤8 GiB、100,000 entries，metadata ≤1 MiB；staging 总配额默认 12 GiB，卷剩余空间预留至少 1 GiB。上传限额流式执行，不把整个世界载入内存。
+- JSON body ≤64 KiB；Addon 单 JAR ≤64 MiB、最多 10,000 ZIP entries、展开总量 ≤512 MiB，单 metadata ≤256 KiB / 总 metadata ≤1 MiB；每实例最多三个私有 addon upload 槽，consumed/failed 记录保留并计入。世界 ZIP 上传及 staging 限额按下文 P3.3c 现行合约，不使用早期草案的 2 GiB 上限。上传限额流式执行，不把整个世界载入内存。
 - schema 不得接受未知属性；秘密文件 never serialize。响应里的 message / logs 也脱敏；数据下载只允许已经生成的受控归档，不映射任意文件读取。
 - 资源不支持时 UI 与 API 共同拒绝；未知 ID 404；缺失 If-Match 428；冲突 409 / 412；不可用指标 value=null；不可把失败变成成功 envelope。
 - Phase 7 开始前另行制定认证 / 授权合约；当前 API 不可直接作为公网 API 暴露。

@@ -129,7 +129,7 @@ npm.cmd run dev
 
 浏览器仍访问 <http://127.0.0.1:3000>；前端通过同源 API 和 WebSocket 与本机后端通信。管理器只会停止自己在当前进程中启动的 Java 子进程；它不会接管或停止外部启动的 Minecraft 进程。管理器异常重启后，未完成的操作会标记为中断并要求恢复确认，不会自动重放。
 
-当前本机 Vanilla 模式提供生命周期、受限命令、Console，以及已验收的 Worlds / Backups：手动备份、受限 world-set 下载、恢复与显式回滚、新建世界、受限 ZIP 导入、完整世界归档、每日计划和安全保留策略。Players、Properties 编辑、Mods / Plugins、Performance 页面、Crash Analysis 和远程访问仍在后续阶段。Console 命令有长度、控制字符和保留命令限制；生命周期操作应使用页面中的专用按钮。
+当前本机 Vanilla 模式提供生命周期、受限命令、Console，以及已验收的 Worlds / Backups：手动备份、受限 world-set 下载、恢复与显式回滚、新建世界、受限 ZIP 导入、完整世界归档、每日计划和安全保留策略。Players 只读及已确认 Vanilla 26.3 的安全 Properties 编辑已通过 Phase 4。受信 Paper/Fabric 实例提供 Mods / Plugins 清单、有界 JAR 上传安装、禁用/启用、Trash 与原状态恢复；P5.5 已通过真实隔离加载验收，整体 Phase 5 Final Gate 状态见进度文档。文件变更要求先明确停服，成功后需用户明确启动，不会自动重启。Performance、Crash Analysis 真采集和远程访问仍在后续阶段。Console 命令有长度、控制字符和保留命令限制；生命周期操作应使用页面中的专用按钮。
 
 ## 检查与构建
 

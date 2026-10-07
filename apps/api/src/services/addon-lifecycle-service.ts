@@ -429,6 +429,10 @@ export class AddonLifecycleService {
       let targetDirectory: { path: string; identity: string }, target: string;
       if (targetState === "trashed") {
         if (!trashId) throw denied();
+        const trashParent = await ensureDirectory(root, ["trash", "addons", serverId]);
+        if ((await readdir(trashParent.path)).length >= ADDON_LIMITS.files) {
+          throw new DomainError(413, "ADDON_INVENTORY_LIMIT", "Addon trash is at capacity", "addon-inventory-limit");
+        }
         targetDirectory = await ensureDirectory(root, ["trash", "addons", serverId, trashId]);
         target = path.join(targetDirectory.path, "payload.jar");
       } else {
@@ -448,6 +452,22 @@ export class AddonLifecycleService {
           throw new DomainError(409, "ADDON_TARGET_CONFLICT", "目标命名空间已有同名扩展；不会覆盖", "addon-target-conflict");
         }
       }
+      const requireTargetCapacity = async () => {
+        if (targetState === "trashed") {
+          if ((await readdir(path.dirname(targetDirectory.path))).length > ADDON_LIMITS.files) {
+            throw new DomainError(413, "ADDON_INVENTORY_LIMIT", "Addon trash exceeds capacity", "addon-inventory-limit");
+          }
+          return;
+        }
+        const listing = await this.inventory.read(serverId, root, adapter.plan.serverInfo.type);
+        const added = action === "restore" ? 1 : 0;
+        const bytes = listing.items.reduce((total, item) => total + item.sizeBytes, 0) + (added ? from.sizeBytes : 0);
+        if (listing.items.length + added > ADDON_LIMITS.files || bytes > ADDON_LIMITS.totalBytes ||
+          (await readdir(targetDirectory.path)).length + 1 > ADDON_LIMITS.files) {
+          throw new DomainError(413, "ADDON_INVENTORY_LIMIT", "Addon change would exceed inventory limits", "addon-inventory-limit");
+        }
+      };
+      await requireTargetCapacity();
       if (action === "restore" && !oldReceipt) throw denied();
       record = await this.journal.createIntent({ operationId: context.operationId, serverId, kind: "addon-lifecycle", scope: "server-snapshot",
         resourceId: trashId ?? addonId, allowStop: false, originalState: "stopped", createdAt: this.clock.now().toISOString(),
@@ -465,6 +485,7 @@ export class AddonLifecycleService {
       await this.#checkpoint(record, "intent-written");
       await this.#checkpoint(record, "source-verified", from);
       await this.#checkpoint(record, "before-move", from);
+      await requireTargetCapacity();
       const sourceImmediatelyBeforeMove = await fileAt(source);
       if (sourceImmediatelyBeforeMove.physicalIdentity !== from.physicalIdentity || sourceImmediatelyBeforeMove.sha256 !== from.sha256 ||
         await directoryIdentity(root) !== approved.rootIdentity || await directoryIdentity(sourceDir.path) !== sourceDir.identity ||

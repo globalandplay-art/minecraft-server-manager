@@ -9,7 +9,7 @@ import { AdapterRegistry } from "../src/adapters/registry.js";
 import type { AddonAdapterIdentity } from "../src/services/addon-adapter-identity.js";
 import { backupDirectoryIdentity } from "../src/services/backup-identity.js";
 import { BackupService } from "../src/services/backup-service.js";
-import { addonOpaqueId, AddonInventory } from "../src/services/addon-inventory.js";
+import { ADDON_LIMITS, addonOpaqueId, AddonInventory } from "../src/services/addon-inventory.js";
 import { AddonLifecycleService } from "../src/services/addon-lifecycle-service.js";
 import { registerAddonLifecycleRoutes } from "../src/routes/addons.js";
 import { errorResponse, installLocalRequestGuard } from "../src/infra/http.js";
@@ -69,6 +69,62 @@ async function run(f: Awaited<ReturnType<typeof fixture>>, action: "disable" | "
   const op = await f.service.mutate(f.adapter.serverId, id, action, listing.revision, randomUUID());
   return { operation: await settle(f, op.id), op };
 }
+
+it.each(["count", "bytes"] as const)("refuses Restore exceeding inventory %s without consuming trash", async (limit) => {
+  const f = await fixture();
+  const original = (await f.inventory.read(f.adapter.serverId, f.serverRoot, "paper")).items[0]!;
+  expect((await run(f, "trash")).operation.state).toBe("succeeded");
+  const trash = await f.service.listTrash(f.adapter.serverId);
+  const empty = await f.inventory.read(f.adapter.serverId, f.serverRoot, "paper");
+  const items = limit === "count" ? Array.from({ length: ADDON_LIMITS.files }, (_, n) => ({ ...original, filename: `other-${n}.jar` })) :
+    [{ ...original, filename: "other.jar", sizeBytes: ADDON_LIMITS.totalBytes }];
+  vi.spyOn(f.inventory, "read").mockResolvedValue({ ...empty, items });
+  const accepted = await f.service.restore(f.adapter.serverId, trash.items[0]!.id, trash.revision, randomUUID());
+  expect(await settle(f, accepted.id)).toMatchObject({ state: "failed", error: { code: "ADDON_INVENTORY_LIMIT" } });
+  await expect(readFile(path.join(f.serverRoot, "plugins", "lifecycle.jar"))).rejects.toMatchObject({ code: "ENOENT" });
+  expect((await f.service.listTrash(f.adapter.serverId)).items).toHaveLength(1);
+  expect((await f.journal.scan()).records.filter((record) => record.intent.addonLifecycle?.action === "restore")).toHaveLength(0);
+});
+
+it.each(["enable", "disable", "trash"] as const)("rechecks %s directory capacity at the publication checkpoint", async (action) => {
+  const f = await fixture(action === "enable" ? "disabled" : "enabled");
+  f.setHook(async (point) => {
+    if (point !== "before-move") return;
+    const folder = action === "trash" ? path.join(f.serverRoot, "trash", "addons", f.adapter.serverId) :
+      path.join(f.serverRoot, action === "enable" ? "plugins" : "disabled-plugins");
+    await Promise.all(Array.from({ length: ADDON_LIMITS.files }, (_, n) => writeFile(path.join(folder, `filler-${n}.txt`), "")));
+  });
+  expect((await run(f, action)).operation.state).toBe("interrupted");
+  const source = path.join(f.serverRoot, action === "enable" ? "disabled-plugins" : "plugins", "lifecycle.jar");
+  expect(await readFile(source)).toEqual(f.bytes);
+  if (action !== "trash") await expect(readFile(path.join(f.serverRoot, action === "enable" ? "plugins" : "disabled-plugins", "lifecycle.jar"))).rejects.toMatchObject({ code: "ENOENT" });
+  const records = (await f.journal.scan()).records.filter((record) => record.intent.addonLifecycle?.action === action);
+  expect(records).toHaveLength(1);
+  expect(records[0]!.state).toBe("recovery-required");
+  expect(records[0]!.checkpoints.some((point) => point.name === "destination-installed")).toBe(false);
+});
+
+it.each(["plugins", "disabled-plugins"] as const)("rejects %s junction replacement after the final capacity scan without external publication", async (folder) => {
+  const f = await fixture();
+  const outside = path.join(f.parent, "outside"); await mkdir(outside);
+  f.setHook(async (point) => {
+    if (point !== "before-move") return;
+    const originalRead = f.inventory.read.bind(f.inventory);
+    vi.spyOn(f.inventory, "read").mockImplementationOnce(async (...args) => {
+      const listing = await originalRead(...args);
+      await rename(path.join(f.serverRoot, folder), path.join(f.serverRoot, `retained-${folder}`));
+      await symlink(outside, path.join(f.serverRoot, folder), "junction");
+      return listing;
+    });
+  });
+  expect((await run(f, "disable")).operation.state).toBe("interrupted");
+  expect(await readdir(outside)).toEqual([]);
+  expect(await readFile(path.join(f.serverRoot, folder === "plugins" ? "retained-plugins" : "plugins", "lifecycle.jar"))).toEqual(f.bytes);
+  const records = (await f.journal.scan()).records.filter((record) => record.intent.addonLifecycle);
+  expect(records).toHaveLength(1);
+  expect(records[0]!.state).toBe("recovery-required");
+  expect(records[0]!.checkpoints.some((point) => point.name === "destination-installed")).toBe(false);
+});
 
 it("completes enabled/disabled/trash/restore flows with a durable pinned guard and no server start", async () => {
   const f = await fixture();
