@@ -11,6 +11,7 @@ import type {
 
 import { randomUUID } from "node:crypto";
 import { parsePlayerList } from "./player-list.js";
+import { trustedLifecycle } from "./trusted-lifecycle.js";
 
 import {
   isLocalAdapter,
@@ -153,7 +154,7 @@ export class ServerService {
           );
         }
         const safeNoOp =
-          summary.server.type === "vanilla" &&
+          trustedLifecycle(summary.server) &&
           !status.recoveryRequired &&
           status.activeOperationId === null &&
           (
@@ -276,12 +277,12 @@ export class ServerService {
       ? "recovery-required"
       : status.activeOperationId !== null
         ? "operation-active"
-        : server.type !== "vanilla" ? "capability-unsupported" : null;
+        : !trustedLifecycle(server) ? "capability-unsupported" : null;
     const noActiveWorld = this.activeWorldState?.snapshot?.(serverId)?.state === "none";
     const canStart = blockedReason === null && !noActiveWorld && status.state === "stopped" && adapter.plan.eulaAccepted;
     const canStop = blockedReason === null && status.state === "running" && status.ownership === "managed";
     const canCommand = blockedReason === null && status.state === "running" && commandTransport !== "unavailable";
-    const canBackup = blockedReason === null && capabilities.backup &&
+    const canBackup = server.type === "vanilla" && blockedReason === null && capabilities.backup &&
       (status.state === "stopped" || (status.state === "running" && status.ownership === "managed"));
     const readiness: Readiness = {
       start: canStart ? available() : unavailable(
@@ -293,7 +294,7 @@ export class ServerService {
         blockedReason ?? (commandTransport === "unavailable" ? "transport-unavailable" : statusReason(status, "stop"))
       ),
       backup: canBackup ? available() : unavailable(
-        !capabilities.backup ? "capability-unsupported" : blockedReason ?? statusReason(status, "backup")
+        server.type !== "vanilla" || !capabilities.backup ? "capability-unsupported" : blockedReason ?? statusReason(status, "backup")
       ),
       restore: !this.restoreEnabled ? unavailable("feature-not-implemented") : canBackup ? available() : unavailable(blockedReason ?? statusReason(status, "backup")),
       worldChanges: !this.worldCreateEnabled ? unavailable("feature-not-implemented") :

@@ -13,8 +13,10 @@
 - P5.2：有界JAR上传staging/验证/安装，绝不执行或动态加载上传JAR。保护备份在实际安装前完成。安装成功标restartRequired，用户明确选择稍后/立即重启，后者仍走现有显式lifecycle且受门控保护。
 - P5.2 后端核心（2026-10-05）：P5.2a–e 已实现并经独立 Sol High delta Review、1040 项冻结完整回归及 lint/typecheck/build/diff 检查通过。安装要求已停止实例；此切片不实现立即重启 UI。JAR 验证、完整 Paper/Fabric 私有快照、staging、install journal 与启动 reconciliation 详见 [P5.2 收尾记录](./P52_INSTALL_TRANSACTION_2026-10-05.md)。真实 Paper/Fabric 启动验收、UI、Disable/Restore/Trash 仍待后续切片，不能把 Phase 5 标记完成。
 - P5.3 Addon 生命周期核心（2026-10-06）：ENGINEERING PASS。Disable / Enable / Trash / Restore 已有本地受保护 API、opaque ID/revision/idempotency、pinned server-snapshot、durable lifecycle journal、操作中断 startup reconciliation 与独立 Trash 列表；没有永久删除、自动清理、自动启动或重启。Sol High 独立 delta Review 与 57 项专项测试 PASS；完整单 worker 回归 1098/1098、lint/typecheck/build/diff PASS。并行全套曾有 9 个原 5 秒事务测试超时，保留原始失败并在单 worker 无改 timeout 地完整通过。真实 Paper/Fabric 启动验收 NOT RUN；本状态不代表插件/模组已由 Minecraft 加载，也不代表 Phase 5 完成。见 [P5.3 生命周期记录](./P53_ADDON_LIFECYCLE_2026-10-06.md)。
-- P5.4：前端能力驱动列表、名称/版本/文件名/状态/Loader/兼容性、拖拽及点击上传、变更确认与operation跟踪，三宽浏览器验收。
+- P5.4（2026-10-07）：UI FINAL GATE PASS。能力驱动列表、点击/拖拽上传、安装与 Disable/Enable/Trash/Restore 确认、operation跟踪及错误/unknown/recovery门控完成。22专项、三宽正负浏览器、新冻结1133全套与lint/typecheck/build/diff PASS，独立SolHigh P1=0/P2=0/P3=1。无可信操作ID/上传回执的unknown持续锁定为明确非阻塞限制；真实Paper/Fabric NOT RUN，Phase5仍IN PROGRESS。此前1122基线已失效，TS2367和v2回归超时历史保留，详见 [P5.4 Final Gate](./P54_FINAL_GATE_2026-10-07.md)。
 - P5.5：真实隔离Paper/Fabric验收与统一Adapter最终独立SolHigh安全Review、新冻结完整回归。没有实际JAR/已接受EULA及匹配Java证据时真实Gate BLOCKED，不自行下载/接受EULA，不使用用户原世界。
+
+2026-10-07 P5.5 续接：CLI 新冻结 1177 项基线已核验，启动前 harness 两项证据缺口已补齐，3/3 helper/wrapper 回归及独立 Sol High execution-safety delta PASS。当前真实验收仍 BLOCKED：PowerShell `Get-ChildItem Env:` 重复键异常、HRESULT -2147024809，发生在创建隔离目录前；无 Paper/Fabric 启动。普通宿主预检通过后再执行双方 7-start matrix 与最终真实证据 Review。P5.5 PASS 后停止等待用户授权 Phase 5 Final Gate；不进入 Phase 6。详见 [P5.5 问题账本](./P55_ISSUE_LEDGER_2026-10-07.md)。
 
 每切片focused→check→diff→独立Review，通过后下一切片。产品能力仅对已接线且支持的后端开放，不能先宣告完整CRUD。
 

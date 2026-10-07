@@ -35,6 +35,8 @@ export interface RegisteredExecutionIdentity {
   readonly javaSha256: string;
   readonly launcherIdentity: string;
   readonly launcherSha256: string;
+  /** Exact unattended Fabric bundle/loader/classpath binding; never an HTTP DTO. */
+  readonly fabricExecutionSha256?: string | null;
 }
 
 export interface RuntimeOperationContext {

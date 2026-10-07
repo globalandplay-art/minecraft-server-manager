@@ -109,6 +109,8 @@ export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
   const [restartRequired, setRestartRequired] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const terminalHandled = useRef(new Set<string>());
+  const uploadInFlight = useRef(false);
+  const submissionInFlight = useRef(false);
 
   const supportedKind = server?.server.type === 'paper' && server.capabilities.plugins ? 'plugin'
     : server?.server.type === 'fabric' && server.capabilities.mods ? 'mod' : null;
@@ -170,20 +172,24 @@ export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
       const needsRecovery = operation.state === 'interrupted' || operation.error?.code?.includes('RECOVERY_REQUIRED') || statusResult.data?.data.status.recoveryRequired;
       if (needsRecovery) {
         setOperationState({ kind: 'recovery-required', operation, message: '操作中断或需要恢复核验。文件和保护证据由后端保留；禁止重试其他扩展变更。' });
-      } else if (operation.state === 'succeeded' && !listResult.isError && !trashResult.isError) {
+      } else if (listResult.isError || trashResult.isError || statusResult.isError) {
+        setOperationState({ kind: 'outcome-unknown', message: '操作已结束，但当前列表或服务器状态未确认；请刷新状态，不要重复提交。' });
+      } else if (operation.state === 'succeeded' && !listResult.isError && !trashResult.isError && !statusResult.isError) {
         setOperationState({ kind: 'succeeded', operation });
         setRestartRequired(operation.result?.restartRequired === true);
         if (pendingAction?.action.action === 'install') setStaged(null);
         setPendingAction(null);
+        submissionInFlight.current = false;
       } else {
         setOperationState({ kind: 'failed', operation, message: operation.error?.message ?? '操作失败。当前文件状态以刷新后的列表为准。' });
         setPendingAction(null);
+        submissionInFlight.current = false;
       }
       void client.invalidateQueries({ queryKey: ['servers'] });
     });
   }, [operation, operationId, serverId, inventory, trash, status, client, pendingAction]);
 
-  const recoveryRequired = recovery || operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown';
+  const recoveryRequired = recovery || uploadUnknown || operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown';
   const blockedReason = recoveryRequired ? '恢复状态需要核验，扩展变更已锁定。'
     : activeOperation ? '当前实例有其他操作正在进行。'
       : !statusFresh ? '服务器状态尚未确认，请刷新后再操作。'
@@ -191,30 +197,45 @@ export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
           : current.status.ownership !== 'none' ? '服务端进程所有权尚未确认。'
             : !current.readiness.addonChanges.allowed ? current.readiness.addonChanges.reason ?? '后端暂未开放此操作。'
               : !inventoryFresh ? '扩展列表刷新完成前不能确认或提交变更。' : '';
-  const mutationBusy = actionMutation.isPending || operationState.kind === 'submitting' || operationState.kind === 'accepted' ||
-    operationState.kind === 'running' || operationState.kind === 'outcome-unknown' || operationState.kind === 'recovery-required';
+  const mutationBusy = recoveryRequired || actionMutation.isPending || operationState.kind === 'submitting' || operationState.kind === 'accepted' ||
+    operationState.kind === 'running';
+  const uploadBusy = upload.isPending || mutationBusy || Boolean(confirmation);
+  const uploadAdmissionBlocked = uploadBusy || uploadUnknown || recoveryRequired || Boolean(activeOperation);
 
   function selectFile(file?: File) {
-    setUploadError('');
     if (!file) return;
+    if (uploadInFlight.current || submissionInFlight.current || uploadAdmissionBlocked) {
+      return;
+    }
+    setUploadError('');
     if (!/\.jar$/iu.test(file.name) || file.size < 1 || file.size > 64 * 1024 ** 2) {
       setUploadError('请选择非空且不超过 64 MiB 的 .jar 文件。文件内容与元数据由后端校验。'); return;
     }
     if (uploadUnknown || recoveryRequired || activeOperation) { setUploadError(uploadUnknown ? '上次上传结果未确认；请勿重复上传。' : blockedReason); return; }
+    uploadInFlight.current = true;
     setStaged(null);
-    upload.mutate(file, { onSuccess: (result) => setStaged(result.data), onError: (error) => {
+    upload.mutate(file, { onSuccess: (result) => { setStaged(result.data); uploadInFlight.current = false; }, onError: (error) => {
       const definite = error instanceof ApiClientError && error.kind === 'http' && error.status !== undefined && error.status >= 400 && error.status < 500;
-      setUploadUnknown(!definite);
+      const requiresRecovery = error instanceof ApiClientError && Boolean(error.code?.includes('RECOVERY_REQUIRED'));
+      setUploadUnknown(!definite || requiresRecovery);
+      if (definite && !requiresRecovery) uploadInFlight.current = false;
       setUploadError(definite ? errorMessage(error) : `${errorMessage(error)} 暂存结果未确认，请勿自动重试。`);
     } });
   }
   function requestAction(action: ConfirmTarget) {
-    if (recoveryRequired || activeOperation) return;
+    if (recoveryRequired || activeOperation || uploadInFlight.current || uploadBusy || submissionInFlight.current) return;
     if (action.action !== 'install' && !mutationReady) return;
     if (action.action === 'install' && !mutationReady) return;
     setConfirmation(action); setOperationState({ kind: 'confirming' });
   }
-  async function refreshAll() { await Promise.all([inventory.refetch(), trash.refetch(), status.refetch()]); }
+  async function refreshAll() {
+    const results = await Promise.all([inventory.refetch(), trash.refetch(), status.refetch()]);
+    if (operationId && operationState.kind === 'outcome-unknown' && results.every((result) => !result.isError)) {
+      terminalHandled.current.delete(operationId);
+      setOperationState({ kind: 'accepted', operationId });
+      await operationQuery.refetch();
+    }
+  }
 
   if (!server) return <div className="page-stack"><PageHeading eyebrow="ADDON MANAGEMENT" title={title} /><EmptyState title="请选择服务器" description="选择由后端识别的 Paper 或 Fabric 实例后查看扩展。" /></div>;
   if (!supported) return <div className="page-stack"><PageHeading eyebrow="ADDON MANAGEMENT" title={title} description="服务端类型和能力来自后端注册信息。" />
@@ -231,13 +252,13 @@ export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
     <section className="panel addon-upload">
       <div className="addon-section-heading"><div><span className="eyebrow">VALIDATED STAGING</span><h2>上传 .jar</h2></div><Upload size={20} aria-hidden="true" /></div>
       <p className="muted">上传后由后端检查 JAR 结构和扩展元数据。校验通过才可安装；上传不会自动安装、停服或重启。</p>
-      <div className={`addon-dropzone ${dropActive ? 'addon-dropzone--active' : ''}`} onDragEnter={(event) => { event.preventDefault(); setDropActive(true); }}
+      <div className={`addon-dropzone ${dropActive ? 'addon-dropzone--active' : ''}`} aria-disabled={uploadAdmissionBlocked} onDragEnter={(event) => { event.preventDefault(); if (!uploadAdmissionBlocked && !uploadInFlight.current && !submissionInFlight.current) setDropActive(true); }}
         onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropActive(false); }}
         onDrop={(event) => { event.preventDefault(); setDropActive(false); selectFile(event.dataTransfer.files.length === 1 ? event.dataTransfer.files[0] : undefined); }}>
         <input ref={fileInput} className="sr-only" type="file" accept=".jar,application/java-archive" aria-label="选择扩展 JAR 文件"
-          disabled={upload.isPending || uploadUnknown || recoveryRequired || Boolean(activeOperation)} onChange={(event) => { selectFile(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
+          disabled={uploadAdmissionBlocked} onChange={(event) => { selectFile(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
         <p>拖入一个 JAR 文件，或通过按钮选择</p>
-        <button className="button button--secondary" disabled={upload.isPending || uploadUnknown || recoveryRequired || Boolean(activeOperation)} onClick={() => fileInput.current?.click()}>选择 .jar 文件</button>
+        <button className="button button--secondary" disabled={uploadAdmissionBlocked} onClick={() => { if (!uploadAdmissionBlocked && !uploadInFlight.current && !submissionInFlight.current) fileInput.current?.click(); }}>选择 .jar 文件</button>
       </div>
       {upload.isPending ? <p role="status" aria-live="polite">正在上传并校验…</p> : null}
       {uploadError ? <p className="inline-warning" role="alert">{uploadError}</p> : null}
@@ -272,7 +293,7 @@ export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
           </div>)}</div>}
     </section>
 
-    {operationId ? <section className={`addon-banner ${operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown' ? 'addon-banner--danger' : ''}`}
+    {operationId || operationState.kind === 'failed' || operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown' ? <section className={`addon-banner ${operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown' || operationState.kind === 'failed' ? 'addon-banner--danger' : ''}`}
       role={operationState.kind === 'failed' || operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown' ? 'alert' : 'status'} aria-live="polite">
       <strong>{operationState.kind === 'accepted' ? '请求已受理，尚未确认完成' : operationState.kind === 'running' ? '扩展操作进行中' : operationState.kind === 'succeeded' ? '操作完成，列表已刷新' : operationState.kind === 'failed' ? '扩展操作失败' : operationState.kind === 'recovery-required' ? '操作需要恢复核验' : operationState.kind === 'outcome-unknown' ? '请求结果未确认' : '正在读取操作结果'}</strong>
       {operation ? <p>{operation.step} · {operation.progress === null ? '进度未知' : `${operation.progress}%`}{operation.result?.restartRequired ? ' · 需要重启才能生效' : ''}</p> : null}
@@ -282,7 +303,8 @@ export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
     </section> : null}
     {actionMutation.isError && operationState.kind === 'idle' ? <p role="alert" className="inline-warning">{errorMessage(actionMutation.error)}</p> : null}
     {confirmation ? <ActionConfirmation target={confirmation} busy={actionMutation.isPending} onCancel={() => { setConfirmation(null); setOperationState({ kind: 'idle' }); }} onConfirm={() => {
-      if (!serverId || !mutationReady || recoveryRequired) return;
+      if (!serverId || !mutationReady || recoveryRequired || submissionInFlight.current || uploadInFlight.current || actionMutation.isPending) return;
+      submissionInFlight.current = true;
       const next = { action: confirmation, key: crypto.randomUUID() } satisfies PendingAction;
       setOperationId(undefined); setPendingAction(next); setConfirmation(null); setOperationState({ kind: 'submitting' });
       actionMutation.mutate(next, { onSuccess: (response) => {
@@ -298,6 +320,7 @@ export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
         else if (error instanceof ApiClientError && error.code?.includes('RECOVERY_REQUIRED')) setOperationState({ kind: 'recovery-required', message: errorMessage(error) });
         else setOperationState({ kind: 'failed', message: errorMessage(error) });
         if (definite) setPendingAction(null);
+        if (definite && !(error instanceof ApiClientError && error.code?.includes('RECOVERY_REQUIRED'))) submissionInFlight.current = false;
         void Promise.all([inventory.refetch(), trash.refetch(), status.refetch()]);
       } });
     }} /> : null}

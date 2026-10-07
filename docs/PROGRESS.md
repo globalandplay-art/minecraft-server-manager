@@ -1,5 +1,23 @@
 # 实施进度
 
+### 2026-10-07 P5.5 Desktop 续接 — 启动前审查 PASS，宿主预检 BLOCKED
+
+恢复 CLI 新冻结 1177 项 PASS（contracts6/API1040/Web131、check exit0）及 focused v4 77/77、manifest v7 44/44，不重跑已有效产品基线。补齐验收脚本两项 P2：当前 session 唯一 marker + 原生加载证据；完整 pinned guard/实际文件效果/无关文件/restartRequired 与 Manager 重建后新 journal/同 key 成功状态复核。新增 helper/wrapper 3/3 PASS；独立 Sol High 启动安全 delta PASS，P1=0/P2=0，仅为启动前签核。
+
+Paper 只读 PreflightOnly 在创建隔离根之前 BLOCKED：`Get-ChildItem Env:` 抛出重复键 `System.ArgumentException`，HRESULT `-2147024809 (0x80070057)`。这是当前宿主上下文前置条件错误；未改系统环境、未启动 Paper/Fabric、未触碰来源世界。真实 7-start matrix 及最终真实证据独立 Review 均 NOT RUN，P5.5/Phase5 未完成。下一步在普通宿主 PowerShell 核验环境枚举及 wrapper 预检，通过后才运行 fresh UUID 验收。无 commit/push/PR，详见 [P5.5 问题账本](./P55_ISSUE_LEDGER_2026-10-07.md)。下方历史检查点保持原状。
+
+### 2026-10-07 P5.4 Final Gate — PASS
+
+两个原 P2（operationId 前错误隐藏、上传重复 admission）及独立复审补充的同步事件竞态、unknown/recovery 全入口锁、三路终态 fresh 核验已修复。Addons focused 22/22、affected Web 23/23、Addon API 79/79 PASS；360 Paper / 768 Fabric / 1440 Paper 浏览器正向六种 POST 各一次及 pending 双 drop、409、网络 unknown 负向 PASS，helpersClosed/portsFree=true。新冻结单 worker check v3 exit0：contracts 6 + API 996 + Web 131 = 1133 PASS；lint/typecheck/build/diff PASS。独立 GPT-6.1 Sol / High 最终 delta Review PASS，P1=0、P2=0、P3=1（无可信回执的 unknown 持续锁定，普通刷新不能证明未提交）；bundle >500 kB 为非阻塞限制。
+
+此前1122基线因新产品修复 INVALIDATED；首轮 TS2367 与 v2 两项旧 Restore 原5000ms超时/exit1保留。未改 timeout/断言/后端事务；四checkpoint定点诊断4/4及v3全套996/996通过，不改写历史失败。真实 Paper/Fabric NOT RUN、用户原世界 UNTOUCHED、Phase 5 IN PROGRESS。未commit/push/PR/merge；本轮结束，下一步仅在新授权任务中进入 P5.5 真实隔离验收准备。见 [P5.4 Final Gate](./P54_FINAL_GATE_2026-10-07.md)。下方保留历史检查点。
+
+### 2026-10-06 P5.4 UI P2 收尾修复 — 工程与浏览器回归通过
+
+针对 P5.4 Review 的两个 P2 完成最小范围修复：失败或结果不确定的生命周期请求即使尚未取得 operationId 也会持续显示错误/恢复提示；上传进行中、确认对话框打开或其他扩展变更忙碌时，拖拽与文件选择均拒绝第二次上传。新增组件边界测试，Addons 专项 11/11 PASS；P5.4 浏览器合成验收 360/768/1440 三档 PASS，helpers 已关闭且端口已释放。新的单 worker `npm.cmd run check`：contracts 6 + API 996 + Web 120 = 1122 PASS，lint、typecheck、production build、`git diff --check` PASS。Build 仅保留既有 bundle size warning。
+
+本轮只修改 `apps/web/src/pages/Addons.tsx` 与 `apps/web/src/pages/Addons.test.tsx`，未修改 P5.2/P5.3 事务语义。P5.4 仍需独立 delta Review 及 Phase 5 P5.5 真实隔离 Paper/Fabric 加载验收，不能标记 Phase 5 Final PASS。
+
 ### 2026-10-06 P5.3 Addon Lifecycle Core — ENGINEERING PASS
 
 Disable、Enable、软删除到受控 Trash、从 Trash 恢复（保留原 enabled/disabled 状态）已接入受信 Paper/Fabric 实例的 API 与 durable operation/journal。生命周期写操作在停止且无恢复锁的实例中创建完整 pinned 私有快照；同卷无覆盖 hardlink 发布后受控 unlink，逐步记录意图、物理身份、哈希与回收凭证。没有永久删除、自动清理、隐式启动或重启。Trash 独立查询，恢复记录消费后继续通过 journal 化的后继移动验证。

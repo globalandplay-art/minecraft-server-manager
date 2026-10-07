@@ -3,6 +3,8 @@ import path from "node:path";
 
 import type { ValidatedLaunchPlan } from "../infra/runtime-contract.js";
 import { detectServer } from "../services/detection-service.js";
+import { captureFabricLaunchBinding } from "../services/fabric-launch-binding.js";
+import { assertJavaEnvironment, trustedLifecycle } from "../services/trusted-lifecycle.js";
 import { DomainError } from "../services/domain-errors.js";
 import { TransactionJournalStore } from "../services/transaction-journal.js";
 import { assertPropertiesBootstrapSafety } from "../services/properties-bootstrap.js";
@@ -33,14 +35,15 @@ export interface ValidatedRegistration {
   readonly identity?: import("../infra/runtime-contract.js").RegisteredExecutionIdentity;
 }
 
-async function executionIdentity(paths: { rootPath: string; jarPath: string; javaExecutable: string }) {
+async function executionIdentity(paths: { rootPath: string; jarPath: string; javaExecutable: string }, bindFabric: boolean) {
   const [rootIdentity, launcher, java] = await Promise.all([
     backupDirectoryIdentity(paths.rootPath),
     readPrivatePropertiesFile(paths.jarPath, 64 * 1024 ** 2),
     readPrivatePropertiesFile(paths.javaExecutable, 128 * 1024 ** 2)
   ]);
   return { rootIdentity, launcherIdentity: launcher.identity, launcherSha256: launcher.checksum,
-    javaIdentity: java.identity, javaSha256: java.checksum };
+    javaIdentity: java.identity, javaSha256: java.checksum,
+    fabricExecutionSha256: bindFabric ? (await captureFabricLaunchBinding(paths.rootPath, paths.jarPath)).identitySha256 : null };
 }
 
 export interface RawServerConfig {
@@ -278,6 +281,7 @@ function parsePort(value: string | undefined, fallback: number): number {
 }
 
 async function validateRegistration(config: RawServerConfig): Promise<ValidatedRegistration> {
+  assertJavaEnvironment();
   const paths = await validatePaths(config);
   const state = await readServerState(paths.rootPath);
   const serverInfo = await detectServer({
@@ -287,7 +291,7 @@ async function validateRegistration(config: RawServerConfig): Promise<ValidatedR
     javaExecutable: paths.javaExecutable,
     rootPath: paths.rootPath
   });
-  const registeredIdentity = await executionIdentity(paths);
+  const registeredIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo));
   const configuredHost = state.properties.get("server-ip") ?? "";
   if (!["", "127.0.0.1", "localhost"].includes(configuredHost)) {
     serverInfo.detection.warnings.push("Minecraft 当前可能监听非本地地址");
@@ -311,6 +315,7 @@ async function validateRegistration(config: RawServerConfig): Promise<ValidatedR
   }
 
   const revalidateBeforeStart = async () => {
+    assertJavaEnvironment();
     const currentPaths = await validatePaths(config);
     if (
       normalized(currentPaths.rootPath) !== normalized(paths.rootPath) ||
@@ -340,7 +345,7 @@ async function validateRegistration(config: RawServerConfig): Promise<ValidatedR
       javaExecutable: paths.javaExecutable,
       rootPath: paths.rootPath
     });
-    const currentIdentity = await executionIdentity(paths);
+    const currentIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo));
     if (JSON.stringify(currentIdentity) !== JSON.stringify(registeredIdentity)) {
       throw new DomainError(409, "ACTION_UNAVAILABLE", "服务端根目录、Java或启动JAR在注册后发生变化", "execution-identity-changed");
     }
@@ -359,7 +364,7 @@ async function validateRegistration(config: RawServerConfig): Promise<ValidatedR
     }
     const currentMajor = runtimeMajor(currentDetection.java.runtimeVersion);
     if (
-      currentDetection.type !== "vanilla" ||
+      !trustedLifecycle(currentDetection) ||
       currentMajor === null ||
       (currentDetection.java.requiredMajor !== null && currentMajor < currentDetection.java.requiredMajor)
     ) {

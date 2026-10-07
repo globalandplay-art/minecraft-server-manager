@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import type { MetricSource, Metrics, ServerStatus } from "@mcsm/contracts";
 
+import { assertJavaEnvironment } from "../../services/trusted-lifecycle.js";
 import type {
   MinecraftRuntime,
   PrivateRconConnection,
@@ -249,6 +250,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     this.updateStatus("starting", "managed", context.operationId, false);
     let child: ChildProcessWithoutNullStreams;
     try {
+      assertJavaEnvironment();
       child = this.spawnProcess(this.plan.javaExecutable, this.plan.argv, {
         cwd: this.plan.rootPath,
         shell: false,

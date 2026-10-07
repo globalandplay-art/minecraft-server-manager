@@ -7,6 +7,8 @@ import type { ServerInfo } from "@mcsm/contracts";
 import { backupDirectoryIdentity } from "../src/services/backup-identity.js";
 import { readPrivatePropertiesFile } from "../src/services/properties-private-file.js";
 import { assertAddonAdapterIdentity, captureAddonAdapterIdentity } from "../src/services/addon-adapter-identity.js";
+import { captureFabricLaunchBinding } from "../src/services/fabric-launch-binding.js";
+import { fabricLaunchFixture } from "./helpers/fabric-launch.js";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -16,14 +18,14 @@ const info: ServerInfo = { id: "test", name: "test", type: "fabric", minecraftVe
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), "mcsm-addon-identity-")); roots.push(root);
   const javaExecutable = path.join(root, "java.exe"), jarPath = path.join(root, "launcher.jar");
-  await writeFile(javaExecutable, "verified java placeholder"); await writeFile(jarPath, "verified server launcher placeholder");
+  await writeFile(javaExecutable, "verified java placeholder"); await fabricLaunchFixture(root);
   await mkdir(path.join(root, "mods"));
   const java = await readPrivatePropertiesFile(javaExecutable), jar = await readPrivatePropertiesFile(jarPath);
   const registered = { rootIdentity: await backupDirectoryIdentity(root), javaIdentity: java.identity, javaSha256: java.checksum,
-    launcherIdentity: jar.identity, launcherSha256: jar.checksum };
+    launcherIdentity: jar.identity, launcherSha256: jar.checksum, fabricExecutionSha256: (await captureFabricLaunchBinding(root, jarPath)).identitySha256 };
   const adapter = { mode: "local", serverId: "test", plan: { rootPath: root, jarPath, javaExecutable, name: "test", serverInfo: info },
     getRegisteredExecutionIdentity: () => registered } as unknown as LocalMinecraftServerAdapter;
-  return { root, jarPath, adapter, detect: async () => structuredClone(info) };
+  return { root, jarPath, adapter, registered, detect: async () => structuredClone(info) };
 }
 
 it("binds Paper/Fabric evidence to registered root, Java and launcher file identities", async () => {
@@ -49,4 +51,12 @@ it("refuses missing registration identity and unreliable version/runtime evidenc
   await expect(captureAddonAdapterIdentity(unbound, f.detect)).rejects.toMatchObject({ code: "ADDON_ADAPTER_UNTRUSTED" });
   const unknown = async () => ({ ...structuredClone(info), minecraftVersion: null, detection: { ...info.detection, confidence: "medium" as const } });
   await expect(captureAddonAdapterIdentity(f.adapter, unknown)).rejects.toMatchObject({ code: "ADDON_ADAPTER_UNTRUSTED" });
+});
+it("refuses absent or null Fabric execution binding rather than upgrading a historical registration", async () => {
+  const f = await fixture();
+  const missing = { ...f.registered, fabricExecutionSha256: undefined };
+  const adapter = { ...f.adapter, getRegisteredExecutionIdentity: () => missing } as LocalMinecraftServerAdapter;
+  await expect(captureAddonAdapterIdentity(adapter, f.detect)).rejects.toMatchObject({ code: "ADDON_ADAPTER_UNTRUSTED" });
+  const nulled = { ...f.adapter, getRegisteredExecutionIdentity: () => ({ ...f.registered, fabricExecutionSha256: null }) } as LocalMinecraftServerAdapter;
+  await expect(captureAddonAdapterIdentity(nulled, f.detect)).rejects.toMatchObject({ code: "ADDON_ADAPTER_UNTRUSTED" });
 });

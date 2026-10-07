@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AddonTrashResponse, AddonsResponse, AddonUploadResponse, LifecycleActionResponse, Operation, ServerResponse, ServersResponse } from '@mcsm/contracts';
 import { api, ApiClientError } from '../api';
@@ -90,6 +90,25 @@ describe('P5.4 addon management UI', () => {
     expect(api.uploadAddon).toHaveBeenCalledTimes(1);
   });
 
+  it('does not submit a second dropped file while an upload is pending', async () => {
+    let finishUpload!: (response: AddonUploadResponse) => void;
+    vi.mocked(api.uploadAddon).mockImplementation(() => new Promise((resolve) => { finishUpload = resolve; }));
+    show();
+    const input = await screen.findByLabelText('选择扩展 JAR 文件');
+    const first = new File(['first'], 'first.jar', { type: 'application/java-archive' });
+    fireEvent.change(input, { target: { files: [first] } });
+    await waitFor(() => expect(api.uploadAddon).toHaveBeenCalledTimes(1));
+
+    const dropzone = input.closest('.addon-dropzone');
+    expect(dropzone).not.toBeNull();
+    fireEvent.drop(dropzone!, { dataTransfer: { files: [new File(['second'], 'second.jar', { type: 'application/java-archive' })] } });
+
+    expect(api.uploadAddon).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('正在上传并校验');
+    finishUpload(stagedResponse());
+    expect(await screen.findByText('Ready to install')).toBeInTheDocument();
+  });
+
   it('requires install confirmation and tracks the accepted operation without retry or automatic restart', async () => {
     show();
     fireEvent.change(await screen.findByLabelText('选择扩展 JAR 文件'), { target: { files: [new File(['jar bytes'], 'fresh.jar')] } });
@@ -149,6 +168,120 @@ describe('P5.4 addon management UI', () => {
     expect(await screen.findByRole('heading', { name: 'Test Addon' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '禁用' })).toBeDisabled();
     expect(api.mutateAddon).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a definite revision conflict', new ApiClientError('revision conflict', 'http', 409, 'ADDON_REVISION_CONFLICT'), 'revision conflict'],
+    ['a validation rejection', new ApiClientError('invalid request', 'http', 400, 'VALIDATION_ERROR'), 'invalid request'],
+    ['an ambiguous transport failure', new ApiClientError('connection lost', 'network'), '请求结果未确认'],
+    ['a timeout', new ApiClientError('request timeout', 'network'), '请求结果未确认'],
+    ['a lost accepted response', new ApiClientError('invalid response', 'schema', 202), '请求结果未确认'],
+    ['a recovery rejection', new ApiClientError('recovery needed', 'http', 409, 'ADDON_RECOVERY_REQUIRED'), 'recovery needed'],
+  ])('keeps mutation errors visible without an accepted operation ID after %s', async (_case, error, expected) => {
+    vi.mocked(api.mutateAddon).mockRejectedValue(error);
+    show();
+    await screen.findByRole('heading', { name: 'Test Addon' });
+    fireEvent.click(screen.getByRole('button', { name: '禁用' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认操作' }));
+
+    await waitFor(() => expect(screen.getAllByRole('alert').some((alert) => alert.textContent?.includes(expected))).toBe(true));
+    expect(api.mutateAddon).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '刷新状态' })).toBeEnabled();
+    const locked = error.kind !== 'http' || error.code?.includes('RECOVERY_REQUIRED');
+    if (locked) {
+      expect(screen.getByRole('button', { name: '禁用' })).toBeDisabled();
+      const input = screen.getByLabelText('选择扩展 JAR 文件');
+      expect(input).toBeDisabled();
+      fireEvent.drop(input.closest('.addon-dropzone')!, { dataTransfer: { files: [new File(['jar'], 'blocked.jar')] } });
+      expect(api.uploadAddon).not.toHaveBeenCalled();
+    }
+  });
+
+  it('admits one upload for same-render repeated drops and file selection, then allows an explicit next upload', async () => {
+    let finishUpload!: (response: AddonUploadResponse) => void;
+    vi.mocked(api.uploadAddon).mockImplementationOnce(() => new Promise((resolve) => { finishUpload = resolve; }));
+    show();
+    const input = await screen.findByLabelText('选择扩展 JAR 文件');
+    const zone = input.closest('.addon-dropzone')!;
+    const file = new File(['jar'], 'one.jar');
+    act(() => {
+      fireEvent.drop(zone, { dataTransfer: { files: [file] } });
+      fireEvent.drop(zone, { dataTransfer: { files: [new File(['jar'], 'two.jar')] } });
+      fireEvent.change(input, { target: { files: [new File(['jar'], 'three.jar')] } });
+    });
+    await waitFor(() => expect(api.uploadAddon).toHaveBeenCalledTimes(1));
+    expect(api.uploadAddon).toHaveBeenCalledWith('test', file);
+    expect(zone).toHaveAttribute('aria-disabled', 'true');
+    finishUpload(stagedResponse());
+    await screen.findByText('Fresh Addon');
+    await waitFor(() => expect(input).toBeEnabled());
+    fireEvent.change(input, { target: { files: [new File(['next'], 'next.jar')] } });
+    await waitFor(() => expect(api.uploadAddon).toHaveBeenCalledTimes(2));
+  });
+
+  it.each([
+    ['unknown', new ApiClientError('lost upload response', 'network'), false],
+    ['recovery', new ApiClientError('upload recovery', 'http', 409, 'ADDON_RECOVERY_REQUIRED'), false],
+    ['rejected', new ApiClientError('invalid jar', 'http', 400, 'ADDON_INVALID'), true],
+  ])('retains the upload admission policy after an %s upload', async (_case, error, retryAllowed) => {
+    vi.mocked(api.uploadAddon).mockRejectedValueOnce(error);
+    show();
+    const input = await screen.findByLabelText('选择扩展 JAR 文件');
+    const zone = input.closest('.addon-dropzone')!;
+    fireEvent.change(input, { target: { files: [new File(['jar'], 'first.jar')] } });
+    await screen.findByText(new RegExp(error.message));
+    if (!retryAllowed) {
+      expect(input).toBeDisabled();
+      expect(screen.getByRole('button', { name: '禁用' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '刷新状态' })).toBeEnabled();
+    }
+    else await waitFor(() => expect(input).toBeEnabled());
+    fireEvent.drop(zone, { dataTransfer: { files: [new File(['next'], 'next.jar')] } });
+    await waitFor(() => expect(api.uploadAddon).toHaveBeenCalledTimes(retryAllowed ? 2 : 1));
+  });
+
+  it('blocks drops during a backend active operation', async () => {
+    const busy = summary('paper', { activeOperationId: 'operation-busy' });
+    vi.mocked(api.server).mockResolvedValue({ meta, data: busy } as ServerResponse);
+    show(busy);
+    const input = await screen.findByLabelText('选择扩展 JAR 文件');
+    fireEvent.drop(input.closest('.addon-dropzone')!, { dataTransfer: { files: [new File(['jar'], 'blocked.jar')] } });
+    expect(input).toBeDisabled();
+    expect(api.uploadAddon).not.toHaveBeenCalled();
+  });
+
+  it('locks malformed accepted operations without starting operation tracking', async () => {
+    vi.mocked(api.mutateAddon).mockResolvedValue(actionResponse({ ...operation(), serverId: 'other-server' }));
+    show();
+    await screen.findByRole('heading', { name: 'Test Addon' });
+    fireEvent.click(screen.getByRole('button', { name: '禁用' }));
+    const confirm = await screen.findByRole('button', { name: '确认操作' });
+    act(() => { fireEvent.click(confirm); fireEvent.click(confirm); });
+    await screen.findByText('受理响应无法与本实例匹配。禁止重复提交，请刷新状态。');
+    expect(api.mutateAddon).toHaveBeenCalledTimes(1);
+    expect(api.operation).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '禁用' })).toBeDisabled();
+  });
+
+  it('keeps a succeeded receipt unconfirmed when status refresh fails, then reconciles on explicit refresh', async () => {
+    vi.mocked(api.operation).mockImplementation(async () => {
+      vi.mocked(api.server).mockRejectedValue(new ApiClientError('status unavailable', 'network'));
+      return { meta, data: operation('succeeded') };
+    });
+    show();
+    await screen.findByRole('heading', { name: 'Test Addon' });
+    fireEvent.click(screen.getByRole('button', { name: '禁用' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认操作' }));
+    await screen.findByText('操作已结束，但当前列表或服务器状态未确认；请刷新状态，不要重复提交。');
+    expect(screen.queryByText('操作完成，列表已刷新')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '禁用' })).toBeDisabled();
+    vi.mocked(api.server).mockResolvedValue({ meta, data: summary() } as ServerResponse);
+    vi.mocked(api.operation).mockResolvedValue({ meta, data: operation('succeeded') });
+    await waitFor(() => expect(screen.getByRole('button', { name: '刷新状态' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: '刷新状态' }));
+    await screen.findByText('操作完成，列表已刷新');
+    expect(api.mutateAddon).toHaveBeenCalledTimes(1);
   });
 
   it('does not show a cached addon list as current after list failure', async () => {

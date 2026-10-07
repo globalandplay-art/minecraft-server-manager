@@ -56,7 +56,7 @@ async function viteReady(helper, port) {
 }
 
 function envelope(data) { return { data, meta: { requestId: 'p54-synthetic', generatedAt: new Date().toISOString(), mode: 'local' } }; }
-function makeFixture(type) {
+function makeFixture(type, controls = {}) {
   const id = `p54-${type}`;
   let revision = 'a'.repeat(64);
   let itemId = 'b'.repeat(64);
@@ -99,6 +99,7 @@ function makeFixture(type) {
     if (method === 'GET' && path === `/servers/${id}/addons`) return reply(200, envelope(addonData()));
     if (method === 'GET' && path === `/servers/${id}/addons/trash`) return reply(200, envelope(trashData()));
     if (method === 'POST' && path === `/servers/${id}/addons/uploads`) {
+      if (controls.uploadWait) await controls.uploadWait;
       assert.equal(request.headers()['content-type'], 'application/java-archive');
       assert.equal(decodeURIComponent(request.headers()['x-upload-filename']), 'acceptance.jar');
       assert((request.postDataBuffer()?.length ?? 0) > 0);
@@ -109,6 +110,8 @@ function makeFixture(type) {
     }
     const mutation = method === 'POST' && path.match(new RegExp(`^/servers/${id}/addons/(install|[a-f0-9]{64}/(?:disable|enable|trash)|trash/[0-9a-f-]+/restore)$`));
     if (mutation) {
+      if (controls.rejection) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'ADDON_REVISION_CONFLICT', message: 'Browser revision conflict' }, meta: envelope({}).meta }) });
+      if (controls.networkFailure) return route.abort('failed');
       assert.equal(request.headers()['x-manager-intent'], 'local-ui');
       assert(request.headers()['idempotency-key']);
       const action = mutation[1];
@@ -238,6 +241,41 @@ try {
         assert((await page.evaluate(() => document.documentElement.scrollWidth)) <= width + 1, `horizontal overflow at ${width}px`);
         await page.screenshot({ path: `test-results/p54-addons-${width}.png`, fullPage: true });
         report.viewports.push({ width, type, result: 'PASS' });
+        for (const scenario of ['pending-upload', 'rejection', 'network-failure']) {
+          let release;
+          const controls = scenario === 'pending-upload' ? { uploadWait: new Promise((resolve) => { release = resolve; }) }
+            : scenario === 'rejection' ? { rejection: true } : { networkFailure: true };
+          const negative = makeFixture(type, controls);
+          await context.unroute('**/api/v1/**');
+          await context.route('**/api/v1/**', (route) => negative.handle(route));
+          await page.reload();
+          await expect(page.getByRole('heading', { name: 'Acceptance Addon' })).toBeVisible();
+          if (scenario === 'pending-upload') {
+            await page.getByLabel('选择扩展 JAR 文件').setInputFiles({ name: 'acceptance.jar', mimeType: 'application/java-archive', buffer: Buffer.from('synthetic') });
+            await expect.poll(() => negative.requests.filter((r) => r.method === 'POST').length).toBe(1);
+            await page.locator('.addon-dropzone').evaluate((zone) => {
+              const transfer = new DataTransfer(); transfer.items.add(new File(['extra'], 'extra.jar'));
+              zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+              zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+            });
+            await expect(page.locator('.addon-dropzone')).toHaveAttribute('aria-disabled', 'true');
+            release();
+            await expect(page.getByText('Ready to install')).toBeVisible();
+            assert.equal(negative.requests.filter((r) => r.method === 'POST').length, 1);
+          } else {
+            await page.getByRole('button', { name: '禁用' }).click();
+            await page.getByRole('alertdialog').getByRole('button', { name: '确认操作' }).click();
+            await expect(page.getByRole('alert').filter({ hasText: scenario === 'rejection' ? 'Browser revision conflict' : '请求结果未确认' })).toBeVisible();
+            await expect(page.getByRole('button', { name: '刷新状态' })).toBeEnabled();
+            if (scenario === 'network-failure') {
+              await expect(page.getByRole('button', { name: '禁用' })).toBeDisabled();
+              await expect(page.getByLabel('选择扩展 JAR 文件')).toBeDisabled();
+            }
+            assert.equal(negative.requests.filter((r) => r.method === 'POST').length, 1);
+          }
+          assert.equal(negative.requests.filter((r) => r.forbiddenLifecycleMutation).length, 0);
+          assert.deepEqual(pageErrors, []);
+        }
         console.log(`PASS: P5.4 ${type} addon browser flow at ${width}px`);
       } finally { await context.close(); }
     }

@@ -7,6 +7,7 @@ import type { Clock } from "../src/clock.js";
 import { OperationService } from "../src/services/operation-service.js";
 import { MemoryOperationStore, type OperationStore, type StoredOperation } from "../src/services/operation-store.js";
 import { ServerService } from "../src/services/server-service.js";
+import { assertJavaEnvironment, trustedLifecycle } from "../src/services/trusted-lifecycle.js";
 
 const clock: Clock = { now: () => new Date("2026-09-28T00:00:00.000Z") };
 
@@ -68,6 +69,39 @@ async function createService(
 }
 
 describe("ServerService lifecycle no-op contract", () => {
+  it.each(["paper", "fabric"] as const)("allows trusted %s lifecycle and commands while retaining Vanilla world gates", async (type) => {
+    const fixture = createAdapter(status("stopped", "none"), type);
+    fixture.adapter.plan.serverInfo.detection.evidence = type === "paper" ? ["paperclip-main-class", "jar-version-json"] : ["fabric-launcher-main-class", "fabric-execution-binding"];
+    const service = await createService(fixture.adapter);
+    const summary = await service.get("local-test");
+    expect(summary.readiness.start.allowed).toBe(true);
+    expect(summary.readiness.backup.allowed).toBe(false); expect(summary.readiness.restore.allowed).toBe(false); expect(summary.readiness.worldChanges.allowed).toBe(false);
+    const started = await service.requestLifecycle("local-test", "start", "123e4567-e89b-42d3-a456-426614174000");
+    await vi.waitFor(() => expect(service.getOperation(started.id).state).toBe("succeeded"));
+    expect(fixture.adapter.revalidateBeforeStart).toHaveBeenCalledOnce(); expect(fixture.start).toHaveBeenCalledOnce();
+    fixture.setStatus(status("running", "managed"));
+    expect((await service.get("local-test")).readiness.restart.allowed).toBe(true);
+    await expect(service.sendCommand("local-test", "list")).resolves.toMatchObject({ response: "ok" });
+    const noOp = await service.requestLifecycle("local-test", "start", "223e4567-e89b-42d3-a456-426614174000");
+    await vi.waitFor(() => expect(service.getOperation(noOp.id).state).toBe("succeeded"));
+    expect(fixture.start).toHaveBeenCalledOnce();
+    fixture.setStatus(status("stopped", "none"));
+    const stop = await service.requestLifecycle("local-test", "stop", "323e4567-e89b-42d3-a456-426614174000");
+    await vi.waitFor(() => expect(service.getOperation(stop.id).state).toBe("succeeded")); expect(fixture.stop).not.toHaveBeenCalled();
+  });
+  it.each(["external", "unknown", "recovery"])("keeps trusted Fabric gated for %s ownership/state", async (change) => {
+    const fixture = createAdapter(change === "external" ? status("running", "external") : change === "unknown" ? status("unknown", "unknown") : { ...status("stopped", "none"), recoveryRequired: true }, "fabric");
+    fixture.adapter.plan.serverInfo.detection.evidence = ["fabric-launcher-main-class", "fabric-execution-binding"];
+    const service = await createService(fixture.adapter);
+    await expect(service.requestLifecycle("local-test", "start", "123e4567-e89b-42d3-a456-426614174000")).rejects.toThrow();
+    expect(fixture.start).not.toHaveBeenCalled();
+  });
+  it("rejects mixed-case Java override names without accepting whitespace values", () => {
+    expect(() => assertJavaEnvironment({ java_tool_options: " " })).toThrow();
+    expect(() => assertJavaEnvironment({ CLASSPATH: "" })).not.toThrow();
+    const f = createAdapter(status("stopped", "none"), "fabric");
+    expect(trustedLifecycle(f.adapter.plan.serverInfo)).toBe(false);
+  });
   it("advertises Addon readiness only for supported, configured, safely stopped local adapters", async () => {
     const paper = createAdapter(status("stopped", "none"), "paper");
     const paperService = await createService(paper.adapter, new MemoryOperationStore(), undefined, true);

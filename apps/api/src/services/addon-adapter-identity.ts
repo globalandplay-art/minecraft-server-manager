@@ -6,6 +6,7 @@ import { DomainError } from "./domain-errors.js";
 import { backupDirectoryIdentity } from "./backup-identity.js";
 import { readPrivatePropertiesFile } from "./properties-private-file.js";
 import { detectServer } from "./detection-service.js";
+import { captureFabricLaunchBinding } from "./fabric-launch-binding.js";
 
 const denied = () => new DomainError(409, "ADDON_ADAPTER_UNTRUSTED", "服务端身份未能安全核验", "addon-adapter-untrusted");
 const normal = (value: string) => process.platform === "win32" ? value.toLowerCase() : value;
@@ -48,6 +49,9 @@ export async function captureAddonAdapterIdentity(
       detected.minecraftVersion !== plan.serverInfo.minecraftVersion || detected.java.requiredMajor !== plan.serverInfo.java.requiredMajor) throw denied();
     const registration = adapter.getRegisteredExecutionIdentity?.();
     if (!registration || registration.rootIdentity !== rootIdentity) throw denied();
+    if (type === "fabric") {
+      if (!registration.fabricExecutionSha256 || (await captureFabricLaunchBinding(root, launcher)).identitySha256 !== registration.fabricExecutionSha256) throw denied();
+    }
     const match = /^(?:1\.)?(\d+)/u.exec(detected.java.runtimeVersion);
     const javaMajor = match ? Number(match[1]) : NaN;
     if (!Number.isSafeInteger(javaMajor) || javaMajor < detected.java.requiredMajor) throw denied();

@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process";
-import { lstat, readdir, realpath } from "node:fs/promises";
 import { promisify } from "node:util";
-import path from "node:path";
 
 import type { ServerInfo, ServerType } from "@mcsm/contracts";
 import yauzl, { type Entry, type ZipFile } from "yauzl";
 
 import { DomainError } from "./domain-errors.js";
+import { captureFabricLaunchBinding } from "./fabric-launch-binding.js";
+import { launchMetadata, manifestField } from "./fabric-launch-binding.js";
+import { readPrivatePropertiesFile } from "./properties-private-file.js";
+import { trustedLifecycle } from "./trusted-lifecycle.js";
 
 const execFileAsync = promisify(execFile);
 const MAX_JAR_ENTRIES = 100_000;
@@ -156,47 +158,6 @@ function detectType(metadata: JarMetadata): ServerType {
   return "unknown";
 }
 
-async function fabricBundledVersion(rootPath: string): Promise<{ version: string; requiredMajor: number } | null> {
-  const versionsPath = path.join(rootPath, "versions");
-  try {
-    const root = await lstat(rootPath);
-    const versions = await lstat(versionsPath);
-    if (!root.isDirectory() || root.isSymbolicLink() || !versions.isDirectory() || versions.isSymbolicLink() ||
-      (process.platform === "win32" ? await realpath(versionsPath).then((v) => v.toLowerCase()) : await realpath(versionsPath)) !==
-      (process.platform === "win32" ? path.resolve(versionsPath).toLowerCase() : path.resolve(versionsPath))) return null;
-    const names = await readdir(versionsPath);
-    if (names.length > 100) return null;
-    const candidates: { version: string; requiredMajor: number }[] = [];
-    for (const name of names) {
-      if (!/^[0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?(?:-[a-zA-Z0-9.-]{1,32})?$/u.test(name)) continue;
-      const directory = path.join(versionsPath, name);
-      const file = path.join(directory, `server-${name}.jar`);
-      let directoryInfo;
-      try { directoryInfo = await lstat(directory); } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") continue;
-        return null;
-      }
-      if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink() ||
-        (process.platform === "win32" ? await realpath(directory).then((v) => v.toLowerCase()) : await realpath(directory)) !==
-        (process.platform === "win32" ? path.resolve(directory).toLowerCase() : path.resolve(directory))) return null;
-      let fileInfo;
-      try { fileInfo = await lstat(file); } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") continue;
-        return null;
-      }
-      if (!fileInfo.isFile() || fileInfo.isSymbolicLink() || fileInfo.nlink !== 1) return null;
-      const metadata = await inspectJar(file);
-      const main = manifestMainClass(metadata.content.get("META-INF/MANIFEST.MF"));
-      const parsed = parseVersionMetadata(metadata.content.get("version.json"));
-      if (main !== "net.minecraft.server.Main") return null;
-      if (parsed.minecraftVersion === name && parsed.requiredMajor !== null) {
-        candidates.push({ version: parsed.minecraftVersion, requiredMajor: parsed.requiredMajor });
-      }
-    }
-    return candidates.length === 1 ? candidates[0]! : null;
-  } catch { return null; }
-}
-
 export function parseVersionMetadata(raw: string | undefined): {
   minecraftVersion: string | null;
   requiredMajor: number | null;
@@ -246,11 +207,22 @@ async function probeJava(javaExecutable: string): Promise<string | null> {
 }
 
 export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
-  const [metadata, runtimeVersion] = await Promise.all([
+  const [initialMetadata, runtimeVersion] = await Promise.all([
     inspectJar(input.jarPath),
     probeJava(input.javaExecutable)
   ]);
-  const type = detectType(metadata);
+  let metadata = initialMetadata;
+  let type = detectType(metadata);
+  if (type === "paper") {
+    try {
+      const file = await readPrivatePropertiesFile(input.jarPath, 64 * 1024 ** 2);
+      const content = await launchMetadata(file.bytes, [...INTERESTING_ENTRIES]);
+      const manifest = content.get("META-INF/MANIFEST.MF") ?? "";
+      const main = manifestField(manifest, "Main-Class");
+      if ((main !== "io.papermc.paperclip.Main" && main !== "com.destroystokyo.paperclip.Paperclip") || manifestField(manifest, "Class-Path")) throw new Error("unbound-paper-launcher");
+      metadata = { entries: new Set(content.keys()), content };
+    } catch { type = "unknown"; }
+  }
   let version = parseVersionMetadata(metadata.content.get("version.json"));
   const evidence = ["jar-manifest"];
   if (metadata.entries.has("version.json")) {
@@ -266,18 +238,17 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
   if (type === "fabric" && (mainClass === "net.fabricmc.installer.ServerLauncher" || mainClass === "net.fabricmc.loader.impl.launch.knot.KnotServer")) {
     evidence.push("fabric-launcher-main-class");
     if (input.rootPath !== undefined) {
-      const bundled = await fabricBundledVersion(input.rootPath);
+      const bundled = await captureFabricLaunchBinding(input.rootPath, input.jarPath).catch(() => null);
       if (bundled) {
         version = { minecraftVersion: bundled.version, requiredMajor: bundled.requiredMajor };
         evidence.push("fabric-version-artifact");
+        evidence.push("fabric-execution-binding");
       }
     }
   }
   const warnings: string[] = [];
   if (type === "unknown") {
     warnings.push("无法可靠识别服务端类型；仅提供只读信息");
-  } else if (type !== "vanilla") {
-    warnings.push("Phase 2 仅允许 Vanilla 生命周期操作");
   }
   if (runtimeVersion === null) {
     warnings.push("无法验证配置的 Java 运行时版本");
@@ -286,7 +257,7 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
     warnings.push("JAR metadata 未提供可靠的 Minecraft 版本");
   }
 
-  return {
+  const info: ServerInfo = {
     id: input.id,
     name: input.name,
     type,
@@ -298,4 +269,6 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
       warnings
     }
   };
+  if (!trustedLifecycle(info) && type !== "unknown") warnings.push("服务端启动证据不完整；生命周期操作不可用");
+  return info;
 }
