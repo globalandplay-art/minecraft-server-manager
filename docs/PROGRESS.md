@@ -1,5 +1,13 @@
 # 实施进度
 
+### 2026-10-08 P5.5 真实隔离验收与独立证据 Review — PASS
+
+Paper `p55-paper-bf6c7480-b3c8-481f-937e-d446086a9266`、Fabric `p55-fabric-2fe6b07e-dce6-46ec-9e1d-ba19f0db9232` 均 result/addons PASS、finalStopped=true。各 7 次显式启动及 8 次扩展变更完成；安装/禁用/启用/Trash/恢复 enabled/恢复 disabled 的实际 marker 与原生加载/未加载证据一致。Manager 重建同 key 回放、16 个 committed transaction、22 个 succeeded operation、16 个完整 pinned guard 及 2,240 个 payload 文件独立物理核验通过。107 个 Paper / 51 个 Fabric 来源白名单文件与 Java 身份未变化；用户原世界未访问。
+
+独立 GPT-6.1 Sol / High 最终证据 Review PASS，P1=0/P2=0/P3=0；14 次启动均正常明确停服、exitCode=0/exitSignal=null，端口/helper 释放，无 crash、活动 operation 或 recoveryRequired。此前额度中断的 Review 已于本次完成。旧宿主/诊断 BLOCKED 与 NOT RUN 记录是历史检查点，原报告和 SHA 保留，未改写为 PASS。三项范围限制见问题账本。本轮仅更新文档，未启动 Java、未重跑测试、未 commit/push/PR。
+
+P5.5 PASS 不等于 Phase 5 Final PASS。Phase 5 仍 IN PROGRESS；下一步等待明确授权后执行统一 Adapter / 整体 Phase 5 Final Gate 及所需新冻结回归，本轮停止。
+
 ### 2026-10-07 P5.5 Desktop 续接 — 启动前审查 PASS，宿主预检 BLOCKED
 
 恢复 CLI 新冻结 1177 项 PASS（contracts6/API1040/Web131、check exit0）及 focused v4 77/77、manifest v7 44/44，不重跑已有效产品基线。补齐验收脚本两项 P2：当前 session 唯一 marker + 原生加载证据；完整 pinned guard/实际文件效果/无关文件/restartRequired 与 Manager 重建后新 journal/同 key 成功状态复核。新增 helper/wrapper 3/3 PASS；独立 Sol High 启动安全 delta PASS，P1=0/P2=0，仅为启动前签核。

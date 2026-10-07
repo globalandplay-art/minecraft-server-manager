@@ -1,5 +1,32 @@
 # P5.5 issue ledger
 
+## Latest scoped closure — 2026-10-08
+
+P5.5 real isolated acceptance and independent GPT-6.1 Sol / High evidence review: **PASS; P1=0, P2=0, P3=0**. This closes the interrupted review, not the overall Phase 5 Final Gate.
+
+| Evidence | Paper | Fabric |
+| --- | --- | --- |
+| PASS run | `p55-paper-bf6c7480-b3c8-481f-937e-d446086a9266` | `p55-fabric-2fe6b07e-dce6-46ec-9e1d-ba19f0db9232` |
+| Report SHA-256 | `9340b14bd4b2944e0d3c5bed7fddbf3bb6b5195396c8bc6d204c16018d3e14a8` | `abe0889ee97ad609bba60da0a180da9663503c4390e3f46cb1d5c41e3471290f` |
+| Explicit launches / addon mutations | 7 / 8 | 7 / 8 |
+| Guard payload files independently checked | 1,480 | 760 |
+| Current unchanged source whitelist files | 107 | 51 |
+| Final stopped / source unchanged / helpers closed | true / true / true | true / true / true |
+
+Evidence roots: `.manager/<PASS run>/evidence`; root/evidence report copies have identical hashes. Full original logs, manager events, 22 successful durable operations and 16 committed transactions were reviewed. All 16 guards are pinned/complete with matching owner/root/directory identities, manifests and individual payload hashes. Each mutation's same-key replay and Manager recreation preserve the original operation; no implicit launch occurs. Native Paper RCON plugins and Fabric loader lists agree with per-run initializer markers: baseline absent, installed present, disabled absent, enabled present, trashed absent, restored-enabled present, restored-disabled absent. Final disabled files, trash/restored receipts and consumed upload references match the journals.
+
+All 14 launches have healthy Done/RCON/list/world/ports, normal explicit Manager shutdown, exitCode=0, exitSignal=null, and final diagnostic gates. No crash reports, failures, active operations or recoveryRequired remain. Source identities/hashes and Java identity remain unchanged; original user worlds were not accessed. This continuation started no server and ran no new tests; no product changes or Git mutation occurred.
+
+| Issue / historical checkpoint | Closure |
+| --- | --- |
+| P55-HOST-ENV-001 | Original Desktop environment failure remains historical BLOCKED; ordinary host fresh PASS runs satisfy the acceptance precondition without claiming the Desktop issue was repaired. |
+| Paper diagnostic evidence association, terminal precision | Scoped classifiers/regressions were reviewed previously; the new Paper PASS closes real acceptance. Earlier BLOCKED runs remain unchanged. |
+| Fabric JOML 1.10.8 classifier gap | Attempt 1 scoped classification/review passed; new Fabric PASS closes real acceptance. Earlier Fabric BLOCKED remains unchanged. |
+| P55-LOAD-PROOF-001 / P55-TRANSACTION-PROOF-001 | RESOLVED, independently verified against actual native loading, durable journal/replay and physical guard payload. |
+| Final evidence Review usage-limit interruption | RESOLVED: remaining physical checks and independent signoff completed on 2026-10-08. |
+
+Nonblocking limitations: reservations are released before Java binds, with conflict checks at each launch; this acceptance does not cover sudden power loss or player sessions; Manager is in-process with API/operation event evidence rather than independent Manager stdout. No P3 finding was raised. Historical tables/NOT RUN/BLOCKED below describe their original checkpoints and are not current status; no historical report, log or SHA was modified. Phase 5 Final Gate is pending explicit user authorization; no commit/push/PR in this closure.
+
 User override: maximum **2 substantive repairs per root cause**; second failed verification means STOP / HARD BLOCKER. Security uncertainty keeps real execution stopped until independent review. No commit, push or PR.
 
 | Root cause | Original evidence | Repairs | Current verification |

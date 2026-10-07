@@ -1,5 +1,9 @@
 # Phase 5 — Adapter / Mods / Plugins
 
+## 最新检查点 — 2026-10-08
+
+P5.5 真实隔离 Paper/Fabric 验收及独立 Sol High 证据 Review PASS（P1=0/P2=0/P3=0）。Paper run `p55-paper-bf6c7480-b3c8-481f-937e-d446086a9266`；Fabric run `p55-fabric-2fe6b07e-dce6-46ec-9e1d-ba19f0db9232`。双方各 7 次显式启动、8 次扩展变更及重建后幂等回放通过，最终 stopped、来源未变化、用户原世界未访问。下文 NOT RUN/BLOCKED 是历史检查点；原证据保留。详见 [P5.5 问题账本](./P55_ISSUE_LEDGER_2026-10-07.md)。Phase 5 整体 Final Gate / 统一 Adapter 最终审查与新冻结回归尚未执行，Phase 5 保持 IN PROGRESS；等待用户明确授权，不进入 Phase 6。
+
 2026-10-05用户明确授权Phase5并取消本轮额度Gate；Phase4 Final PASS事实保留。本轮不commit/push，不调用Astra；高级独立Gate按用户覆盖使用SolHigh。Phase5 IN PROGRESS，不冒充完成。
 
 设计Review精确补充：trash manifest必须绑定删除前state/kind/filename/root/file身份，恢复到删除前state（disabled不能隐式启用）；多metadata的JAR仍只作为一个文件操作。上传限制按实际流式接收字节执行，并设置接收超时、并发/总staging配额与磁盘reserve；引用或身份不确定的partial不能按expiry自动删除。停止实例的“立即生效”使用用户明确start，而非仅适用于running的restart。既有额度阈值仅为历史规则，本轮用户覆盖取消。
