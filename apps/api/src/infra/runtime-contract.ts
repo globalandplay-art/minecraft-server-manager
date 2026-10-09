@@ -89,6 +89,7 @@ export interface RuntimeStreamReplay {
 }
 
 export interface MinecraftRuntime {
+  getProcessResources?(): Promise<Pick<Metrics, "cpu" | "ram">>;
   snapshot(): Promise<RuntimeSnapshot>;
   start(context: RuntimeOperationContext): Promise<void>;
   stop(context: RuntimeOperationContext): Promise<void>;

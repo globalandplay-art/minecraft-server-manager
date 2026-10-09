@@ -20,8 +20,8 @@ export const FEATURES: Features = {
   players: { implemented: false, phase: 4 },
   properties: { implemented: false, phase: 4 },
   addons: { implemented: false, phase: 5 },
-  performance: { implemented: false, phase: 6 },
-  crashAnalysis: { implemented: false, phase: 6 },
+  performance: { implemented: true, phase: 6 },
+  crashAnalysis: { implemented: true, phase: 6 },
   remoteAccess: { implemented: false, phase: 7 }
 };
 

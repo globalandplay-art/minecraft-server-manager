@@ -4,8 +4,11 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiClientError, api, errorMessage, shouldRetry } from './api';
 import { AppShell } from './components/AppShell';
+import { AuthenticationControls } from './components/Authentication';
 import { ConnectionBanner, EmptyState, ErrorState, MockBanner, PageHeading, SkeletonMetrics } from './components/Ui';
 import { Dashboard } from './pages/Dashboard';
+import { PerformancePage } from './pages/Performance';
+import { CrashAnalysisPage } from './pages/CrashAnalysis';
 import { PhasePage, SettingsPage, type PhasePageKind } from './pages/PhasePage';
 import { Servers } from './pages/Servers';
 import { ConsolePage } from './pages/Console';
@@ -173,6 +176,7 @@ export function App() {
       selectedId={selectedId}
       connectionState={connectionState}
     >
+      <AuthenticationControls />
       {connectionError && (healthQuery.data || serversQuery.data) ? (
         <ConnectionBanner message={errorMessage(connectionError)} retry={retryCore} />
       ) : null}
@@ -200,9 +204,9 @@ export function App() {
         <Route path="/worlds" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <WorldsPage server={selectedServer} /> : phaseRoute('worlds')} />
         <Route path="/addons" element={invalidSelection ? <InvalidSelection /> : <AddonsPage key={selectedId} server={selectedServer} />} />
         <Route path="/console" element={consoleRoute} />
-        <Route path="/performance" element={phaseRoute('performance')} />
+        <Route path="/performance" element={invalidSelection ? <InvalidSelection /> : healthQuery.data?.data.features.performance.implemented ? <PerformancePage key={selectedId} server={selectedServer} /> : phaseRoute('performance')} />
         <Route path="/backups" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <BackupsPage server={selectedServer} /> : phaseRoute('backups')} />
-        <Route path="/crashes" element={phaseRoute('crashes')} />
+        <Route path="/crashes" element={invalidSelection ? <InvalidSelection /> : healthQuery.data?.data.features.crashAnalysis.implemented ? <CrashAnalysisPage key={selectedId} server={selectedServer} /> : phaseRoute('crashes')} />
         <Route path="/settings" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <PropertiesPage key={selectedId} server={selectedServer} /> : <SettingsPage features={healthQuery.data?.data.features} />} />
         <Route path="*" element={<Navigate to={`/dashboard${selectedId ? `?server=${encodeURIComponent(selectedId)}` : ''}`} replace />} />
       </Routes>

@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage } from "node:http";
+import type { HttpAuthentication } from "./auth/http-auth.js";
+import { PerformanceService } from "./services/performance-service.js";
+import { registerPerformanceRoutes } from "./routes/performance.js";
+import { CrashAnalysisService } from "./services/crash-analysis-service.js";
+import { registerCrashAnalysisRoutes } from "./routes/crash-analysis.js";
 
 import type { ApiErrorResponse } from "@mcsm/contracts";
-import type { Mode } from "@mcsm/contracts";
+import { authStatusResponseSchema, apiErrorResponseSchema, type Mode } from "@mcsm/contracts";
+import { EVENTS_PROTOCOL } from "./auth/ws-auth.js";
 import websocket from "@fastify/websocket";
 import fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 
@@ -52,6 +59,7 @@ import { BackupRetentionService } from "./services/backup-retention-service.js";
 import { registerBackupRetentionRoutes } from "./routes/backup-retention.js";
 
 export interface BuildAppOptions {
+  authentication?: HttpAuthentication;
   clock?: Clock;
   adapters?: readonly MinecraftServerAdapter[];
   logger?: FastifyServerOptions["logger"];
@@ -69,14 +77,31 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const clock = options.clock ?? systemClock;
   const mode = options.mode ?? "mock";
   const adapters = options.adapters ?? createMockAdapters(clock);
+  const requestedLogger = typeof options.logger === "object" ? options.logger : undefined;
+  const logger: FastifyServerOptions["logger"] = options.logger === false || options.logger === undefined ? false : {
+    // Keep destination and severity customization; hooks/formatters/mixins could observe raw arguments.
+    level: requestedLogger?.level ?? "info",
+    ...(requestedLogger?.stream ? { stream: requestedLogger.stream } : {}),
+    ...(requestedLogger?.transport ? { transport: requestedLogger.transport } : {}),
+    // Applied last even for custom logger options: request/error serializers must never expose bearers.
+    serializers: { req: (request: { method?: string }) => ({ method: request.method ?? "UNKNOWN" }),
+      err: () => ({ type: "RequestError", message: "Request failed", stack: "", code: "REQUEST_ERROR" }),
+      res: (reply: { statusCode?: number }) => ({ statusCode: reply.statusCode ?? 0 }) },
+    redact: { paths: ["req.headers", "req.body", "headers", "body", "cookie", "authorization", "sec-websocket-protocol"], remove: true }
+  };
   const app = fastify({
-    logger: options.logger ?? false,
+    logger,
     trustProxy: false,
     bodyLimit: JSON_BODY_LIMIT_BYTES,
     genReqId: () => randomUUID()
   });
   void app.register(websocket, {
-    options: { maxPayload: 4 * 1024, perMessageDeflate: false, clientTracking: true }
+    options: { maxPayload: 4 * 1024, perMessageDeflate: false, clientTracking: true,
+      ...(options.authentication ? {
+        verifyClient: ({ req }: { req: IncomingMessage }) => options.authentication!.websocket.verify(req),
+        handleProtocols: (protocols: Set<string>) => protocols.has(EVENTS_PROTOCOL) ? EVENTS_PROTOCOL : false
+      } : {}) },
+    errorHandler: (_error, socket) => { socket.terminate(); }
   });
   const registry = new AdapterRegistry(adapters);
   const operations = new OperationService(
@@ -101,7 +126,16 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   let addonInstalls: AddonInstallService | undefined;
   let addonLifecycle: AddonLifecycleService | undefined;
 
-  app.addHook("onRequest", installLocalRequestGuard(clock, mode));
+  app.addHook("onRequest", installLocalRequestGuard(clock, mode,
+    options.authentication?.observeLocalGuardDenial.bind(options.authentication)));
+  options.authentication?.install(app, clock, mode);
+  if (!options.authentication) app.get("/api/v1/auth/status", {
+    exposeHeadRoute: false, schema: { response: { 200: authStatusResponseSchema, 400: apiErrorResponseSchema } }
+  }, async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (request.raw.url !== "/api/v1/auth/status") return reply.code(400).send(errorResponse(request.id, clock, "VALIDATION_ERROR", "Invalid status request", mode));
+    return { data: { configured: false, authenticationRequired: false, auditReady: false } };
+  });
   app.addHook("onReady", async () => {
     await options.transactionJournal?.initialize();
     await restores?.reconcileStartup();
@@ -132,6 +166,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const addonInventory = new AddonInventory();
   registerAddonRoutes(app, registry, clock, mode, addonInventory, options.transactionJournal !== undefined && options.managerRoot !== undefined);
   registerServerRoutes(app, service, clock, mode);
+  registerPerformanceRoutes(app, new PerformanceService(registry, clock), clock, mode);
+  registerCrashAnalysisRoutes(app, new CrashAnalysisService(registry, clock), clock, mode);
   registerOperationRoutes(app, service, clock, mode);
   registerWorldRoutes(app, worlds, clock, mode);
   if (options.transactionJournal !== undefined && options.managerRoot !== undefined) {
@@ -187,7 +223,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   // Register WebSocket routes in a following plugin so the hook can replace
   // the HTTP handler with the upgrade handler before the route is compiled.
   void app.register(async (websocketRoutes) => {
-    registerWebSocketRoute(websocketRoutes, streams, clock, mode);
+    registerWebSocketRoute(websocketRoutes, streams, clock, mode, options.authentication?.websocket);
   });
 
   app.setNotFoundHandler(async (request, reply) => {
@@ -216,7 +252,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (errorCode === "FST_ERR_CTP_BODY_TOO_LARGE") {
       await reply
         .code(413)
-        .send(errorResponse(request.id, clock, "UPLOAD_TOO_LARGE", "请求体超过 64 KiB 限制", mode));
+        .send(errorResponse(request.id, clock, "UPLOAD_TOO_LARGE", "请求体超过此路由的大小限制", mode));
+      return;
+    }
+
+    if (errorCode === "FST_ERR_CTP_INVALID_JSON_BODY") {
+      await reply.code(400).send(errorResponse(request.id, clock, "VALIDATION_ERROR", "请求 JSON 格式无效", mode));
       return;
     }
 

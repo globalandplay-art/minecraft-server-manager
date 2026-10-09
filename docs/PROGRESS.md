@@ -1,5 +1,157 @@
 # 实施进度
 
+### 2026-10-09 P7.2 登录 UI / WebSocket 认证 — IN PROGRESS
+
+从有效P7.1b工程PASS接续，不重做旧1353回归。当前切片为PHASE7_PLAN中的认证UI/WS前置能力，尚不是Tailscale Serve实现。原子智能体额度中断后，父线程接任唯一写入者。认证UI、全部fetch会话/CSRF与晚到响应门控、一次性WS ticket及实际101准入/撤销已接线。后端专项92 PASS、WS日志秘密专项45 PASS、前端18 PASS、360/768/1440浏览器3 PASS、typecheck通过。独立后端SolHigh发现同步prune导致audit失效的P2，限定修复与三条安全回归关闭，源码复审P1/P2/P3=0；前端及最终冻结证据审查、完整回归仍待完成。
+
+候选冻结并独立审查后进行一次新完整回归；当前不标P7.2最终PASS。不设置真实账号、不启动Minecraft/远程服务、不修改系统/网络、不commit/push/PR。同根因最多两次修复，保留配额fixture两次及所有历史失败日志。详见[P7.2验证](./P72_AUTH_UI_WS_VALIDATION_2026-10-09.md)。
+
+### 2026-10-09 P7.1b HTTP 认证 Final Gate — ENGINEERING PASS
+
+新冻结完整单worker回归 contracts7/API1206/Web140，共1353 PASS、exit0，包含原生锁3/凭证发布7/审计1共11项原生用例。最终lint/typecheck/build/diff通过；冻结v3 11文件大小/SHA由父线程和独立审查分别核验一致。独立 GPT-6.1 Sol / High 工程及证据签核PASS，P1/P2/P3=0，已知发现均关闭。保留原fixture/lint失败、两轮安全修复及既有jsdom navigation和519.98kB构建提示，不修改历史结果。详见[P7.1b验证](./P71B_HTTP_AUTH_VALIDATION_2026-10-08.md)。
+
+PASS限定本地HTTP工程切片：显式required、login/session/logout/reauth、解析前和业务开始前权限/CSRF/审计门控。未创建真实账号、未启用认证环境或远程入口；required模式WS仍拒绝。下一切片为登录/退出/会话UI与认证WS ticket/撤销接线，随后统一Access Coordinator；Tailscale前置条件仍不齐备，不执行Serve。测试已结束，3000/8080无监听；不操作未知进程。未commit/push/PR，保留此前Phase6/7工作树修改。下方IN PROGRESS为历史检查点，由本条工程PASS收口。
+
+### 2026-10-09 P7.1b HTTP 认证 — 专项与复审 PASS，全量 Gate 进行中
+
+显式 required 本地认证、login/session/logout/reauth、解析前及业务 handler 前双重权限/CSRF/审计门控已实现。审查发现的一项最终准入竞态与两项响应/审计问题经限定修复收敛；审计 success 等待失效窗口在同根因 Attempt2 关闭，未进行第三次。冻结v3 11文件大小/SHA一致，专项69 PASS、API lint/typecheck/diff PASS，独立 Sol High P1/P2/P3=0。新的完整单worker回归及最终lint/typecheck/build正在运行，尚不能标P7.1b最终PASS。历史fixture/lint失败及两轮审查记录保留在[P7.1b验证](./P71B_HTTP_AUTH_VALIDATION_2026-10-08.md)。
+
+未设置真实账号或启用认证环境；required模式WS一律拒绝，登录UI/WS接线和统一Access Coordinator仍未完成。无Minecraft、原世界、远程或系统配置操作；未commit/push/PR，已有工作树改动保留。下一检查点为新冻结完整回归结果与独立证据签核，不进入Tailscale。
+
+### 2026-10-08 P7.1a 工程 Final Gate — PASS
+
+冻结19文件尺寸/SHA256父线程与独立SolHigh分别核验一致。上次完整回归在中断后正常结束：contracts7/API1147/Web140，共1294 PASS、exit0，包含全部10项Windows原生锁/凭证用例；无需重复已有有效测试。最终lint/typecheck/build均exit0，生产构建由本次续接补齐；保留519.98kB chunk警告和jsdom navigation提示。独立SolHigh工程/证据签核PASS，P1=0/P2=0/P3=0；全部已知审查发现关闭。最终文档收口diff检查exit0；原完整测试已知owner PID均不再存在，3000/8080无管理监听。不操作其他归属不明进程，不因WMI inventory受限声称全宿主无helper。
+
+P7.1a密码/会话/ticket核心、生命周期锁、离线隐藏输入init/reset/recover、原生私有ACL/精确备份/发布及中断恢复工程Gate完成。原180000ms失败和fixture `0x80070005`等历史原文仍保留；各独立根因第一修复通过，不增加时限。Windows断电耐久性、同用户管理员威胁边界、注入TTY验证与实际人工终端验收的区别见[P71A_OFFLINE_VALIDATION](./P71A_OFFLINE_VALIDATION_2026-10-08.md)。
+
+尚未启用真实账号或接入HTTP/WS/UI；凭证存在时旧未认证服务继续安全拒绝启动。下一切片P7.1b认证HTTP路由、全量权限/CSRF/审计门控；其后才处理登录UI/WS及统一Access Coordinator，真实Tailscale仍未授权。未启动Minecraft/网络、未commit/push/PR，既有Phase6/7工作树改动保留。下方IN PROGRESS/待测试均为历史检查点，其工程Gate由本条PASS补齐，不改写旧失败。
+
+### 2026-10-08 P7.1a 离线凭证与生命周期锁 — 最终回归进行中
+
+共享Windows原生生命周期排他锁、隐藏输入离线init/reset/recover、私有ACL创建、精确原字节重置备份和journal显式恢复已实现。Manager持锁直到实际进程退出，不仅是HTTP关闭；有凭证或pending/staged时拒绝旧未认证HTTP启动，返回`AUTH_HTTP_INTEGRATION_PENDING`。未设置真实账号，HTTP/WS/UI认证尚未接入，不启用网络或Minecraft。
+
+原生v1为9 PASS/4 FAIL，保留三项180000ms超时和旧启动断言失败。只读计时确认ACL helper约3秒，多次启动超出原时限；Attempt1合并同一边界检查，保留身份、前后ACL、严格解析和摘要验证。随后独立fixture失败`PrivilegeNotHeldException`/`0x80070005`，仅在临时文件改为DACL-only构造，未提权或改系统；最重用例原180秒内159.79秒PASS。快速注入reader/offline25/25 PASS。各次独立SolHigh delta P1/P2/P3均关闭。
+
+最终19文件候选已冻结，新lint/typecheck/完整单worker回归（含全部原生测试）及build尚待最终结果；不能据上述专项先标整体PASS。详细失败、修复计数与证据见[P71A_OFFLINE_VALIDATION](./P71A_OFFLINE_VALIDATION_2026-10-08.md)。不commit/push/PR，不进入Tailscale或下一认证切片。下方核心PASS/离线待实现为历史检查点，已由本条更新实现状态，保留旧失败证据。
+
+### 2026-10-08 P7.1a 核心验证通过 — 整体仍 IN PROGRESS
+
+恢复中断实现后，密码/会话/ticket/凭证读取/ACL策略共44项专项通过。修复PasswordVerifier参数属性可枚举导致的`expected '{"attempts":{}}' to be '{}'`（Attempt1，保留原断言），同时将CredentialReader路径依赖改为真正私有字段；补ACL flags上界和socketId类型检查。独立GPT-6.1 Sol High对冻结的四模块/三测试文件只读审查PASS，剩余P1=0/P2=0/P3=0。ACL测试使用注入快照，不声称Windows原生权限验收已通过。
+
+`npm.cmd run check`中lint/typecheck通过，但默认并行API为1127 PASS/4项5000ms超时，exit1，日志保留。未修改时限/断言/事务语义；全套单worker复验contracts7/API1131/Web140，共1278 PASS、exit0。独立production build exit0，保留原519.98kB chunk警告及Web jsdom navigation提示；最终diff检查通过。详细证据和完整剩余范围见[P71A_CORE_VALIDATION](./P71A_CORE_VALIDATION_2026-10-08.md)。
+
+当前只完成隔离核心，未接HTTP/WS/UI，未初始化账号。下一步必须实现共享Manager生命周期排他锁、离线隐藏输入init/reset、Windows私有ACL原生验收、原子凭证发布及重置备份/中断恢复；整体P7.1a未PASS。未来P7.2沿用用户Tailscale严格Gate，统一认证/重认证/Access Coordinator先完成，真实网络配置仍未授权。无commit/push/PR、Minecraft或网络操作；既有未提交改动保留。下方中断记录为历史，已由本次核心验证补齐部分Gate，不删除原失败。
+
+### 2026-10-08 P7.1a 凭证/会话核心 — IN PROGRESS，中断待验证
+
+用户授权继续认证前置工作，并要求未来P7.2遵循其Tailscale任务中的安全Gate；真实Serve/Funnel及网络变更仍未授权。新增隔离模块`apps/api/src/auth/password.ts`、`session-core.ts`、`credential-reader.ts`、`windows-private-acl.ts`，以及`apps/api/test/auth/password.test.ts`和`session-core.test.ts`。这些为未验证的部分实现，未接入main/app/HTTP/WS/UI，未设置真实凭证，原本地模式不变。
+
+写入者与独立SolHigh审查者均返回原文`You’ve hit your usage limit`，工具提示`try again at 11:05 AM`；没有显式错误码。初步静态审查只覆盖password/session，不能替代最终独立签核。尚未取得本切片focused/typecheck/lint/build/full regression结果，未审查完ACL/reader，不能标记P7.1a PASS。本次`git diff --check`退出0（不覆盖未跟踪新文件的验证）。未commit/push/PR，无服务器/账户/网络操作，既有未提交修改保留。
+
+明确设计缺口：现有Manager没有与离线init/reset共享的生命周期排他锁；端口空闲不能证明停机。凭证发布/重置和隐藏输入CLI尚未实现，不以手工写credential.json绕过。下一步先读取上述部分实现，完成reader/ACL专项测试及focused/typecheck；修复必须遵守同根因最多两次。完成独立SolHigh review，再实现并验证共享生命周期锁、离线隐藏输入初始化/重置、私有原子发布/重置备份；全部Gate通过后才接入HTTP认证。P7.2b Tailscale仍BLOCKED于认证及统一Access Coordinator缺失，不执行真实CLI配置变更。
+
+### 2026-10-08 P7.0 安全设计 — PASS，Phase7 IN PROGRESS
+
+用户授权继续Phase7。已冻结单管理员/离线凭证初始化、scrypt/有界验证、内存会话cookie/CSRF、HTTP默认拒绝、WS一次ticket/会话撤销、同源HTTPS及精确代理/私有ACL/审计边界，实施切片见[PHASE7_PLAN](./PHASE7_PLAN.md)。未实现认证、未设置密码、未配置任何隧道或网络，监听仍127.0.0.1，remoteAccess=false。
+
+独立SolHigh初审P1=0/P2=1/P3=1：CSRF仅保存摘要与再次返回原值矛盾、Windows ACL验证标准不明确。一次限定设计修正关闭，两项无实际运行错误码；delta PASS P1=0/P2=0/P3=0，最终diff PASS。文档任务不重复产品测试，Phase6的1234回归仍为产品基线；没有业务源码或测试变化。高级Gate使用用户覆盖的SolHigh，不调用Astra。
+
+远程选型仍待定：已解释Tailscale私有访问、Cloudflare Tunnel+Access和先仅本地登录。选型不阻断下一步P7.1a凭证/会话核心实现；不代表部署授权。不commit/push/PR，不操作Minecraft/原世界/系统配置。本轮设计收口停止，Phase7整体未PASS。
+
+### 2026-10-08 Phase6 Final Gate — PASS
+
+P6.0–P6.4按冻结范围完成。新整体冻结 `test-results/p64-final-check-v1.log` exit0：contracts7/API1087/Web140，共1234 PASS，lint/typecheck/production build PASS；最终diff PASS。整体Performance/Crash Analysis浏览器360/768/1440及Mock不可用7/7 PASS、exit0正常teardown，测试helper和3000/8080监听均0。P6.2真实Java资源证据只读复核report SHA一致，两次launch正常exit0/signalnull、finalStopped/sourceInputsUnchanged=true，无原世界访问。无需重复启动Minecraft。
+
+整个Phase6独立SolHigh Review和文档delta PASS，P1=0/P2=0/P3=0。唯一文档P3为旧API/README说明，两次限定文档修正及复审关闭，无产品代码修改。README/USER_GUIDE/API_SPEC现行说明已收口，所有历史BLOCKED/STOP/FAIL原样保留。TPS/MSPT N/A、Windows可信进程范围、>64KiB崩溃来源不分析、未知秘密与同用户文件系统边界、519.98kB bundle/jsdom提示仍明确保留。
+
+完整证据及限制见[Phase6 Final Gate](./PHASE6_FINAL_GATE_2026-10-08.md)。工作树保留全部未提交Phase6改动，HEAD eaf9f8520d507a5de8bac1c17ca5cf6f1c478955、分支codex/phase-4-players-properties，未commit/push/PR。本轮停止，不自动进入Phase7或创建安排；下一产品阶段Phase7认证/远程访问须先冻结安全方案。以下待结果/IN PROGRESS条目为历史检查点，已由本次PASS关闭。
+
+### 2026-10-08 P6.3b / Crash Analysis Final Gate — PASS
+
+只读注册实例API、严格contract、手动读取页面已完成。新冻结 `test-results/p63b-check-v1.log` exit0：contracts7/API1087/Web140，共1234 PASS，lint/typecheck/production build PASS，最终diff PASS。最终宿主浏览器5/5 PASS，包括360/768/1440、Mock不可用和受影响占位入口；正常teardown，辅助进程与3000/8080监听均0。独立Sol High及delta P1=0/P2=0/P3=0。
+
+P6.3a/b均PASS；截断证据不输出片段、无匹配不表示健康、固定路径/注册身份/冷却与失败门控保留。本轮fixture TypeError、TS2322、Review测试缺口和沙箱WMI退出问题已解决，原始错误记录保留于[P63b验证账本](./P63B_VALIDATION_2026-10-08.md)。bundle519.98kB/jsdom提示保留。未启动Minecraft、访问原世界、修改事务或commit/push/PR。Phase6仍IN PROGRESS；下一步P6.4整个Phase6 Final Gate，不进入Phase7。下方待结果条目均为历史检查点。
+
+### 2026-10-08 P6.3b 接线 — Review/浏览器 PASS，新完整回归待结果
+
+注册实例固定路径只读 Crash Analysis GET API、严格 contract 与手动读取页面已接通；Mock 显示不可用、不伪造证据。5秒冷却/并发合并、错误持续返回、原采样时间及 P6.3a 截断来源不输出片段策略保留。API专项4、Web专项6、contracts7 PASS，typecheck/lint PASS；独立 Sol High 初审P3测试缺口补齐后复审P1=0/P2=0/P3=0。
+
+最终宿主浏览器 `test-results/p63b-browser-v2.log` 360/768/1440、真实Mock不可用及受影响占位入口5/5 PASS、exit0正常teardown。沙箱首轮挂起及WMI 0x80041003、Stop-Process NullReferenceException、精确helper清理记录保留于[P63b账本](./P63B_VALIDATION_2026-10-08.md)。新冻结完整 `test-results/p63b-check-v1.log` 尚在运行，不能先标P6.3b Final PASS。未启动Minecraft或访问用户原世界，未改事务/恢复，未commit/push/PR；Phase6 Final Gate尚未开始。
+
+### 2026-10-08 P6.3a Final Gate — PASS
+
+保守输出策略已完成：截断来源仅返回覆盖元数据，不产生 findings/snippets；证据不完整且无 finding 时返回 insufficient-evidence。19 项专项通过，独立 Sol High Review PASS，P1=0/P2=0/P3=0，P63-SECRET-BOUNDARY-001 已关闭。新冻结完整回归 `test-results/p63a-policy-check-v2.log` exit0：contracts 6 / API 1083 / Web 134，共 1223 PASS；lint、typecheck、production build、diff check 通过。既有 jsdom navigation 和 516.08kB bundle 提示保留。
+
+P6.3a 仅为内部安全 reader/分析核心 PASS，P6.3b API/UI 尚未开始，crashAnalysis=false，Phase 6 仍 IN PROGRESS。旧 BLOCKED、两次修复 STOP 和 v1 回归记录均为历史检查点，未改写。未启动 Minecraft、访问用户原世界或 commit/push/PR。下一步 P6.3b：注册实例只读 API、手动刷新页面及三档浏览器验收。
+
+### 2026-10-08 P6.3a 输出策略变更 — Review PASS，新冻结回归待结果
+
+用户在STOP报告与保守建议后明确继续。改为截断来源不生成任何规则finding或原文snippet，仅保留覆盖元数据；完整来源仍可用，partial且无finding返回insufficient-evidence。19专项PASS，实际head/tail跨行秘密边界与混合来源均覆盖。独立SolHigh P1=0/P2=0/P3=0，关闭P63-SECRET-BOUNDARY-001；此前两次修复/STOP历史保留。
+
+新完整 `test-results/p63a-policy-check-v2.log` 尚在运行，不能标P6.3a最终PASS。大于64KiB文件不分析的限制已明确。未接API/UI、未启动Minecraft/访问原世界/commit/push/PR。下一检查点是完整结果；P6.3b尚未开始。
+
+### 2026-10-08 P6.3a 最终安全停止 — 完整回归1220 PASS但Review BLOCKED
+
+此前启动的冻结 `test-results/p63a-check-v1.log` 已结束exit0：contracts6/API1080/Web134，共1220 PASS；lint/typecheck/build PASS，最终diff PASS。16专项PASS。未在最终BLOCKED复审之后开新测试或修复。SolHigh P1=0/P2=1/P3=0，跨行秘密被截断后的前缀披露仍OPEN；不得用现有绿测试关闭该安全问题。
+
+P6.3a BLOCKED，P6.3b未开始；核心尚无API/UI，crashAnalysis=false。完整报告、两次修复、原始静态审查示例和源码保存在[P63a问题账本](./P63A_VALIDATION_2026-10-08.md)。P6.2 PASS不变；没有服务器启动/原世界读取/新增事务/恢复状态/commit/push/PR。已停止，等待针对输出边界的用户/架构决定。
+
+### 2026-10-08 P6.3a BLOCKED — 两次脱敏修复后强制停止
+
+新增内部有界日志/崩溃证据reader、possible规则核心和16项专项；未接API/UI，crashAnalysis仍false。初审4项P2经两轮限定修复后，SolHigh delta仍P1=0/P2=1/P3=0：跨行秘密第二行被64KiB裁剪后，保留的第一行秘密前缀可能进入snippet。NO_EXPLICIT_ERROR_CODE，属于静态安全复审发现，不是实际服务器崩溃。既有16项PASS不覆盖组合情况，不能称P6.3a PASS。
+
+停止第三次修复、新专项测试及P6.3b接线；已启动的完整check `test-results/p63a-check-v1.log` 待最终结果，仅是现有测试基线，不解除安全blocker。完整问题、原始复审示例、源码位置、两次尝试和建议见[P63a验证/问题账本](./P63A_VALIDATION_2026-10-08.md)。没有启动Minecraft、访问原世界或Git上传；无新增事务/恢复/staging。P6.2仍PASS，P6.3整体BLOCKED，等待用户/架构决定。
+
+### 2026-10-08 08:00 P6.2 Final Gate — PASS
+
+用户普通宿主真实run `p62-resources-be2a99dc-294d-4acb-93df-da774276d3b1` 已核对完整报告/两次launch日志/Manager事件；result/resources PASS，finalStopped=true，sourceInputsUnchanged=true。真实CPU基线后0.160167658%及RAM/卷容量正确，停服不可用、重建history清空、新child基线隔离PASS。Done/RCON/list/世界/端口均通过，正常exit0/signalnull、无crash/紧急清理/活动操作/recovery；当前PID及端口均释放。源JAR/EULA/config哈希未变，无原世界访问。
+
+独立SolHigh最终证据Review PASS，P1=0/P2=0/P3=0。产品未改，无需重复有效1204完整回归、30专项、3浏览器及lint/typecheck/build。旧宿主BLOCKED及SHA保留，后续新PASS只关闭对应gate，不改写历史。详见[P62验证记录](./P62_VALIDATION_2026-10-08.md)。
+
+P6.1a/b、P6.2 PASS；下一步P6.3有界本地Crash Analysis，尚未开始。Phase6整体IN PROGRESS，Final Gate未完成；本次证据收口结束，不自动进入P6.3/Phase7，不commit/push/PR。一次续接安排已获用户明确授权停用，状态PAUSED。
+
+### 2026-10-08 06:10 单次续接 — P6.2 宿主预检BLOCKED，未启动Java
+
+P6.2新真实资源harness/wrapper已完成，启动前独立SolHigh PASS（P1/P2/P3=0），lint/JS语法/PS解析/diff PASS，诊断专项78 PASS、缺授权/无效UUID及Windows路径泄漏断言证明PASS。只新增验收文件及文档；既有产品1204完整回归继续有效，不冒称新完整回归。
+
+run `p62-resources-c6154a9d-ea82-4efa-93fe-2d404fa4a4dc` 在Perflib009 registry预检BLOCKED，代码HOST_PERFLIB_UNAVAILABLE / HOST_PRECONDITION_UNAVAILABLE，HResult -2146233087，exit1；CPU counter预检PASS。runtime目录未创建、Java/Manager未启动，无操作或用户原世界访问。修复次数0，无重跑/系统修复/放宽gate。真实验收仍未完成，P6.2不能标PASS。报告/hash/原始诊断/源代码/账本及普通64位PowerShell续做方式见[P62验证记录](./P62_VALIDATION_2026-10-08.md)。
+
+本次一次续接到此停止，不进入P6.3/Phase7，不commit/push/PR。原COUNT=1安排未创建后续；额外设为PAUSED的请求被自动审批拒绝，等待明确停用授权，没有绕过。
+
+### 2026-10-08 P6.2 安全停止 — 剩余5小时额度3%
+
+新冻结完整 `test-results/p62-check-v1.log` exit0：contracts6/API1064/Web134，共1204 PASS；lint/typecheck/production build PASS，diff检查PASS（保存最终证据文档之前）。独立SolHigh P1=0/P2=0/P3=0，Chrome360/768/1440 3/3 exit0。旧bundle516.08kB及颜色环境警告保留。额度工具真实used97%，remaining3%；按本轮授权停止，不开启新实现/测试/验收。
+
+P6.1a/b PASS；P6.2 ENGINEERING REVIEW PASS但真实Minecraft资源验收NOT RUN，不能标最终PASS。没有启动Minecraft或访问用户原世界，已运行check/browser会话均exit0，不commit/push/PR。下次从[P62验证记录](./P62_VALIDATION_2026-10-08.md)的fresh UUID资源验收开始；P6.3未开始。既有2026-10-08 06:05:24一次续接只推进一个切片后停止，不继承持续消耗到3%规则，不进入Phase7。
+
+### 2026-10-08 P6.2 工程 Review PASS — 真实资源验收未运行
+
+Windows受管进程CPU/RAM及注册卷容量已接入，身份、并发、缓存、停服/重启回归30项PASS；typecheck/lint和性能三档Chrome3/3 exit0。独立SolHigh delta PASS，P1=0/P2=0/P3=0。新完整回归 `test-results/p62-check-v1.log` 已启动，结果尚待确认。没有启动Minecraft或访问用户原世界。P6.2不能标最终PASS；P6.3未开始，不进入Phase7，不commit/push/PR。详细边界、账本和下一检查点见[P62验证记录](./P62_VALIDATION_2026-10-08.md)。
+
+### 2026-10-08 P6.1b Final Gate — PASS
+
+新冻结 `test-results/p61b-check-v2.log` exit0：contracts6/API1055/Web134，共1195 PASS；lint/typecheck/production build及最终diff检查PASS。性能Chrome360/768/1440宿主重跑3/3、受影响阶段入口1/1均exit0；只读宿主核验API/Vite/Playwright helper无残留、3000/8080 listener为0。独立SolHigh及两项P2修复delta PASS，P1=0/P2=0/P3=0。首轮失败、沙箱teardown/WMI证据及旧bundle警告保留，详见[P61B_VALIDATION](./P61B_VALIDATION_2026-10-08.md)。下方待结果条目是历史检查点，已由此新PASS关闭。
+
+P6.1a/P6.1b完成，Phase6仍IN PROGRESS。下一步P6.2可信进程CPU/RAM和卷容量采集；先核验支持的平台/数据源，不能用Manager自身资源替代Minecraft指标。TPS/MSPT继续N/A直到可靠来源具备。P6.3 Crash Analysis、整体Phase6 Final Gate尚未开始。未启动Minecraft、访问用户原世界或commit/push/PR。
+
+### 2026-10-08 P6.1b 接线 — Review PASS / 新冻结完整回归待结果
+
+性能GET API、health feature与Performance页面已接入：每注册实例按需单flight采样，单调时钟5秒冷却、120点session history；无请求不采样、不补点，无后台timer或新增Minecraft命令。探测失败保留到下一次成功；保留原来源时间、stale/unavailable。真实CPU/RAM/Disk/TPS/MSPT仍N/A，未进入P6.2。
+
+独立SolHigh及delta PASS，P1=0/P2=0/P3=0；修复失败冷却错误隐藏与磁盘含义两项P2。API专项8、UI专项3、affected app/health/performance 35 PASS；宿主Chrome360/768/1440最终命令exit0，3/3 PASS。首次沙箱browser teardown挂起exit1及WMI 0x80041003保留；只读宿主核验并正常上下文重跑，不改系统/timeout。
+
+全工作区typecheck/lint/build/diff PASS，516.02kB bundle warning保留。首轮check v1 exit1，旧feature断言与修复前采样失败测试记录保留，Web134PASS；因实现修复不能作最终基线。已启动冻结v2 `test-results/p61b-check-v2.log`（会话45905），结果待核验，不能标P6.1b最终PASS。详细问题账本见[P61B_VALIDATION](./P61B_VALIDATION_2026-10-08.md)。不commit/push/PR，未启动Java或访问用户原世界。下一检查点是v2完整结果与浏览器helper最终释放确认，不重复已通过专项。
+
+### 2026-10-08 Phase 6 开始 — P6.1a 未接线历史基础 ENGINEERING PASS
+
+用户授权继续下一步。已确认 Phase 5 Final PASS，开始 Phase 6 Performance / Crash Analysis；计划见 [PHASE6_PLAN](./PHASE6_PLAN.md)。只读盘点确认 Local runtime 当前只有受管 launch uptime，CPU/RAM/Disk/TPS/MSPT 仍 not-collected；不冒充采集能力。
+
+新增每注册实例最多120点的 manager-session history，限制注册ID、深拷贝输入/输出、拒绝无效时间、忽略重复/倒退收集时间，保留 available/stale/unavailable 原始值与来源时间。尚未接线 API/timer/UI；重启清空历史，无持久化或自动启动。
+
+最终专项5/5 PASS；全工作区typecheck/lint/production build PASS，追加测试后API typecheck/lint及diff检查PASS。独立 GPT-6.1 Sol / High Review 与补测delta PASS，P1=0/P2=0/P3=0。旧bundle>500kB警告保留。没有跑新的完整回归，Phase5的1184基线不能称作Phase6最终基线。没有启动Java、访问用户原世界或commit/push/PR。
+
+下一步 P6.1b：固定有界采样、只读performance API、可信时间/空历史/不可用呈现及响应式页面；随后测试和独立Review。Phase6仍IN PROGRESS，不进入Phase7。五小时续接安排应读取此最新检查点，不重复P6.1a。
+
 ### 2026-10-08 Phase 5 Final Gate — PASS
 
 P5.0–P5.5 全部切片完成；整体 Adapter/Addon 安全独立 Sol High Review 及容量修复 delta PASS，P1=0/P2=0/P3=2（均非阻断）。审查发现生命周期容量根因：Restore 数量/字节、Enable/Disable 目标条目、Trash retained entries；最小修复在 intent/发布前核验容量，最终路径身份/目标不存在/同卷检查置于容量扫描之后。新增 7 个回归，容量/链接专项 64/64 PASS；原先 fixture 状态及 journal 计数失败保留，没有改变 timeout 或安全断言。

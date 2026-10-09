@@ -1,6 +1,8 @@
 import { wsMessageSchema, type LogEntry, type Operation, type ServerStatus, type WsMessage } from '@mcsm/contracts';
 import { Value } from '@sinclair/typebox/value';
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import { api } from './api';
+import { authState } from './authState';
 
 export type ConsoleConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
@@ -90,6 +92,7 @@ export function parseWsMessage(value: unknown): WsMessage | null {
 }
 
 export function useConsoleStream(serverId: string | undefined, enabled: boolean) {
+  const auth = useSyncExternalStore(authState.subscribe, authState.snapshot);
   const [stream, dispatch] = useReducer(streamReducer, emptyConsoleStream);
   const [connection, setConnection] = useState<ConsoleConnectionState>('idle');
   const [retryInMs, setRetryInMs] = useState<number | null>(null);
@@ -103,7 +106,7 @@ export function useConsoleStream(serverId: string | undefined, enabled: boolean)
     dispatch({ type: 'reset-client' });
     setError(null);
     setRetryInMs(null);
-    if (!serverId || !enabled) {
+    if (!serverId || !enabled || (auth.phase !== 'legacy' && auth.phase !== 'authenticated')) {
       setConnection('idle');
       return;
     }
@@ -112,12 +115,33 @@ export function useConsoleStream(serverId: string | undefined, enabled: boolean)
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
     let attempt = 0;
+    const ticketRequest = new AbortController();
+    const currentAuth = () => !stopped && authState.snapshot().generation === auth.generation;
     const delays = [1_000, 2_000, 4_000, 8_000, 15_000];
 
-    const connect = () => {
-      if (stopped) return;
+    const retry = () => {
+      if (!currentAuth()) return;
+      const baseDelay = delays[Math.min(attempt, delays.length - 1)]!;
+      attempt += 1;
+      const delay = Math.round(baseDelay * (0.85 + Math.random() * 0.3));
+      setConnection('reconnecting'); setRetryInMs(delay);
+      reconnectTimer = window.setTimeout(() => void connect(), delay);
+    };
+    const connect = async () => {
+      if (!currentAuth()) return;
       setConnection(attempt === 0 ? 'connecting' : 'reconnecting');
       setRetryInMs(null);
+      let protocols: string[] | undefined;
+      if (auth.phase === 'authenticated') {
+        try {
+          const response = await api.authWsTicket(serverId, ticketRequest.signal);
+          if (!currentAuth()) return;
+          protocols = ['mcsm.events.v1', `ticket.${response.data.ticket}`];
+        } catch {
+          if (!currentAuth()) return;
+          setError('无法确认日志连接权限。'); retry(); return;
+        }
+      }
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const url = new URL(`${protocol}//${window.location.host}/ws/v1/servers/${encodeURIComponent(serverId)}/events`);
       const current = streamRef.current;
@@ -125,10 +149,10 @@ export function useConsoleStream(serverId: string | undefined, enabled: boolean)
         url.searchParams.set('streamId', current.streamId);
         url.searchParams.set('afterSequence', String(current.lastSequence));
       }
-      socket = new WebSocket(url);
+      socket = protocols ? new WebSocket(url, protocols) : new WebSocket(url);
 
       socket.addEventListener('message', (event) => {
-        if (stopped) return;
+        if (!currentAuth()) return;
         let raw: unknown;
         try {
           raw = JSON.parse(String(event.data));
@@ -153,29 +177,29 @@ export function useConsoleStream(serverId: string | undefined, enabled: boolean)
         }
       });
 
-      socket.addEventListener('close', () => {
-        if (stopped) return;
+      socket.addEventListener('close', (event) => {
+        if (!currentAuth()) return;
+        if (event.code === 1008 && auth.phase === 'authenticated') {
+          authState.signedOut(auth.generation, '日志连接权限已失效，请重新登录。');
+          return;
+        }
         setError((current) => current ?? 'Console WebSocket 已断开。');
-        const baseDelay = delays[Math.min(attempt, delays.length - 1)]!;
-        attempt += 1;
-        const delay = Math.round(baseDelay * (0.85 + Math.random() * 0.3));
-        setConnection('reconnecting');
-        setRetryInMs(delay);
-        reconnectTimer = window.setTimeout(connect, delay);
+        retry();
       });
 
       socket.addEventListener('error', () => {
-        if (!stopped) setError('Console WebSocket 连接中断。');
+        if (currentAuth()) setError('Console WebSocket 连接中断。');
       });
     };
 
-    connect();
+    void connect();
     return () => {
       stopped = true;
+      ticketRequest.abort();
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       socket?.close(1000, 'instance-changed');
     };
-  }, [enabled, serverId]);
+  }, [enabled, serverId, auth.generation, auth.phase]);
 
   return { stream, connection, retryInMs, error, dismissGap: () => dispatch({ type: 'dismiss-gap' }) };
 }

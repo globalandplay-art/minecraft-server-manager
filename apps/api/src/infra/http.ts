@@ -36,7 +36,10 @@ export function errorResponse(
   };
 }
 
-export function installLocalRequestGuard(clock: Clock, mode: Mode = "mock") {
+/** Fixed event and generated request ID only; the observer receives no headers or URL. */
+export type LocalGuardDenialObserver = (event: "origin-rejected", requestId: string) => Promise<boolean>;
+
+export function installLocalRequestGuard(clock: Clock, mode: Mode = "mock", observeDenial?: LocalGuardDenialObserver) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const host = request.headers.host?.toLowerCase();
     if (host === undefined || !ALLOWED_HOSTS.has(host)) {
@@ -55,9 +58,13 @@ export function installLocalRequestGuard(clock: Clock, mode: Mode = "mock") {
 
     const origin = request.headers.origin;
     if (origin !== undefined && !ALLOWED_ORIGINS.has(origin)) {
+      let auditAvailable = true;
+      try { auditAvailable = await observeDenial?.("origin-rejected", request.id) ?? true; }
+      catch { auditAvailable = false; }
       await reply
-        .code(403)
-        .send(errorResponse(request.id, clock, "ORIGIN_REJECTED", "请求 Origin 不在本地允许列表中", mode));
+        .code(auditAvailable ? 403 : 503)
+        .send(errorResponse(request.id, clock, auditAvailable ? "ORIGIN_REJECTED" : "AUTH_AUDIT_UNAVAILABLE",
+          auditAvailable ? "请求 Origin 不在本地允许列表中" : "Authentication audit unavailable", mode));
     }
   };
 }

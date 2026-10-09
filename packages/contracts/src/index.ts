@@ -200,6 +200,7 @@ export const metricsSchema = strictObject({
 });
 export type Metrics = Static<typeof metricsSchema>;
 
+
 export const worldFieldSourceSchema = Type.Union([
   Type.Literal("level-dat"),
   Type.Literal("world-data"),
@@ -841,3 +842,51 @@ export type AddonUploadResponse = Static<typeof addonUploadResponseSchema>;
 export const addonInstallRequestSchema = strictObject({ uploadId: Type.String({ format: "uuid" }),
   uploadRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }), inventoryRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }) });
 export type AddonInstallRequest = Static<typeof addonInstallRequestSchema>;
+
+export const performanceResponseSchema = strictObject({ data: strictObject({
+  retention: Type.Literal("manager-session"), minimumIntervalMs: Type.Literal(5000),
+  samples: Type.Array(strictObject({ collectedAt: timestampSchema, metrics: metricsSchema }), { maxItems: 120 })
+}), meta: responseMetaSchema });
+export type PerformanceResponse = Static<typeof performanceResponseSchema>;
+
+export const crashAnalysisResponseSchema = strictObject({ data: strictObject({
+  status: Type.Union([Type.Literal("available"), Type.Literal("unavailable")]),
+  reason: Type.Union([Type.Literal("local-instance-required"), Type.Null()]),
+  sampledAt: Type.Union([timestampSchema, Type.Null()]), minimumIntervalMs: Type.Literal(5000),
+  incomplete: Type.Boolean(),
+  conclusion: Type.Union([Type.Literal("possible-causes"), Type.Literal("no-rule-match"), Type.Literal("insufficient-evidence"), Type.Literal("unavailable")]),
+  sources: Type.Array(strictObject({ id: Type.String({ pattern: "^(latest-log|crash-[1-3])$" }),
+    source: Type.Union([Type.Literal("latest-log"), Type.Literal("crash-report")]), truncated: Type.Boolean() }), { maxItems: 4 }),
+  findings: Type.Array(strictObject({
+    code: Type.Union([Type.Literal("out-of-memory"), Type.Literal("port-bind"), Type.Literal("java-version"), Type.Literal("watchdog"), Type.Literal("dependency")]),
+    confidence: Type.Literal("possible"), title: Type.String({ maxLength: 128 }), guidance: Type.String({ maxLength: 512 }),
+    evidence: Type.Array(strictObject({ sourceId: Type.String({ pattern: "^(latest-log|crash-[1-3])$" }),
+      excerptLine: Type.Integer({ minimum: 1, maximum: 2048 }), snippet: Type.String({ maxLength: 1000 }) }), { maxItems: 2 })
+  }), { maxItems: 5 }),
+  limitations: Type.Array(Type.Union([Type.Literal("bounded-local-evidence"), Type.Literal("possible-not-certain"),
+    Type.Literal("excerpt-line-not-file-line"), Type.Literal("no-automatic-repair")]), { maxItems: 4 })
+}), meta: responseMetaSchema });
+export type CrashAnalysisResponse = Static<typeof crashAnalysisResponseSchema>;
+
+const authTokenSchema = Type.String({ pattern: "^[A-Za-z0-9_-]{43}$" });
+export const authStatusResponseSchema = strictObject({ data: Type.Union([
+  strictObject({ configured: Type.Literal(false), authenticationRequired: Type.Literal(false), auditReady: Type.Literal(false) }),
+  strictObject({ configured: Type.Literal(true), authenticationRequired: Type.Literal(true), auditReady: Type.Boolean() })
+]) });
+export type AuthStatusResponse = Static<typeof authStatusResponseSchema>;
+export const authCredentialsRequestSchema = strictObject({
+  username: Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" }),
+  // Backend additionally validates 128 Unicode code points and 512 UTF-8 bytes.
+  password: Type.String({ maxLength: 256 })
+});
+export type AuthCredentialsRequest = Static<typeof authCredentialsRequestSchema>;
+export const authSessionResponseSchema = strictObject({ data: strictObject({
+  authenticated: Type.Literal(true), expiresAt: timestampSchema, csrfToken: authTokenSchema, recentReauthentication: Type.Boolean()
+}), meta: responseMetaSchema });
+export type AuthSessionResponse = Static<typeof authSessionResponseSchema>;
+export const authLogoutResponseSchema = strictObject({ data: strictObject({ authenticated: Type.Literal(false) }), meta: responseMetaSchema });
+export type AuthLogoutResponse = Static<typeof authLogoutResponseSchema>;
+export const authWsTicketRequestSchema = strictObject({ serverId: Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }) });
+export type AuthWsTicketRequest = Static<typeof authWsTicketRequestSchema>;
+export const authWsTicketResponseSchema = strictObject({ data: strictObject({ ticket: authTokenSchema, expiresAt: timestampSchema }), meta: responseMetaSchema });
+export type AuthWsTicketResponse = Static<typeof authWsTicketResponseSchema>;

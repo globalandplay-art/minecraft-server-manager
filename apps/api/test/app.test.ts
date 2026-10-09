@@ -94,10 +94,11 @@ describe("Phase 1 read API", () => {
     expect(Value.Check(healthResponseSchema, payload)).toBe(true);
     expect(payload.meta).toMatchObject({ mode: "mock", generatedAt: NOW.toISOString() });
     expect(payload.data.features.dashboard).toEqual({ implemented: true, phase: 1 });
-    expect(payload.data.features.servers).toEqual({ implemented: true, phase: 1 });
+      expect(payload.data.features.servers).toEqual({ implemented: true, phase: 1 });
+      expect(payload.data.features.performance).toEqual({ implemented: true, phase: 6 });
     expect(
       Object.entries(payload.data.features)
-        .filter(([feature]) => !["dashboard", "servers"].includes(feature))
+            .filter(([feature]) => !["dashboard", "servers", "performance", "crashAnalysis"].includes(feature))
         .every(([, state]) => (state as { implemented: boolean }).implemented === false)
     ).toBe(true);
   });

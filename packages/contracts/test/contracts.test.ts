@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   actionAvailabilitySchema,
+  crashAnalysisResponseSchema,
   healthResponseSchema,
   numberMetricSchema,
   worldInfoSchema,
@@ -11,6 +12,19 @@ import {
 } from "../src/index.js";
 
 describe("shared contract invariants", () => {
+  it("bounds crash evidence fields and rejects paths, certainty and oversized output", () => {
+    const payload = { data: { status: "available", reason: null, sampledAt: "2026-10-08T00:00:00Z", minimumIntervalMs: 5000,
+      incomplete: false, conclusion: "possible-causes", sources: [], limitations: [],
+      findings: [{ code: "out-of-memory", confidence: "possible", title: "possible", guidance: "check evidence",
+        evidence: [{ sourceId: "latest-log", excerptLine: 1, snippet: "OutOfMemoryError" }] }] },
+      meta: { mode: "local", requestId: "test", generatedAt: "2026-10-08T00:00:00Z" } };
+    expect(Value.Check(crashAnalysisResponseSchema, payload)).toBe(true);
+    expect(Value.Check(crashAnalysisResponseSchema, { ...payload, data: { ...payload.data, root: "C:/secret" } })).toBe(false);
+    const finding = payload.data.findings[0]!;
+    expect(Value.Check(crashAnalysisResponseSchema, { ...payload, data: { ...payload.data, findings: [{ ...finding, confidence: "certain" }] } })).toBe(false);
+    expect(Value.Check(crashAnalysisResponseSchema, { ...payload, data: { ...payload.data, findings: [{ ...finding,
+      evidence: [{ sourceId: "latest-log", excerptLine: 1, snippet: "x".repeat(1001) }] }] } })).toBe(false);
+  });
   it("validates staging lifecycle timestamps in browser Value.Check without a format registry",() => {
     const item = { id:"5babd7fe-c96b-4938-917d-01def3ab4d80",state:"validated",discardAllowed:true,revision:"a".repeat(64),lifecycle:"validated",expiresAt:"2026-10-11T00:00:00.000Z" };
     const payload = { data:{ items:[item],occupiedSlots:1,limit:3 },meta:{ requestId:"test",generatedAt:"2026-10-04T00:00:00Z",mode:"local" } };

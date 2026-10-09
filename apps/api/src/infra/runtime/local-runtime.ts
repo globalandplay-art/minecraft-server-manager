@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 
 import type { MetricSource, Metrics, ServerStatus } from "@mcsm/contracts";
 
@@ -27,6 +28,7 @@ import {
   type MinecraftStatusProbeResult
 } from "./status-probe.js";
 import { DomainError } from "../../services/domain-errors.js";
+import { ProcessResourceSampler, type ProcessCounterReader } from "./process-resources.js";
 
 const DONE_PATTERN = /\bDone \([^)]+\)!/;
 const UNSAFE_EXECUTABLE = /\.(?:bat|cmd|ps1|sh)$/i;
@@ -80,6 +82,8 @@ export type RuntimeSpawn = (
 ) => ChildProcessWithoutNullStreams;
 
 export interface LocalRuntimeOptions {
+  readonly processCounterReader?: ProcessCounterReader;
+  readonly resourceMonotonicNow?: () => number;
   readonly spawnProcess?: RuntimeSpawn;
   readonly statusProbe?: (
     endpoint: ValidatedLaunchPlan["statusEndpoint"],
@@ -125,6 +129,11 @@ function safeSpawn(
 }
 
 export class LocalMinecraftRuntime implements MinecraftRuntime {
+  private readonly resourceSampler: ProcessResourceSampler;
+  private readonly resourceNow: () => number;
+  private resourceEarliest = 0;
+  private resourcePending: Promise<Pick<Metrics, "cpu" | "ram">> | null = null;
+  private resourceCache: { child: ChildProcessWithoutNullStreams; expires: number; metrics: Pick<Metrics, "cpu" | "ram"> } | null = null;
   private readonly spawnProcess: RuntimeSpawn;
   private readonly statusProbe: NonNullable<LocalRuntimeOptions["statusProbe"]>;
   private readonly startTimeoutMs: number;
@@ -152,6 +161,8 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     options: LocalRuntimeOptions = {}
   ) {
     this.spawnProcess = options.spawnProcess ?? safeSpawn;
+    this.resourceNow = options.resourceMonotonicNow ?? (() => performance.now());
+    this.resourceSampler = new ProcessResourceSampler(options.processCounterReader, this.resourceNow);
     this.statusProbe = options.statusProbe ?? probeMinecraftStatus;
     this.startTimeoutMs = options.startTimeoutMs ?? 120_000;
     this.stopTimeoutMs = options.stopTimeoutMs ?? 60_000;
@@ -217,6 +228,28 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     };
   }
 
+  async getProcessResources(): Promise<Pick<Metrics, "cpu" | "ram">> {
+    const child = this.child;
+    const alive = () => !this.closed && this.child === child && child !== null &&
+      child.exitCode === null && child.signalCode === null && this.status.state === "running" && this.status.ownership === "managed";
+    if (!alive() || !child?.pid) {
+      this.resourceSampler.reset(); return { cpu: unavailable("process-unavailable"), ram: unavailable("process-unavailable") };
+    }
+    if (this.resourcePending) {
+      await this.resourcePending;
+      return this.getProcessResources();
+    }
+    if (this.resourceCache?.child === child && this.resourceNow() < this.resourceCache.expires) return structuredClone(this.resourceCache.metrics);
+    const task = this.resourceSampler.sample(child.pid, this.plan.javaExecutable, () => this.now().toISOString(), alive,
+      { earliest: this.resourceEarliest, latest: this.startedAt ?? 0 });
+    this.resourcePending = task;
+    try {
+      const metrics = await task;
+      if (alive()) this.resourceCache = { child, expires: this.resourceNow() + 5000, metrics };
+      return structuredClone(metrics);
+    } finally { if (this.resourcePending === task) this.resourcePending = null; }
+  }
+
   async start(context: RuntimeOperationContext): Promise<void> {
     this.assertOpen();
     this.assertLaunchPlan();
@@ -251,6 +284,9 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     let child: ChildProcessWithoutNullStreams;
     try {
       assertJavaEnvironment();
+      this.resourceEarliest = this.now().getTime();
+      this.resourceCache = null;
+      this.resourceSampler.reset();
       child = this.spawnProcess(this.plan.javaExecutable, this.plan.argv, {
         cwd: this.plan.rootPath,
         shell: false,

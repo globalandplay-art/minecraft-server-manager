@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepare:local-test": "tsx src/cli/prepare-local-test.ts"
+    "prepare:local-test": "tsx src/cli/prepare-local-test.ts",
+    "auth:offline": "tsx src/cli/auth-offline.ts"
   },
   "dependencies": {
     "@fastify/websocket": "11.3.1",

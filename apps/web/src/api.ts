@@ -1,4 +1,9 @@
 import {
+  authStatusResponseSchema, authSessionResponseSchema, authLogoutResponseSchema, authWsTicketResponseSchema,
+  type AuthStatusResponse, type AuthSessionResponse, type AuthLogoutResponse, type AuthWsTicketResponse,
+  type AuthCredentialsRequest,
+  performanceResponseSchema, type PerformanceResponse,
+  crashAnalysisResponseSchema, type CrashAnalysisResponse,
   propertiesResponseSchema, propertiesWriteResponseSchema,
   type PropertiesResponse, type PropertiesWriteRequest, type PropertiesWriteResponse,
   playersResponseSchema, type PlayersResponse,
@@ -55,6 +60,7 @@ import {
 } from '@mcsm/contracts';
 import { FormatRegistry } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+import { authenticatedFetch, authState } from './authState';
 
 if (!FormatRegistry.Has('uuid')) {
   FormatRegistry.Set('uuid', (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value));
@@ -94,6 +100,7 @@ async function getJson<T>(path: string, schema: unknown, signal?: AbortSignal): 
 }
 
 interface RequestOptions {
+  endSession?: boolean;
   signal?: AbortSignal | undefined;
   method?: 'GET' | 'POST' | 'PATCH' | undefined;
   body?: unknown | undefined;
@@ -103,6 +110,7 @@ interface RequestOptions {
 }
 
 async function requestJson<T>(path: string, schema: unknown, options: RequestOptions = {}): Promise<T> {
+  let authGeneration = authState.snapshot().generation;
   const timeout = new AbortController();
   const timeoutId = window.setTimeout(() => timeout.abort(), options.timeoutMs ?? 5_000);
   const combinedSignal = options.signal
@@ -122,7 +130,14 @@ async function requestJson<T>(path: string, schema: unknown, options: RequestOpt
         signal: combinedSignal,
       };
       if (options.body !== undefined) requestInit.body = JSON.stringify(options.body);
-      response = await fetch(`/api/v1${path}`, requestInit);
+      if (options.endSession) {
+        // Clear views/streams now, retaining only the captured CSRF for this bounded logout.
+        requestInit.headers = { ...requestInit.headers, ...authState.headers('POST') };
+        requestInit.credentials = 'same-origin';
+        authGeneration = authState.checking();
+        response = await fetch(`/api/v1${path}`, requestInit);
+        authState.assert(authGeneration);
+      } else response = await authenticatedFetch(`/api/v1${path}`, requestInit);
     } catch (error) {
       if (options.signal?.aborted) throw error;
       throw new ApiClientError(
@@ -151,6 +166,7 @@ async function requestJson<T>(path: string, schema: unknown, options: RequestOpt
       );
     }
 
+    authState.assert(authGeneration);
     if (options.expectedStatus !== undefined && response.status !== options.expectedStatus) {
       throw new ApiClientError(
         `后端返回了意外的状态码（HTTP ${response.status}）。`,
@@ -179,6 +195,20 @@ async function requestJson<T>(path: string, schema: unknown, options: RequestOpt
 }
 
 export const api = {
+  authStatus: () => getJson<AuthStatusResponse>('/auth/status', authStatusResponseSchema),
+  authSession: () => getJson<AuthSessionResponse>('/auth/session', authSessionResponseSchema),
+  authLogin: (body: AuthCredentialsRequest) => requestJson<AuthSessionResponse>('/auth/login', authSessionResponseSchema,
+    { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, timeoutMs: 30_000 }),
+  authReauthenticate: (body: AuthCredentialsRequest) => requestJson<AuthSessionResponse>('/auth/reauth', authSessionResponseSchema,
+    { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, timeoutMs: 30_000 }),
+  authLogout: () => requestJson<AuthLogoutResponse>('/auth/logout', authLogoutResponseSchema,
+    { method: 'POST', body: {}, headers: { 'X-Manager-Intent': 'local-ui' }, timeoutMs: 30_000, endSession: true }),
+  authWsTicket: (serverId: string, signal?: AbortSignal) => requestJson<AuthWsTicketResponse>('/auth/ws-ticket', authWsTicketResponseSchema,
+    { method: 'POST', body: { serverId }, headers: { 'X-Manager-Intent': 'local-ui' }, signal, timeoutMs: 30_000 }),
+  performance: (serverId: string, signal?: AbortSignal) =>
+    getJson<PerformanceResponse>(`/servers/${encodeURIComponent(serverId)}/performance`, performanceResponseSchema, signal),
+  crashAnalysis: (serverId: string, signal?: AbortSignal) =>
+    getJson<CrashAnalysisResponse>(`/servers/${encodeURIComponent(serverId)}/crash-analysis`, crashAnalysisResponseSchema, signal),
   properties: (serverId: string, signal?: AbortSignal) =>
     getJson<PropertiesResponse>(`/servers/${encodeURIComponent(serverId)}/properties`, propertiesResponseSchema, signal),
   saveProperties: (serverId: string, body: PropertiesWriteRequest, revision: string, key: string) =>
@@ -204,12 +234,13 @@ export const api = {
     requestJson<WorldImportDiscardResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-uploads/${encodeURIComponent(uploadId)}/discard`, worldImportDiscardResponseSchema,
       { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
   uploadWorldZip: async (serverId: string, file: File, signal?: AbortSignal): Promise<WorldImportUploadResponse> => {
+    const generation = authState.snapshot().generation;
     const timeout = new AbortController();
     const timer = window.setTimeout(() => timeout.abort(), 120_000);
     try {
       let response: Response;
       try {
-        response = await fetch(`/api/v1/servers/${encodeURIComponent(serverId)}/worlds/import-uploads`, {
+        response = await authenticatedFetch(`/api/v1/servers/${encodeURIComponent(serverId)}/worlds/import-uploads`, {
           method: 'POST', body: file, signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal,
           headers: { Accept: 'application/json', 'Content-Type': 'application/zip',
             'X-Manager-Intent': 'local-ui', 'X-Upload-Filename': encodeURIComponent(file.name) },
@@ -224,6 +255,7 @@ export const api = {
       if (response.status !== 201 || !Value.Check(worldImportUploadResponseSchema, payload)) {
         throw new ApiClientError('上传校验结果格式异常。', 'schema', response.status);
       }
+      authState.assert(generation);
       return payload;
     } finally { window.clearTimeout(timer); }
   },
@@ -356,12 +388,13 @@ export const api = {
   addonTrash: (serverId: string, signal?: AbortSignal) =>
     getJson<AddonTrashResponse>(`/servers/${encodeURIComponent(serverId)}/addons/trash`, addonTrashResponseSchema, signal),
   uploadAddon: async (serverId: string, file: File): Promise<AddonUploadResponse> => {
+    const generation = authState.snapshot().generation;
     const timeout = new AbortController();
     const timer = window.setTimeout(() => timeout.abort(), 120_000);
     try {
       let response: Response;
       try {
-        response = await fetch(`/api/v1/servers/${encodeURIComponent(serverId)}/addons/uploads`, {
+        response = await authenticatedFetch(`/api/v1/servers/${encodeURIComponent(serverId)}/addons/uploads`, {
           method: 'POST', body: file,
           headers: { Accept: 'application/json', 'Content-Type': 'application/java-archive',
             'X-Manager-Intent': 'local-ui', 'X-Upload-Filename': encodeURIComponent(file.name) },
@@ -380,6 +413,7 @@ export const api = {
       if (response.status !== 201 || !Value.Check(addonUploadResponseSchema, payload)) {
         throw new ApiClientError('扩展上传校验结果格式异常。', 'schema', response.status, 'SCHEMA_INVALID', readError(payload).requestId);
       }
+      authState.assert(generation);
       return payload;
     } finally { window.clearTimeout(timer); }
   },

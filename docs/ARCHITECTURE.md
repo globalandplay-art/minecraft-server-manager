@@ -1,5 +1,9 @@
 # Minecraft Java Server Manager — 系统架构
 
+## 当前 Phase7 安全设计入口（尚未实现）
+
+Phase6 Final PASS后，用户授权开始P7.0。单管理员离线初始化、密码哈希、会话cookie/CSRF、WebSocket一次ticket与撤销、同源HTTPS和精确代理边界见[PHASE7_PLAN](./PHASE7_PLAN.md)。当前仍只监听127.0.0.1且没有身份认证；本轮仅设计，未安装隧道、修改网络/账号或创建密码。Remote部署待方案选择和独立安全Gate，不以放宽Host/Origin或改0.0.0.0实现。高级Review按用户当前覆盖规则使用SolHigh，不调用Astra。以下历史阶段范围与署名保留。
+
 Current P3.3 closure: Archive host run `1d0662e9…` is verified PASS (see PROGRESS; historical BLOCKED evidence retained). Upload staging lifecycle uses immutable createdAt/identity owner plus atomic receiving/failed/validated metadata; expiry only selects candidates. A shared global lease and per-instance exclusive admission recheck all journal references, consumed/pinned markers, recovery and canonical identities before existing durable-receipt/nonrecursive deletion. Default automatic cleanup is OFF; opt-in cleanup runs only before new uploads, with a separate locally guarded explicit sweep API. No world/archive/guard/transaction workspace cleanup, no automatic retry of partial deletion. Full policy and verification are in [staging framework](./P33_STAGING_LIFECYCLE_2026-10-04.md).
 
 当前实施状态：Phase 1 / Phase 2 已通过；Phase 3 的 P3.0–P3.5 已通过各自切片验收，整体签核以 [Phase 3 Final Gate](./PHASE3_FINAL_GATE_2026-10-04.md) 为准；Phase 4–7 尚未实施。本轮按用户明确覆盖使用独立 Sol High Final Review，不调用 Astra；历史模型署名保留。

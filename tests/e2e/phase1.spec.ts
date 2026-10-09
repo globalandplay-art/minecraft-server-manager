@@ -136,9 +136,7 @@ test('阶段占位页来自后端 features 且不会提供伪操作', async ({ p
     ['/players', 'Players', 'Phase 4'],
     ['/worlds', 'Worlds', 'Phase 3'],
     ['/console', 'Console', 'Phase 2'],
-    ['/performance', 'Performance', 'Phase 6'],
     ['/backups', 'Backups', 'Phase 3'],
-    ['/crashes', 'Crash Analysis', 'Phase 6'],
   ] as const;
 
   for (const [path, heading, phase] of pages) {

@@ -1,6 +1,9 @@
 import type { LogEntry, ServerStatus, WsMessage } from '@mcsm/contracts';
-import { act, renderHook } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { api } from './api';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { authState } from './authState';
+beforeEach(() => authState.legacy(authState.checking()));
 import { applyWsMessage, emptyConsoleStream, parseWsMessage, useConsoleStream } from './consoleStream';
 
 const status: ServerStatus = {
@@ -55,13 +58,13 @@ describe('Console WS 流状态', () => {
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
-  readonly listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
+  readonly listeners = new Map<string, Array<(event: { data?: unknown; code?: number }) => void>>();
 
-  constructor(readonly url: string | URL) {
+  constructor(readonly url: string | URL, readonly protocols?: string[]) {
     MockWebSocket.instances.push(this);
   }
 
-  addEventListener(type: string, listener: (event: { data?: unknown }) => void) {
+  addEventListener(type: string, listener: (event: { data?: unknown; code?: number }) => void) {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(listener);
     this.listeners.set(type, listeners);
@@ -69,7 +72,7 @@ class MockWebSocket {
 
   close() {}
 
-  emit(type: string, event: { data?: unknown } = {}) {
+  emit(type: string, event: { data?: unknown; code?: number } = {}) {
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 }
@@ -77,9 +80,36 @@ class MockWebSocket {
 afterEach(() => {
   MockWebSocket.instances = [];
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('useConsoleStream 实例隔离', () => {
+  it('authenticated socket uses one-use protocol ticket, never a URL secret;1008 clears state', async () => {
+    authState.authenticated({ data: { authenticated: true, csrfToken: 'a'.repeat(43), expiresAt: '2026-10-09T01:30:00.000Z', recentReauthentication: true },
+      meta: { mode: 'mock', generatedAt: '2026-10-09T01:00:00.000Z', requestId: 'test' } }, authState.snapshot().generation);
+    const ticket = 'b'.repeat(43);
+    const issue = vi.spyOn(api, 'authWsTicket').mockResolvedValue({ data: { ticket, expiresAt: '2026-10-09T01:00:30.000Z' }, meta: { mode: 'mock', generatedAt: '2026-10-09T01:00:00.000Z', requestId: 'test' } });
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const { result } = renderHook(() => useConsoleStream('server-one', true));
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    const socket = MockWebSocket.instances[0]!;
+    expect(socket.protocols).toEqual(['mcsm.events.v1', `ticket.${ticket}`]);
+    expect(String(socket.url)).not.toContain(ticket);
+    act(() => socket.emit('close', { code: 1008 }));
+    expect(authState.snapshot().phase).toBe('signed-out');
+    expect(result.current.connection).toBe('idle'); expect(result.current.retryInMs).toBeNull();
+    expect(issue).toHaveBeenCalledTimes(1);
+  });
+  it('late ticket completion after logout cannot construct a socket', async () => {
+    authState.authenticated({ data: { authenticated: true, csrfToken: 'a'.repeat(43), expiresAt: '2026-10-09T01:30:00.000Z', recentReauthentication: true },
+      meta: { mode: 'mock', generatedAt: '2026-10-09T01:00:00.000Z', requestId: 'test' } }, authState.snapshot().generation);
+    let finish!: (value: Awaited<ReturnType<typeof api.authWsTicket>>) => void;
+    vi.spyOn(api, 'authWsTicket').mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    vi.stubGlobal('WebSocket', MockWebSocket); renderHook(() => useConsoleStream('server-one', true));
+    act(() => authState.signedOut());
+    await act(async () => finish({ data: { ticket: 'b'.repeat(43), expiresAt: '2026-10-09T01:00:30.000Z' }, meta: { mode: 'mock', generatedAt: '2026-10-09T01:00:00.000Z', requestId: 'test' } }));
+    expect(MockWebSocket.instances).toHaveLength(0);
+  });
   it('切换实例不携带旧 stream query，并忽略旧 socket 的晚到消息', () => {
     vi.stubGlobal('WebSocket', MockWebSocket);
     const { result, rerender } = renderHook(

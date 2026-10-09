@@ -28,6 +28,12 @@ npm.cmd run dev
 
 ## 使用指南
 
+### Performance 与 Crash Analysis
+
+选择注册实例后，Performance 显示最多120条本次Manager会话采样。Windows CPU/RAM来自管理器拥有的Minecraft进程；RAM为驻留内存，磁盘为所在卷容量。停止、无法核验或无支持来源时显示N/A；TPS/MSPT目前无可靠来源，保持N/A。Mock数据仅供演示。历史时间不会因刷新变新，Manager重启清空历史。
+
+Crash Analysis 点击“读取崩溃证据”才读取本地固定日志和崩溃报告，不自动扫描、上传或修复。结果只表示可能原因；无匹配、缺少日志都不能证明健康。超过64KiB的来源只显示截断信息，不输出分析片段。详情和隐私限制见[使用指南](./docs/USER_GUIDE.md)。Phase6整体签核以[PROGRESS](./docs/PROGRESS.md)为准。
+
 ### 快速体验 Mock 模式
 
 Mock 模式不启动真实 Minecraft，也不会修改服务端文件，适合先查看 Dashboard、Servers、Console 占位和响应式布局：
@@ -129,7 +135,7 @@ npm.cmd run dev
 
 浏览器仍访问 <http://127.0.0.1:3000>；前端通过同源 API 和 WebSocket 与本机后端通信。管理器只会停止自己在当前进程中启动的 Java 子进程；它不会接管或停止外部启动的 Minecraft 进程。管理器异常重启后，未完成的操作会标记为中断并要求恢复确认，不会自动重放。
 
-当前本机 Vanilla 模式提供生命周期、受限命令、Console，以及已验收的 Worlds / Backups：手动备份、受限 world-set 下载、恢复与显式回滚、新建世界、受限 ZIP 导入、完整世界归档、每日计划和安全保留策略。Players 只读及已确认 Vanilla 26.3 的安全 Properties 编辑已通过 Phase 4。受信 Paper/Fabric 实例提供 Mods / Plugins 清单、有界 JAR 上传安装、禁用/启用、Trash 与原状态恢复；P5.5 已通过真实隔离加载验收，整体 Phase 5 Final Gate 状态见进度文档。文件变更要求先明确停服，成功后需用户明确启动，不会自动重启。Performance、Crash Analysis 真采集和远程访问仍在后续阶段。Console 命令有长度、控制字符和保留命令限制；生命周期操作应使用页面中的专用按钮。
+当前本机 Vanilla 模式提供生命周期、受限命令、Console，以及已验收的 Worlds / Backups：手动备份、受限 world-set 下载、恢复与显式回滚、新建世界、受限 ZIP 导入、完整世界归档、每日计划和安全保留策略。Players 只读及已确认 Vanilla 26.3 的安全 Properties 编辑已通过 Phase 4。受信 Paper/Fabric 实例提供 Mods / Plugins 清单、有界 JAR 上传安装、禁用/启用、Trash 与原状态恢复；P5.5 已通过真实隔离加载验收，整体 Phase 5 Final Gate 状态见进度文档。文件变更要求先明确停服，成功后需用户明确启动，不会自动重启。Performance提供可信Windows受管进程/卷指标和会话历史，Crash Analysis提供有界本地证据分析；远程访问仍未实现。Console 命令有长度、控制字符和保留命令限制；生命周期操作应使用页面中的专用按钮。
 
 ## 检查与构建
 
@@ -155,7 +161,7 @@ Remove-Item Env:MCSM_REAL_SERVER_ID
 
 页面持续显示 `MOCK DATA`，表示浏览器确实调用了 Fastify API，但 Fastify 返回的是受控 fixture，而非真实 Minecraft 进程数据。CPU、RAM、Disk 和 Uptime 等可用示例会标明 Mock 来源；无法采集的 TPS / MSPT 显示 `N/A` 及原因。`N/A` 表示没有可信值，不等于零。
 
-RAM 的口径是 Minecraft 进程 RSS；Disk 是服务端目录所在卷的已用 / 总空间。Mock 模式中这些值仍是示例，启动、停止、重启和 Console 不执行真实操作。Worlds、Backups、Players、Properties、Addons、Performance、Crash Analysis 和 Remote Access 仍只展示阶段说明或禁用原因。
+RAM 的口径是 Minecraft 进程 RSS；Disk 是服务端目录所在卷的已用 / 总空间。Mock 模式中这些值仍是示例，启动、停止、重启和 Console 不执行真实操作。Worlds、Backups、Players、Properties、Addons和Remote Access在Mock模式仍展示阶段说明或禁用原因；Performance提供明确标注Mock的会话快照，Crash Analysis手动读取后显示不可用。
 
 Phase 1 的范围仅包括：
 
@@ -165,4 +171,4 @@ Phase 1 的范围仅包括：
 - 未知实例、空列表、API 断线、响应格式异常和旧数据状态；
 - 后续功能的阶段占位说明。
 
-真实 Java 进程管理由 Phase 2 本机模式提供；备份 / 世界由 Phase 3 提供。上面的 Mock 与 Phase 1 描述保留其示例模式范围。配置编辑、Addons、性能页面与远程访问仍在后续阶段。正常启动不会下载 Java 或服务端 JAR、接受 EULA；`prepare:local-test --apply` 会按上述说明备份并配置本机 RCON，新建或导入世界等明确授权操作也可能按各自事务契约更新世界选择设置。
+真实 Java 进程管理由 Phase 2 本机模式提供；备份 / 世界由 Phase 3 提供。上面的 Mock 与 Phase 1 描述保留其示例模式范围。配置编辑与Addons由Phase4/5提供，Performance和Crash Analysis由Phase6提供；远程访问仍在后续Phase7。正常启动不会下载 Java 或服务端 JAR、接受 EULA；`prepare:local-test --apply` 会按上述说明备份并配置本机 RCON，新建或导入世界等明确授权操作也可能按各自事务契约更新世界选择设置。

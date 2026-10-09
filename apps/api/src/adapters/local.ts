@@ -19,6 +19,7 @@ import type {
 } from "../infra/runtime-contract.js";
 import type { RegisteredExecutionIdentity } from "../infra/runtime-contract.js";
 import type { LocalMinecraftServerAdapter } from "./contract.js";
+import { readVolumeMetric } from "../services/volume-metrics.js";
 
 export class LocalJavaAdapter implements LocalMinecraftServerAdapter {
   readonly mode = "local" as const;
@@ -55,7 +56,12 @@ export class LocalJavaAdapter implements LocalMinecraftServerAdapter {
   }
 
   async getMetrics(): Promise<Metrics> {
-    return (await this.#runtime.snapshot()).metrics;
+    const snapshot = await this.#runtime.snapshot();
+    const [resources, disk] = await Promise.all([
+      this.#runtime.getProcessResources?.(),
+      readVolumeMetric(this.plan.rootPath, this.#registration.identity?.rootIdentity, new Date().toISOString())
+    ]);
+    return { ...snapshot.metrics, ...resources, disk };
   }
 
   async getActivity(): Promise<Activity[]> {

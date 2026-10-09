@@ -21,6 +21,7 @@ import {
 import { encodeRconPacket } from "../../src/infra/runtime/rcon-client.js";
 import { OperationService } from "../../src/services/operation-service.js";
 import { MemoryOperationStore } from "../../src/services/operation-store.js";
+import type { ProcessCounters } from "../../src/infra/runtime/process-resources.js";
 import { ServerService } from "../../src/services/server-service.js";
 
 const directories: string[] = [];
@@ -142,6 +143,56 @@ afterEach(async () => {
 });
 
 describe("LocalMinecraftRuntime", () => {
+  it("coalesces resource reads and preserves cache timestamps across stop/restart", async () => {
+    const root = await fixtureRoot(); let nowMs = 10000; let startMs = 10000; let monotonic = 0;
+    const reader = vi.fn(async (pid: number): Promise<ProcessCounters> => ({ pid,
+      startTicks: (621355968000000000n + BigInt(startMs) * 10000n).toString(), cpuMs: 100, rssBytes: 2048, executable: process.execPath }));
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript({ exitOnStop: true })), {
+      spawnProcess: trackedSpawn(), statusProbe: async () => children.size ? "running" : "stopped",
+      processCounterReader: reader, resourceMonotonicNow: () => monotonic, now: () => new Date(nowMs), readinessPollMs: 5
+    });
+    await runtime.initialize();
+    try {
+      const starting = runtime.start(operation()); await waitForChild();
+      await appendFile(join(root, "logs", "latest.log"), "[Server thread/INFO]: Done (resource)!\n"); await starting;
+      const values = await Promise.all(Array.from({ length: 20 }, () => runtime.getProcessResources()));
+      expect(reader).toHaveBeenCalledTimes(1);
+      expect(values.every((value) => value.ram.status === "available")).toBe(true);
+      nowMs = 20000;
+      expect((await runtime.getProcessResources()).ram).toMatchObject({ sampledAt: new Date(10000).toISOString() });
+      monotonic = 5000;
+      expect((await runtime.getProcessResources()).cpu).toMatchObject({ status: "available", value: 0 });
+      expect(reader).toHaveBeenCalledTimes(2);
+      await runtime.stop(operation("stop"));
+      expect((await runtime.getProcessResources()).ram.status).toBe("unavailable");
+      startMs = 20000; const restarting = runtime.start(operation()); await waitForChild();
+      await appendFile(join(root, "logs", "latest.log"), "[Server thread/INFO]: Done (resource restart)!\n"); await restarting;
+      const next = await runtime.getProcessResources();
+      expect(reader).toHaveBeenCalledTimes(3);
+      expect(next.cpu.status).toBe("unavailable");
+      expect(next.ram).toMatchObject({ sampledAt: new Date(20000).toISOString() });
+      await runtime.stop(operation("stop"));
+    } finally { await runtime.closeObserver(); }
+  });
+
+  it("does not publish resource readings if the owned child exits during the probe", async () => {
+    const root = await fixtureRoot(); let resolve!: (counters: ProcessCounters) => void;
+    let entered!: () => void; const ready = new Promise<void>((done) => { entered = done; });
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript({ exitOnStop: true })), {
+      spawnProcess: trackedSpawn(), statusProbe: async () => children.size ? "running" : "stopped",
+      now: () => new Date(10000), readinessPollMs: 5,
+      processCounterReader: () => { entered(); return new Promise<ProcessCounters>((done) => { resolve = done; }); }
+    });
+    await runtime.initialize();
+    try {
+      const starting = runtime.start(operation()); const child = await waitForChild();
+      await appendFile(join(root, "logs", "latest.log"), "[Server thread/INFO]: Done (resource)!\n"); await starting;
+      const pending = runtime.getProcessResources(); await ready;
+      await runtime.stop(operation("stop"));
+      resolve({ pid: child.pid!, startTicks: "621355968100000000", cpuMs: 100, rssBytes: 2048, executable: process.execPath });
+      expect(await pending).toMatchObject({ cpu: { status: "unavailable" }, ram: { status: "unavailable" } });
+    } finally { await runtime.closeObserver(); }
+  });
   it("only gracefully stops the exact transaction-owned child after failed readiness", async () => {
     const root = await fixtureRoot();
     const runtime = new LocalMinecraftRuntime(plan(root, childScript({ exitOnStop: true })), {

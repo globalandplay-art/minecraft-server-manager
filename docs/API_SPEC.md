@@ -1,5 +1,75 @@
 # Minecraft Java Server Manager — API 合约
 
+## P7.2 登录 UI / WebSocket（2026-10-09，工程 Final Gate 进行中）
+
+本节描述当前候选实现，尚待新的冻结完整回归和独立最终证据签核；下方 P7.1b 的 WS 全拒绝是保留的历史检查点。不是 Tailscale Serve，也不授权真实账号或远程入口。
+
+`POST /api/v1/auth/ws-ticket` 要求有效 local-http Cookie、允许 Origin、intent 和会话绑定 CSRF；严格 `{serverId}`，返回 `data.ticket/expiresAt` 及正式 meta。Ticket 最多30秒、仅一次消费，绑定会话/服务器/精确 Origin，每会话最多8个 pending。目标不存在仍由事件路由在升级前拒绝；ticket 不授予其他业务权限。
+
+required 模式仅允许 `GET /ws/v1/servers/:serverId/events` 的合法 WebSocket13 握手。浏览器提供恰好 `mcsm.events.v1` 与 `ticket.<token>` 两个子协议，服务端只选择公共协议；Cookie/ticket 不进入 URL或日志。Query 只允许原有配对 `streamId/afterSequence` 回放游标，未知、重复及编码伪装 key 拒绝。实际101前同步重验会话/audit/Origin、消费ticket、预留资源、再检查同步prune后的审计状态。每会话最多4个socket、全局32；配额保持到实际传输关闭。
+
+Logout/rotation/expiry/审计不可用关闭1008并立即停止订阅与发送；静默连接也受限时检查，WS不刷新idle。Frontend 1008或401清空业务视图/缓存并关闭连接；重连每次申请新ticket。所有fetch包括ZIP/JAR上传共享内存CSRF/认证代际保护，晚到旧响应不能作用于新会话。登录不会重放写操作。初始UI仅在显式legacy状态或有效会话后挂载业务页面，失败不退化为无认证。
+
+本地 Cookie/Origin策略保持P7.1b，仅适用于loopback HTTP，不表示未来远程HTTPS profile已实现。
+
+## P7.1b HTTP 认证（2026-10-09，ENGINEERING PASS）
+
+已实现显式 `MCSM_AUTH=required|off` 的本地 HTTP 认证。新冻结完整回归1353 PASS，lint/typecheck/build/diff通过，独立 Sol High 最终工程/证据签核 P1/P2/P3=0。未初始化真实管理员，未启用远程入口。关闭或未设置认证时仅在没有 credential/pending/staged 的情况下保留原本地行为；存在凭证而没有 required 时安全拒绝启动。required 在业务 adapter 创建前验证私有凭证及审计存储。
+
+| 方法 / 路径 | 能力 |
+| --- | --- |
+| GET `/api/v1/auth/status` | 精确公开路径，无 query；仅 configured/authenticationRequired/auditReady |
+| POST `/api/v1/auth/login` | 精确公开路径；严格 username/password JSON，2KiB，密码限流及审计成功后发 Cookie |
+| GET `/api/v1/auth/session` | 当前会话 expiresAt/csrfToken/recentReauthentication |
+| POST `/api/v1/auth/logout` | 严格空 JSON，立即撤销会话并清 Cookie |
+| POST `/api/v1/auth/reauth` | 严格 username/password JSON，2KiB；验证后五分钟单调时间重认证窗口 |
+
+required 模式除精确 status/login 外的 HTTP 请求均需 Cookie 会话，在请求体解析前拒绝未认证上传等请求，并在全部路由 hooks 完成后再次同步验证 session/audit/CSRF，才调用业务 handler。写请求继续要求允许的 Origin、`X-Manager-Intent: local-ui`、会话绑定 `X-CSRF-Token`；原事务、幂等、revision、recovery 及内容类型门控不变。已准入事务不因后续 logout 强制中断。
+
+本地 Cookie 为 `mcsm_local_session`，HttpOnly/SameSite=Strict/Path=/，无 Domain；local-http 不使用 Secure，不能据此用于远程 HTTPS。拒绝重复/不合法 Cookie、Bearer/query/伪造代理身份。全部认证模式响应 no-store。常见拒绝码：401 AUTH_REQUIRED/AUTH_INVALID、403 CSRF_REJECTED/ORIGIN_REJECTED/AUTH_WS_UNAVAILABLE、429 AUTH_THROTTLED、503 AUTH_AUDIT_UNAVAILABLE。限流附 Retry-After。审计失效时不发新 Cookie、不延长重认证、不准入新业务操作。
+
+required 模式 WebSocket Upgrade 一律拒绝，包括有效 HTTP Cookie；ticket/撤销接线与登录 UI 属于后续切片。当前能力不表示 WS 或 Tailscale 前置条件已经全部满足。私有审计仅固定事件/request UUID/可选 operation UUID/序号/UTC，不记录 body/header/URL/密码/token/path；三份各10MiB，单事件1KiB，最多64个待写任务。身份/权限/写入失败进入 sticky unavailable。
+
+详细冻结与失败历史见 [P7.1b 验证记录](./P71B_HTTP_AUTH_VALIDATION_2026-10-08.md)。下方 P7.0 为早期设计记录，当前 HTTP 实现由本节说明，不改写旧设计事实。
+
+## P7.0 认证合约设计（历史设计检查点）
+
+Phase6已PASS，Phase7仅开始安全设计。认证状态/登录/会话/登出/WS ticket拟采用 `/api/v1/auth/*`，正式计划见[PHASE7_PLAN](./PHASE7_PLAN.md)。现有API仍无会话认证，remoteAccess=false；本节不代表端点上线，不变更现有Host/Origin/127.0.0.1门控。
+
+设计范围为单管理员、离线初始化、密码派生哈希、HttpOnly会话cookie、会话绑定CSRF、WebSocket短时单次ticket与撤销、精确同源HTTPS远程profile。Remote不能认证关闭fallback，公网/隧道/账号或系统配置未执行。具体shared schemas在P7.1实施时冻结，现有transaction/recovery/幂等及下载秘密边界保留。
+
+## P6.3b 本地崩溃证据
+
+`GET /api/v1/servers/:serverId/crash-analysis` 只读、注册实例限定，沿用 Host/Origin 和实例ID校验，拒绝全部 query 参数；不接受路径、文件名、规则、命令或 POST。响应 `Cache-Control: no-store`。
+
+`data` 包含 `status`（available/unavailable）、`reason`、原始 `sampledAt`、`minimumIntervalMs=5000`、`incomplete`、`conclusion`、`sources`、`findings` 和固定 `limitations`。Mock 返回 unavailable/local-instance-required、null 时间和空证据。注册身份缺失或文件状态不安全返回409 CRASH_EVIDENCE_UNSAFE；未知实例404。
+
+每实例并发合并，5秒单调时钟冷却；成功快照保留原采样时间，失败在冷却期持续返回错误，不以旧成功掩盖失败。Manager 重启清空，无后台扫描或轮询。
+
+最多4个固定来源，单个64KiB；截断来源只提供 opaque ID/type/truncated 覆盖元数据，不生成 finding/snippet。来源限 logs/latest.log 与标准 server crash report，由注册目录推导；不返回实际文件名、绝对路径或完整日志。`findings` 最多5条固定规则，confidence只允许possible，每条最多2个1000字符片段，excerptLine为脱敏片段相对坐标。证据不完整且无finding返回insufficient-evidence；no-rule-match不表示健康。凭证脱敏及同用户文件系统边界的局限见[P6.3计划](./P63_CRASH_ANALYSIS_PLAN.md)。
+
+页面 `/crashes` 仅点击读取，错误隐藏旧结果，切换实例隔离响应，展示证据范围/时间/不完整与可能性，不提供自动修复或外部上传。
+
+## P6.1b 性能会话历史
+
+`GET /api/v1/servers/:serverId/performance` 为只读接口，沿用 Host/Origin 与实例ID校验。
+返回 `data.retention="manager-session"`、`minimumIntervalMs=5000` 和最多120个
+`samples[{collectedAt, metrics}]`。metrics 沿用既有来源、sampledAt、status及reason；
+响应生成时间不代表指标重新测量。服务端按需采样，同实例合并并发请求，单调时钟
+限制5秒内最多一次探测；冷却内探测失败继续返回错误，成功采样后才解除。
+没有请求期间不采样，不补历史点；Manager重启清空历史。未知实例404，无POST操作。
+CPU/RAM/Disk/TPS/MSPT尚未采集时保持N/A；页面区分磁盘卷已用/总量/可用。
+
+### P6.2 工程接入（真实 Minecraft 验收 PASS）
+
+Windows受管进程CPU由累计CPU时间差按全部逻辑核心容量归一化至0–100%；首个
+有效样本因缺少基线仍为N/A。RAM为进程resident working-set，不是JVM heap。
+核验受管child、PID、可执行文件和OS创建时间；停止、身份变化、探测失败或不支持
+平台均返回unavailable。计数读取完成后生成sampledAt，5秒缓存保留原时间。
+Disk为注册根目录所在卷，前后核验根身份，返回total/free/used，不遍历世界目录。
+TPS/MSPT继续N/A。客户端不能指定PID、路径、命令或采样器。工程Review已PASS，
+真实Java资源验收已由独立隔离run `p62-resources-be2a99dc-294d-4acb-93df-da774276d3b1` 和SolHigh证据Review签核PASS，详见[P62验证](./P62_VALIDATION_2026-10-08.md)。此前待验收记录保留在该验证文档历史章节；Phase6 Final Gate单独记录。
+
 ## P5.1b 扩展只读清单（2026-10-05，历史检查点）
 
 `GET /api/v1/servers/:serverId/addons`：仅注册本地 Paper/Fabric，固定 plugins/disabled-plugins 或 mods/disabled-mods，客户端不能传路径。data包含items、opaque revision、writeSupported=false；item包含opaque id、kind、enabled/disabled state、filename、sizeBytes、sha256、nullable name/version/loader/minecraftConstraint、metadataStatus(parsed/invalid/missing)、compatibility=unknown。返回 no-store 和 quoted revision ETag；不返回metadata原文、文件内容、绝对路径或秘密。revision仅为当前进程只读快照，不是未来持久写契约。
@@ -368,15 +438,14 @@ SafeProperties 是 properties 键名白名单：`max-players`（1–10000 的产
 | GET /servers/:id/addons/trash | `{ data: { items, revision }, meta }`；Trash 独立列出，不混入正常 inventory |
 | POST /servers/:id/addons/:addonId/disable\|enable\|trash | 严格 JSON `{ revision }`；202 addon-change Operation |
 | POST /servers/:id/addons/trash/:trashId/restore | 严格 JSON `{ revision }`；202 addon-change Operation，恢复到 Trash 前的 enabled / disabled 状态 |
-| GET /servers/:id/performance | `Metrics`，Phase 6 才是真采集 |
-| GET /servers/:id/crashes | `{ items: CrashInfo[] }`，仅注册日志路径 |
-| GET /servers/:id/crashes/:crashId/analysis | `{ findings: Finding[], confidence, evidence: LogEntry[], limitations: string[] }` |
+| GET /servers/:serverId/performance | `{ retention: "manager-session", minimumIntervalMs: 5000, samples: [{collectedAt, metrics}] }`，见顶部P6.1b/P6.2 |
+| GET /servers/:serverId/crash-analysis | `{status, reason, sampledAt, minimumIntervalMs, incomplete, conclusion, sources, findings, limitations}`，见顶部P6.3b；不提供独立crashes列表/按文件ID读取接口 |
 
 Addon inventory 条目包括 opaque `id`、`kind`、`filename`、`state`、大小、SHA-256、解析到的 name / version / loader / Minecraft 约束及 metadata 状态；兼容性仍为 `unknown`，不代表实际可加载。列表用不透明 revision 绑定目录和每个文件的物理身份及内容摘要；响应不返回路径、私有目录、journal 或 JAR 字节。Trash 条目使用 `id`（用于 `:trashId` 路径参数），另含 `addonId`、原状态与恢复资格，必须通过独立回收区端点访问。
 
 Addon 安装与生命周期写入需要本地写意图、UUIDv4 `Idempotency-Key` 及 JSON revision；无幂等键返回 428，revision / 状态冲突返回 409。单实例操作串行执行，写前创建完整 pinned 私有 server-snapshot，再写入 transaction journal 并进行文件身份、内容和父目录复核。Disable / Enable / Trash / Restore 仅通过受控同卷无覆盖发布与受控源 unlink 完成；不永久删除、不自动清理 Trash、不自动启动或重启 Minecraft。操作成功返回 `restartRequired=true`，客户端必须等待 operation 成功后再提示用户显式启动 / 重启；旧的“立即重启”UI 尚未实现。
 
-Crash Analysis 是本地规则，finding 含 ruleId、severity、title、explanation、evidenceIds、suggestedAction；把推测明确标记为推测。不可自动删除 Mod、修改 properties 或上传日志到外部服务。
+Crash Analysis 是本地固定规则，finding含code、confidence="possible"、title、guidance和evidence[{sourceId,excerptLine,snippet}]；正式边界与上限见顶部P6.3b。不可自动删除Mod、修改properties或上传日志到外部服务。早期ruleId/severity/explanation草案没有成为接口契约。
 
 ## 9. 安全与跨阶段合约验收
 

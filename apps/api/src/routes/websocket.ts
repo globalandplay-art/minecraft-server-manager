@@ -7,6 +7,7 @@ import type { WebSocket } from "ws";
 import type { Clock } from "../clock.js";
 import { errorResponse } from "../infra/http.js";
 import type { EventStreamService } from "../services/event-stream-service.js";
+import type { WebSocketAuthentication } from "../auth/ws-auth.js";
 
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -37,13 +38,19 @@ export function registerWebSocketRoute(
   app: FastifyInstance,
   streams: EventStreamService,
   clock: Clock,
-  mode: Mode
+  mode: Mode,
+  authentication?: WebSocketAuthentication
 ): void {
   app.get<{ Params: ServerParams; Querystring: WsQuery }>(
     "/ws/v1/servers/:serverId/events",
     {
       websocket: true,
       schema: { params: serverParamsSchema, querystring: wsQuerySchema },
+      preHandler: async (request, reply) => {
+        try { await authentication?.prepare(request, reply); }
+        catch { await reply.code(authentication?.ready() ? 403 : 503).send(errorResponse(request.id, clock,
+          authentication?.ready() ? "AUTH_WS_REJECTED" : "AUTH_AUDIT_UNAVAILABLE", "Authentication request denied", mode)); }
+      },
       preValidation: async (request, reply) => {
         if (request.headers.origin === undefined) {
           await reply.code(403).send(
@@ -67,32 +74,49 @@ export function registerWebSocketRoute(
       }
     },
     (socket, request) => {
+      const serverId = request.params.serverId;
+      const { streamId, afterSequence } = request.query;
+      const queued: WsMessage[] = [];
+      let unsubscribe = () => {};
+      let heartbeat: NodeJS.Timeout | undefined;
+      let pongTimer: NodeJS.Timeout | undefined;
+      let stopped = false;
+      const cleanup = () => {
+        if (stopped) return;
+        stopped = true; if (heartbeat) clearInterval(heartbeat);
+        heartbeat = undefined;
+        if (pongTimer) clearTimeout(pongTimer);
+        unsubscribe(); queued.length = 0;
+      };
+      const live = authentication?.attach(request.raw, socket, cleanup) ?? (authentication ? undefined : () => !stopped);
+      if (!live) { cleanup(); return; }
+      const admitted = () => !stopped && live();
       socket.on("error", () => {});
       socket.on("message", () => socket.close(1008, "read-only-stream"));
 
       let awaitingPong = false;
-      let pongTimer: NodeJS.Timeout | undefined;
       socket.on("pong", () => {
         awaitingPong = false;
         if (pongTimer !== undefined) clearTimeout(pongTimer);
       });
-      const heartbeat = setInterval(() => {
-        if (socket.readyState !== 1 || awaitingPong) return;
+      heartbeat = setInterval(() => {
+        if (!admitted() || socket.readyState !== 1 || awaitingPong) return;
         awaitingPong = true;
         socket.ping();
         pongTimer = setTimeout(() => socket.terminate(), HEARTBEAT_TIMEOUT_MS);
       }, HEARTBEAT_INTERVAL_MS);
 
-      const queued: WsMessage[] = [];
       let queuedBytes = 0;
       let initialized = false;
       let lastDeliveredSequence = -1;
       const deliver = (message: WsMessage): boolean => {
-        const sent = safeSend(socket, message);
+        const sent = admitted() && safeSend(socket, message);
         if (sent && "sequence" in message) lastDeliveredSequence = Math.max(lastDeliveredSequence, message.sequence);
         return sent;
       };
-      const unsubscribe = streams.subscribe(request.params.serverId, (message) => {
+      if (!admitted()) return;
+      unsubscribe = streams.subscribe(serverId, (message) => {
+        if (!admitted()) return;
         if (initialized) deliver(message);
         else {
           queuedBytes += Buffer.byteLength(JSON.stringify(message), "utf8");
@@ -103,19 +127,15 @@ export function registerWebSocketRoute(
           }
         }
       });
-      socket.once("close", () => {
-        clearInterval(heartbeat);
-        if (pongTimer !== undefined) clearTimeout(pongTimer);
-        unsubscribe();
-      });
+      socket.once("close", cleanup);
 
       void (async () => {
-        const hello = streams.hello(request.params.serverId);
+        if (!admitted()) return;
+        const hello = streams.hello(serverId);
         if (!deliver(hello)) return;
-        const { streamId, afterSequence } = request.query;
         let needsSnapshot = streamId === undefined || afterSequence === undefined;
         if (streamId !== undefined && afterSequence !== undefined) {
-          const replay = streams.replay(request.params.serverId, streamId, afterSequence);
+          const replay = streams.replay(serverId, streamId, afterSequence);
           if (replay.gap) {
             deliver({
               type: "gap",
@@ -128,7 +148,8 @@ export function registerWebSocketRoute(
           }
         }
         if (needsSnapshot) {
-          const snapshot = await streams.snapshot(request.params.serverId);
+          const snapshot = await streams.snapshot(serverId);
+          if (!admitted()) return;
           if (snapshot.truncated) {
             deliver({
               type: "gap",
