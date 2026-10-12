@@ -2,7 +2,7 @@ import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { AuthCoreError } from "./password.js";
 import { createPrivateEntry, privateEntryExists } from "./private-publication.js";
-import { WindowsPrivateAclVerifier } from "./windows-private-acl.js";
+import { AclDiagnosticError, WindowsPrivateAclVerifier } from "./windows-private-acl.js";
 
 const LIMIT = 10 * 1024 ** 2;
 const EVENTS = ["login-success", "login-failure", "logout", "session-expiry", "auth-denial", "csrf-denial", "reauth-success", "reauth-failure", "mutation-admission", "ws-denial", "ws-ticket", "ws-open", "ws-close", "ws-revocation"] as const;
@@ -11,6 +11,13 @@ export interface AuthAudit { ready(): boolean; record(event: AuthAuditEvent): Pr
 const fail = () => new AuthCoreError("AUTH_PRIVATE_UNSAFE");
 const identity = (info: Awaited<ReturnType<typeof lstat>>) => `${info.dev}:${info.ino}:${info.birthtimeMs}`;
 type AuditSlot = { file: string; handle: FileHandle; identity: string; size: number };
+type AuditOpenStage = "directory" | "directory-acl" | "file-create" | "file-acl-before" | "file-metadata" | "file-open" | "file-identity" | "file-content" | "file-recheck" | "file-acl-after" | "acl-drift" | "directory-recheck";
+class AuditOpenDiagnosticError extends AuthCoreError {
+  constructor(readonly stage: AuditOpenStage, readonly aclCategory: AclDiagnosticError["category"] | null) {
+    super("AUTH_PRIVATE_UNSAFE");
+    this.message = `AUTH_PRIVATE_UNSAFE [audit:${stage}${aclCategory === null ? "" : `;acl:${aclCategory}`}]`;
+  }
+}
 export function encodeAuditEvent(event: AuthAuditEvent, sequence = 1, generatedAt = new Date().toISOString()): Buffer {
   // Copy only the approved fields, never serialize caller-provided objects or error text.
   const id = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -36,24 +43,32 @@ export class PrivateAuthAudit implements AuthAudit {
     create = createPrivateEntry): Promise<PrivateAuthAudit> {
     const directory = path.join(managerRoot, "auth");
     const slots: { file: string; handle: FileHandle; identity: string; size: number }[] = [];
+    let stage: AuditOpenStage = "directory";
     try {
       const info = await lstat(directory);
       if (!path.isAbsolute(managerRoot) || managerRoot !== path.resolve(managerRoot) || !info.isDirectory() || info.isSymbolicLink() ||
         (await realpath(directory)).toLowerCase() !== directory.toLowerCase()) throw fail();
+      stage = "directory-acl";
       await acl.verify(directory);
       let latestSequence = 0; let latestSlot = 0;
       for (let index = 0; index < 3; index++) {
         const file = path.join(directory, `audit.${index}.jsonl`);
+        stage = "file-create";
         if (!await privateEntryExists(file)) await create(file, false, acl);
+        stage = "file-acl-before";
         const beforeAcl = await acl.verifyMany([directory, file]);
+        stage = "file-metadata";
         const before = await lstat(file);
         if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size > LIMIT ||
           (await realpath(file)).toLowerCase() !== file.toLowerCase()) throw fail();
+        stage = "file-open";
         const handle = await open(file, "r+");
         slots.push({ file, handle, identity: identity(before), size: before.size });
+        stage = "file-identity";
         if (identity(await handle.stat()) !== identity(before)) throw fail();
         // Bounded startup scan validates the private ring and resumes the newest slot,
         // so a restart cannot retain old slots while overwriting newer events first.
+        stage = "file-content";
         const bytes = Buffer.alloc(before.size);
         try {
           let offset = 0;
@@ -72,17 +87,22 @@ export class PrivateAuthAudit implements AuthAudit {
           }
           if (prior > latestSequence) { latestSequence = prior; latestSlot = index; }
         } finally { bytes.fill(0); }
+        stage = "file-recheck";
         const afterInfo = await lstat(file); const opened = await handle.stat();
         if (identity(afterInfo) !== identity(before) || afterInfo.nlink !== 1 || afterInfo.size !== before.size ||
           opened.size !== before.size || opened.mtimeMs !== before.mtimeMs || afterInfo.mtimeMs !== before.mtimeMs) throw fail();
+        stage = "file-acl-after";
         const afterAcl = await acl.verifyMany([directory, file]);
+        stage = "acl-drift";
         if (afterAcl.some((value, i) => value !== beforeAcl[i])) throw fail();
       }
+      stage = "directory-recheck";
       if (identity(await lstat(directory)) !== identity(info)) throw fail();
       const audit = new PrivateAuthAudit(directory, identity(info), acl, slots);
       audit.#slot = latestSlot; audit.#sequence = latestSequence; return audit;
-    } catch {
-      await Promise.allSettled(slots.map(({ handle }) => handle.close())); throw fail();
+    } catch (error) {
+      await Promise.allSettled(slots.map(({ handle }) => handle.close()));
+      throw new AuditOpenDiagnosticError(stage, error instanceof AclDiagnosticError ? new AclDiagnosticError(error.category).category : null);
     }
   }
   ready(): boolean { return this.#healthy; }

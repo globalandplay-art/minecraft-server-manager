@@ -23,10 +23,11 @@ const credentials = (body: unknown): { username: string; password: string } | un
 /** Required local HTTP and event streams share one bounded session core. */
 export class HttpAuthentication {
   #verifier: PasswordVerifier; #sessions: SessionCore; #audit: AuthAudit;
-  readonly websocket: WebSocketAuthentication;
+  #websocket: WebSocketAuthentication;
+  get websocket(): WebSocketAuthentication { return this.#websocket; }
   constructor(verifier: PasswordVerifier, audit: AuthAudit, sessions = new SessionCore()) {
     this.#verifier = verifier; this.#audit = audit; this.#sessions = sessions;
-    this.websocket = new WebSocketAuthentication(sessions, audit);
+    this.#websocket = new WebSocketAuthentication(sessions, audit);
   }
   async observeLocalGuardDenial(...[event, requestId]: Parameters<LocalGuardDenialObserver>): Promise<boolean> {
     if (event !== "origin-rejected" || !this.#audit.ready()) return false;

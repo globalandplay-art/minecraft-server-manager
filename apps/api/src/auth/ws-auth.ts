@@ -54,19 +54,22 @@ export class WebSocketAuthentication {
   #reservations = new Map<string, Reservation>();
   #timer: NodeJS.Timeout | undefined;
   #closed = false;
-  constructor(private readonly sessions: SessionCore, private readonly audit: AuthAudit) {
+  #sessions: SessionCore;
+  #audit: AuthAudit;
+  constructor(sessions: SessionCore, audit: AuthAudit) {
+    this.#sessions = sessions; this.#audit = audit;
     sessions.observeSocketRevocation((id) => this.#stop(id, true));
   }
-  ready(): boolean { return !this.#closed && this.audit.ready(); }
+  ready(): boolean { return !this.#closed && this.#audit.ready(); }
   early(request: FastifyRequest): void {
-    if (!this.audit.ready() || this.#closed) throw invalid();
+    if (!this.#audit.ready() || this.#closed) throw invalid();
     const value = handshake(request.raw);
-    this.sessions.inspectTicket(value.raw, "local-http", value.ticket, value.serverId, value.origin);
+    this.#sessions.inspectTicket(value.raw, "local-http", value.ticket, value.serverId, value.origin);
   }
   async prepare(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     this.early(request);
     const serverId = websocketServerId(request.method, request.raw.url)!;
-    await this.audit.record({ event: "ws-open", requestId: request.id });
+    await this.#audit.record({ event: "ws-open", requestId: request.id });
     this.early(request);
     this.#prepared.set(request.raw, { socketId: randomUUID(), requestId: request.id, serverId,
       origin: request.headers.origin!, transport: reply.raw.socket! });
@@ -75,12 +78,12 @@ export class WebSocketAuthentication {
   verify(request: IncomingMessage): boolean {
     const context = this.#prepared.get(request);
     this.#prepared.delete(request);
-    if (!context || this.#closed || !this.audit.ready()) return false;
+    if (!context || this.#closed || !this.#audit.ready()) return false;
     try {
       const value = handshake(request);
       if (value.serverId !== context.serverId || value.origin !== context.origin) throw invalid();
-      this.sessions.consumeTicket(value.raw, "local-http", value.ticket, value.serverId, value.origin);
-      this.sessions.reserveSocket(value.raw, "local-http", context.socketId);
+      this.#sessions.consumeTicket(value.raw, "local-http", value.ticket, value.serverId, value.origin);
+      this.#sessions.reserveSocket(value.raw, "local-http", context.socketId);
       this.#reservations.set(context.socketId, { requestId: context.requestId, transport: context.transport, closing: false });
       // completeUpgrade can still abort after verifyClient. Close owns release in both cases.
       context.transport.once("close", () => this.#release(context.socketId));
@@ -115,16 +118,16 @@ export class WebSocketAuthentication {
     const reservation = this.#reservations.get(id);
     if (!reservation || reservation.closing) return false;
     try {
-      if (this.#closed || !this.audit.ready()) throw invalid();
-      this.sessions.socketRemaining(id);
+      if (this.#closed || !this.#audit.ready()) throw invalid();
+      this.#sessions.socketRemaining(id);
       if (!this.ready()) throw invalid();
       return true;
     } catch { this.#stop(id, true); return false; }
   }
   #record(event: AuthAuditEvent["event"], requestId: string): void {
-    if (!this.audit.ready()) return;
-    void this.audit.record({ event, requestId }).then(() => {
-      if (!this.audit.ready()) for (const id of this.#reservations.keys()) this.#stop(id, true);
+    if (!this.#audit.ready()) return;
+    void this.#audit.record({ event, requestId }).then(() => {
+      if (!this.#audit.ready()) for (const id of this.#reservations.keys()) this.#stop(id, true);
     }).catch(() => { for (const id of this.#reservations.keys()) this.#stop(id, true); });
   }
   #stop(id: string, revoked: boolean): void {
@@ -137,7 +140,7 @@ export class WebSocketAuthentication {
   }
   #release(id: string): void {
     const value = this.#reservations.get(id); if (!value) return;
-    value.cleanup?.(); this.#reservations.delete(id); this.sessions.releaseSocket(id);
+    value.cleanup?.(); this.#reservations.delete(id); this.#sessions.releaseSocket(id);
     this.#record("ws-close", value.requestId);
     this.#schedule();
   }
@@ -148,7 +151,7 @@ export class WebSocketAuthentication {
     let delay = 1000;
     for (const [id, value] of this.#reservations) {
       if (value.closing) continue;
-      try { delay = Math.min(delay, this.sessions.socketRemaining(id)); }
+      try { delay = Math.min(delay, this.#sessions.socketRemaining(id)); }
       catch { this.#stop(id, true); }
     }
     this.#timer = setTimeout(() => {

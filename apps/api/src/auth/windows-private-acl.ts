@@ -8,6 +8,27 @@ export type PrivateAclSnapshot = {
   aces: { sid: string; kind: "allow" | "deny"; mask: number; flags: number }[];
 };
 const fail = () => new AuthCoreError("AUTH_PRIVATE_UNSAFE");
+export type AclFailureCategory = "helper-start" | "helper-timeout" | "helper-exit" | "helper-output-limit" | "helper-unknown" | "json-parse" | "json-shape" | "acl-rejected";
+const ACL_FAILURE_CATEGORIES: readonly AclFailureCategory[] = ["helper-start", "helper-timeout", "helper-exit", "helper-output-limit", "helper-unknown", "json-parse", "json-shape", "acl-rejected"];
+export class AclDiagnosticError extends AuthCoreError {
+  readonly category: AclFailureCategory;
+  constructor(category: AclFailureCategory) {
+    super("AUTH_PRIVATE_UNSAFE");
+    this.category = ACL_FAILURE_CATEGORIES.includes(category) ? category : "helper-unknown";
+    this.message = `AUTH_PRIVATE_UNSAFE [acl:${this.category}]`;
+  }
+}
+/** Fixed categories only: never retain native message, command, output, path or descriptor. */
+export function classifyAclHelperFailure(error: unknown): AclFailureCategory {
+  if (typeof error !== "object" || error === null) return "helper-unknown";
+  const value = error as { code?: unknown; killed?: unknown; signal?: unknown; syscall?: unknown };
+  if (value.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return "helper-output-limit";
+  if (value.killed === true && value.signal != null) return "helper-timeout";
+  if (typeof value.syscall === "string" && value.syscall.startsWith("spawn")) return "helper-start";
+  if (typeof value.code === "number" && value.code !== 0) return "helper-exit";
+  return "helper-unknown";
+}
+const sanitizedAclFailure = (error: unknown) => error instanceof AclDiagnosticError ? new AclDiagnosticError(error.category) : new AclDiagnosticError("helper-unknown");
 const SID = /^S-1-(?:\d+-){1,14}\d+$/u;
 const FULL_CONTROL = 0x1f01ff;
 
@@ -61,13 +82,13 @@ ConvertTo-Json -InputObject @($snapshots) -Depth 5 -Compress`;
   const output = await new Promise<string>((resolve, reject) => {
     execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
       { windowsHide: true, timeout: 5000, maxBuffer: 64 * 1024, encoding: "utf8" },
-      (error, stdout) => error ? reject(fail()) : resolve(stdout));
+      (error, stdout) => error ? reject(new AclDiagnosticError(classifyAclHelperFailure(error))) : resolve(stdout));
   });
   try {
     const snapshots: unknown = JSON.parse(output.replace(/^\uFEFF/u, ""));
-    if (!Array.isArray(snapshots) || snapshots.length !== files.length) throw fail();
+    if (!Array.isArray(snapshots) || snapshots.length !== files.length) throw new AclDiagnosticError("json-shape");
     return snapshots;
-  } catch { throw fail(); }
+  } catch (error) { throw error instanceof AclDiagnosticError ? sanitizedAclFailure(error) : new AclDiagnosticError("json-parse"); }
 }
 const inspectWindowsAcl = async (file: string): Promise<unknown> => (await inspectWindowsAcls([file]))[0];
 
@@ -78,11 +99,12 @@ export class WindowsPrivateAclVerifier {
     try {
       const snapshot = await this.inspect(file);
       return this.verifyNativeSnapshot(snapshot);
-    } catch { throw fail(); }
+    } catch (error) { throw sanitizedAclFailure(error); }
   }
   /** Trusted native helper response; creation validates its actual ACL before further writes. */
   verifyNativeSnapshot(snapshot: unknown): string {
-    this.#userSid = validatePrivateAcl(snapshot, this.#userSid);
+    try { this.#userSid = validatePrivateAcl(snapshot, this.#userSid); }
+    catch { throw new AclDiagnosticError("acl-rejected"); }
     const value = snapshot as PrivateAclSnapshot;
     const canonical = { userSid: value.userSid, ownerSid: value.ownerSid, protected: value.protected,
       aces: value.aces.map((ace) => ({ sid: ace.sid, kind: ace.kind, mask: ace.mask, flags: ace.flags })) };
@@ -95,6 +117,6 @@ export class WindowsPrivateAclVerifier {
       const snapshots = this.inspect === inspectWindowsAcl ? await inspectWindowsAcls(files) : await Promise.all(files.map((file) => this.inspect(file)));
       if (snapshots.length !== files.length) throw fail();
       return snapshots.map((snapshot) => this.verifyNativeSnapshot(snapshot));
-    } catch { throw fail(); }
+    } catch (error) { throw sanitizedAclFailure(error); }
   }
 }

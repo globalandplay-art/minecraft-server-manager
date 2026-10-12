@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { encodeAuditEvent, PrivateAuthAudit } from "../../src/auth/audit.js";
-import { WindowsPrivateAclVerifier } from "../../src/auth/windows-private-acl.js";
+import { AclDiagnosticError, WindowsPrivateAclVerifier } from "../../src/auth/windows-private-acl.js";
 
 const sid = "S-1-5-21-1-2-3-1001";
 const snapshot = () => ({ userSid: sid, ownerSid: sid, protected: true, aces: [{ sid, kind: "allow", mask: 0x1f01ff, flags: 0 }] });
@@ -16,6 +16,19 @@ async function fixture(run: (root: string, directory: string) => Promise<void>) 
 }
 const acl = () => new WindowsPrivateAclVerifier(async () => snapshot());
 describe("bounded private audit ring", () => {
+  it("retains only the fixed open stage and sanitized ACL category", async () => fixture(async (root, directory) => {
+    const verifier = new WindowsPrivateAclVerifier(async () => { throw new AclDiagnosticError("helper-timeout"); });
+    const failure: unknown = await PrivateAuthAudit.open(root, verifier).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "AUTH_PRIVATE_UNSAFE", stage: "directory-acl", aclCategory: "helper-timeout" });
+    expect(String(failure) + JSON.stringify(failure)).not.toContain(directory);
+  }));
+  it("does not retain malformed private content or its path in open diagnostics", async () => fixture(async (root, directory) => {
+    await writeFile(path.join(directory, "audit.0.jsonl"), "private-secret-content\n");
+    const failure: unknown = await PrivateAuthAudit.open(root, acl()).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "AUTH_PRIVATE_UNSAFE", stage: "file-content", aclCategory: null });
+    const text = String(failure) + JSON.stringify(failure);
+    expect(text).not.toContain(directory); expect(text).not.toContain("private-secret-content");
+  }));
   it("copies only approved event/UUID fields with timestamp/sequence and refuses raw command/path identifiers", () => {
     const encoded = encodeAuditEvent({ ...event(), secret: "password=top-secret" } as ReturnType<typeof event>);
     expect(encoded.length).toBeLessThanOrEqual(1024); expect(encoded.toString()).not.toContain("top-secret");
@@ -51,7 +64,8 @@ describe("bounded private audit ring", () => {
     if (kind === "invalid-json") await writeFile(file, "private-secret\n");
     if (kind === "oversized") await writeFile(file, Buffer.alloc(10 * 1024 ** 2 + 1));
     const verifier = kind === "unsafe-acl" ? new WindowsPrivateAclVerifier(async () => ({ ...snapshot(), protected: false })) : acl();
-    await expect(PrivateAuthAudit.open(root, verifier)).rejects.toMatchObject({ code: "AUTH_PRIVATE_UNSAFE" });
+    const stage = kind === "unsafe-acl" ? "directory-acl" : kind === "invalid-json" ? "file-content" : "file-metadata";
+    await expect(PrivateAuthAudit.open(root, verifier)).rejects.toMatchObject({ code: "AUTH_PRIVATE_UNSAFE", stage });
     expect(await stat(file)).toBeDefined();
   }));
   it("detects identity/ACL drift and becomes sticky unavailable without reopening or repairing", async () => fixture(async (root, directory) => {

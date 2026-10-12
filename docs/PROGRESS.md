@@ -1,5 +1,33 @@
 # 实施进度
 
+### 2026-10-12 P7.2 bounded regression — all tests PASS, final signoff pending
+
+API test-file concurrency is now bounded to two workers; assertions, original timeouts and product security/transaction behavior are unchanged. New complete run: contracts 7, API 1269, Web 153, all 1429 PASS; lint/typecheck and production build completed. PowerShell redirected wrapper exit was 1 with stderr NativeCommandError records, so npm native exit 0 is not claimed. Separate explicit build exit 0; diff check PASS. Independent Sol High configuration review P1/P2/P3=0. All previous nine failures pass under this configuration; exact historical performance cause remains UNKNOWN. Historical BLOCKED evidence below is retained. No commit/push/PR or remote/Minecraft operation. Final signoff remains pending; see [bounded regression](./P72_BOUNDED_REGRESSION_2026-10-12.md).
+
+### 2026-10-12 P7.2 new frozen Final Gate — BLOCKED
+
+One new npm check exited 1 after 424.26s: contracts 7 PASS, API 1260 PASS/9 FAIL, Web 153 PASS; lint/typecheck PASS, production build NOT RUN. Candidate fingerprints 11/11 unchanged; independent Sol High combined source review P1/P2/P3=0 does not override failing regression. ACL helper-timeout reproduced (audit directory-acl plus two credential targets); addon install three terminal-wait assertions, lifecycle two 5000ms timeouts, archive one 5000ms timeout remain blockers. No ENOTEMPTY/CLEANUP_BLOCKED this run; historical records preserved. No retry/fix, system/network/Minecraft action or Git upload. Details: [frozen regression](./P72_FINAL_REGRESSION_2026-10-12.md).
+
+
+### 2026-10-11 P7.2 lifecycle fixture cleanup gate
+
+Test-only gate for the restored-tombstone/restart case prevents new fixture mutations during teardown and waits for body, pending calls and owned active operation before deletion; unconfirmed state retains the root with CLEANUP_BLOCKED. Original 5000ms test timeout and assertions unchanged. Helper 3 PASS, original target 1 PASS, affected regression 67 PASS; lint/typecheck and independent Sol High delta review PASS (P1/P2/P3=0). Cleanup repair Attempt 1; historical performance root remains UNKNOWN/0 repairs, ACL root UNKNOWN/0 repairs. No new full regression, no product transaction change, no Git upload or remote work. Final Gate remains BLOCKED. See [cleanup validation](./P72_LIFECYCLE_CLEANUP_2026-10-11.md).
+
+
+### 2026-10-11 P7.2 serialization / Headers targeted fixes
+
+Authentication runtime-private fields restore the original JSON privacy assertion; legacy apiP2 tests inspect exact Headers values. API focused 93 PASS / Web focused 10 PASS, lint/typecheck/build exit 0. Independent Sol High delta review PASS, P1/P2/P3=0. Each independent repair is Attempt 1; ACL underlying repair count remains 0/2. No new full regression. Historical failures remain preserved; native ACL timeout root UNKNOWN and addon lifecycle timeout/ENOTEMPTY unresolved. P7.2 Final Gate remains BLOCKED, no remote work or Git upload. See [targeted validation](./P72_SERIALIZATION_HEADERS_FIX_2026-10-11.md).
+
+
+### 2026-10-11 P7.2 Final regression — BLOCKED
+
+Current HEAD c5beb16; resumed from a clean working tree. New full `npm.cmd run check` exited 1; evidence: `test-results/p72-final-check-2026-10-11.log`. Lint/typecheck passed; contracts 7 PASS, API 1247 PASS/5 FAIL, Web 150 PASS/3 FAIL. Production build was not reached. `git diff --check` passed before this documentation checkpoint.
+
+Native credential-writer (2 cases) and audit-native (1 case) returned `AUTH_PRIVATE_UNSAFE`; no ACL relaxation or host change is authorized by this result. Root cause remains unconfirmed; dependent remote work is SAFETY BLOCKED pending diagnosis. Bootstrap serialization assertion expected `{}` but received `{"websocket":{"sessions":{},"audit":{}}}`. Three legacy apiP2 assertions compare a Headers object with plain object fields. Addon lifecycle replay timed out at unchanged 5000ms and cleanup reported ENOTEMPTY. These findings require separate diagnosis; no substantive repair attempted (count 0), no blanket retry and no safety assertions weakened.
+
+No product/test source modified, no Minecraft/Tailscale startup, no account initialization, no commit/push/PR. P7.2 remains IN PROGRESS / Final Gate BLOCKED; Access Coordinator and Tailscale stay behind prerequisites. Next: diagnose AUTH_PRIVATE_UNSAFE at native ACL/audit boundaries, verify serialization privacy, correct Headers contract assertions if proven fixture-only, then targeted verification and a new frozen regression/review. Historical evidence preserved.
+
+
 ### 2026-10-09 P7.2 登录 UI / WebSocket 认证 — IN PROGRESS
 
 从有效P7.1b工程PASS接续，不重做旧1353回归。当前切片为PHASE7_PLAN中的认证UI/WS前置能力，尚不是Tailscale Serve实现。原子智能体额度中断后，父线程接任唯一写入者。认证UI、全部fetch会话/CSRF与晚到响应门控、一次性WS ticket及实际101准入/撤销已接线。后端专项92 PASS、WS日志秘密专项45 PASS、前端18 PASS、360/768/1440浏览器3 PASS、typecheck通过。独立后端SolHigh发现同步prune导致audit失效的P2，限定修复与三条安全回归关闭，源码复审P1/P2/P3=0；前端及最终冻结证据审查、完整回归仍待完成。

@@ -18,14 +18,29 @@ import { OperationService } from "../src/services/operation-service.js";
 import { JsonOperationStore } from "../src/services/operation-store.js";
 import { TransactionJournalStore } from "../src/services/transaction-journal.js";
 import { addonZip } from "./helpers/addon-zip.js";
+import { FixtureCleanupGate } from "./helpers/fixture-cleanup-gate.js";
 
 const roots: string[] = [];
+const cleanupGates = new Set<FixtureCleanupGate>();
+const rootGates = new Map<string, FixtureCleanupGate>();
+const retainedGates = new WeakSet<FixtureCleanupGate>();
 let clockTick = 0;
 const clock = { now: () => new Date(Date.parse("2026-10-06T00:00:00.000Z") + clockTick++) };
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+afterEach(async () => {
+  const blocked = new Set<FixtureCleanupGate>();
+  for (const gate of cleanupGates) if (!await gate.closeAndWait()) { blocked.add(gate); retainedGates.add(gate); }
+  cleanupGates.clear();
+  for (const root of roots.splice(0)) {
+    const gate = rootGates.get(root); rootGates.delete(root);
+    if (gate && retainedGates.has(gate)) continue;
+    await rm(root, { recursive: true, force: true });
+  }
+  if (blocked.size) throw new Error("CLEANUP_BLOCKED");
+});
 
-async function fixture(initial: "enabled" | "disabled" = "enabled", interrupt?: string, serverType: "paper" | "fabric" = "paper") {
+async function fixture(initial: "enabled" | "disabled" = "enabled", interrupt?: string, serverType: "paper" | "fabric" = "paper", cleanupGate?: FixtureCleanupGate) {
   const parent = await mkdtemp(path.join(tmpdir(), "mcsm-addon-lifecycle-")); roots.push(parent);
+  if (cleanupGate) rootGates.set(parent, cleanupGate);
   const serverRoot = path.join(parent, "server"), managerRoot = path.join(parent, "manager");
   const enabledFolder = serverType === "paper" ? "plugins" : "mods", disabledFolder = serverType === "paper" ? "disabled-plugins" : "disabled-mods";
   await mkdir(path.join(serverRoot, enabledFolder), { recursive: true });
@@ -52,6 +67,12 @@ async function fixture(initial: "enabled" | "disabled" = "enabled", interrupt?: 
   let activeInterrupt = interrupt, checkpointHook: ((point: string) => Promise<void>) | undefined;
   const inject = async (point: string) => { await checkpointHook?.(point); if (point === activeInterrupt) throw new Error(`synthetic interruption at ${point}`); };
   const service = new AddonLifecycleService(registry, operations, journal, backups, inventory, managerRoot, clock, inject, captureIdentity);
+  if (cleanupGate) {
+    cleanupGate.setIdle(() => operations.getServerState(adapter.serverId).activeOperationId === null);
+    const mutate = service.mutate.bind(service), restore = service.restore.bind(service);
+    service.mutate = (...args) => cleanupGate.request(() => mutate(...args));
+    service.restore = (...args) => cleanupGate.request(() => restore(...args));
+  }
   const setHook = (hook?: (point: string) => Promise<void>) => { checkpointHook = hook; };
   const wrappedService = service;
   // Inject hooks through a thin test wrapper so tests can pause or alter the filesystem at exact journal boundaries.
@@ -185,8 +206,10 @@ it("runs the Fabric mod lifecycle in the mods namespaces and keeps restart expli
   expect(await readFile(path.join(f.serverRoot, "plugins", "lifecycle.jar")).catch(() => null)).toBeNull();
 });
 
-it("validates a restored tombstone through later committed lifecycle moves after manager restart", async () => {
-  const f = await fixture(); await run(f, "trash");
+it("validates a restored tombstone through later committed lifecycle moves after manager restart", () => {
+  const cleanupGate = new FixtureCleanupGate(); cleanupGates.add(cleanupGate);
+  return cleanupGate.body(async () => {
+  const f = await fixture("enabled", undefined, "paper", cleanupGate); await run(f, "trash");
   const oldTrashId = (await f.service.listTrash(f.adapter.serverId)).items[0]!.id;
   const beforeRestore = await f.service.listTrash(f.adapter.serverId);
   const restored = await f.service.restore(f.adapter.serverId, oldTrashId, beforeRestore.revision, randomUUID());
@@ -202,6 +225,7 @@ it("validates a restored tombstone through later committed lifecycle moves after
   await service.reconcileStartup(); await operations.initialize();
   expect(operations.getServerState(f.adapter.serverId).recoveryRequired).toBe(false);
   expect((await service.listTrash(f.adapter.serverId)).items).toHaveLength(1);
+  });
 });
 
 it("accepts a later Trash successor when a new JAR reuses the restored filename", async () => {

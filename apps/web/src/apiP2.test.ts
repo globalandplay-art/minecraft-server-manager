@@ -19,7 +19,11 @@ describe('P2 API 客户端写边界', () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ data: { operation: { ...operation, kind: 'backup-export' } }, meta }, 202));
     vi.stubGlobal('fetch', fetchMock);
     await api.createBackupExport('vanilla-local', 'backup-id', '123e4567-e89b-42d3-a456-426614174000');
-    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'POST', body: '{}', headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': '123e4567-e89b-42d3-a456-426614174000' } });
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(init).toMatchObject({ method: 'POST', body: '{}' });
+    const headers = new Headers(init.headers);
+    expect(headers.get('X-Manager-Intent')).toBe('local-ui');
+    expect(headers.get('Idempotency-Key')).toBe('123e4567-e89b-42d3-a456-426614174000');
     expect(api.backupDownloadUrl('x/y', 'a?b')).toBe('/api/v1/servers/x%2Fy/backups/a%3Fb/download');
   });
   it('生命周期请求发送 intent、JSON 与指定 UUID 幂等键', async () => {
@@ -32,11 +36,10 @@ describe('P2 API 客户端写边界', () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/v1/servers/vanilla-local/actions/start');
     expect(init.method).toBe('POST');
-    expect(init.headers).toMatchObject({
-      'Content-Type': 'application/json',
-      'X-Manager-Intent': 'local-ui',
-      'Idempotency-Key': '123e4567-e89b-42d3-a456-426614174000',
-    });
+    const headers = new Headers(init.headers);
+    expect(headers.get('Content-Type')).toBe('application/json');
+    expect(headers.get('X-Manager-Intent')).toBe('local-ui');
+    expect(headers.get('Idempotency-Key')).toBe('123e4567-e89b-42d3-a456-426614174000');
     expect(init.body).toBe('{}');
   });
 
@@ -48,8 +51,9 @@ describe('P2 API 客户端写边界', () => {
     await api.command('vanilla-local', 'list');
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(init.headers).toMatchObject({ 'X-Manager-Intent': 'local-ui' });
-    expect(init.headers).not.toHaveProperty('Idempotency-Key');
+    const headers = new Headers(init.headers);
+    expect(headers.get('X-Manager-Intent')).toBe('local-ui');
+    expect(headers.has('Idempotency-Key')).toBe(false);
     expect(init.body).toBe(JSON.stringify({ command: 'list' }));
   });
 

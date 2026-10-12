@@ -41,6 +41,9 @@ describe("startup explicitly required auth profile", () => {
     const authentication = await initializeHttpAuthentication(root, "required");
     expect(authentication).toBeInstanceOf(HttpAuthentication); expect(read).toHaveBeenCalledTimes(1); expect(openReader).toHaveBeenCalledWith(root); expect(openAudit).toHaveBeenCalledWith(root);
     expect(JSON.stringify(authentication)).toBe("{}");
+    expect(Object.keys(authentication!)).toEqual([]);
+    expect(JSON.stringify(authentication!.websocket)).toBe("{}");
+    expect(Object.keys(authentication!.websocket)).toEqual([]);
   }));
   it("unsafe/unavailable audit refuses required startup without falling back", async () => fixture(async (root) => {
     openReader.mockResolvedValue({ read: async () => ({ version: 1, username: "admin", revision: randomUUID(), salt: "ab".repeat(16), hash: "cd".repeat(64), parameters: SCRYPT_PROFILE }) });
