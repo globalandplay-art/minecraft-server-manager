@@ -28,6 +28,7 @@ public static class AuthPrivateNative {
     } finally { Marshal.FreeHGlobal(pointer); }
   }
   public static void Publish(string source,string target) { if(!MoveFile(source,target,9)) throw new Exception("PRIVATE_PUBLISH_FAILED"); }
+  public static void PublishNew(string source,string target) { if(!MoveFile(source,target,8)) throw new Exception("PRIVATE_PUBLISH_FAILED"); }
 }`;
 const script = (action: string) => `$ErrorActionPreference='Stop'\nAdd-Type -TypeDefinition @'\n${CREATOR}\n'@\n${action}\n@{ok=$true} | ConvertTo-Json -Compress`;
 async function execute(action: string): Promise<unknown> {
@@ -65,6 +66,11 @@ export async function writePrivateNew(file: string, bytes: Buffer, acl: WindowsP
 export async function publishPrivateStage(stage: string, target: string): Promise<void> {
   if (path.dirname(stage) !== path.dirname(target)) throw fail();
   await execute(`[AuthPrivateNative]::Publish(${nativePathData(stage)},${nativePathData(target)})`);
+}
+/** Atomic no-replace publication: an unexpectedly existing destination is never overwritten. */
+export async function publishPrivateStageNew(stage: string, target: string): Promise<void> {
+  if (path.dirname(stage) !== path.dirname(target)) throw fail();
+  await execute(`[AuthPrivateNative]::PublishNew(${nativePathData(stage)},${nativePathData(target)})`);
 }
 /** Identity/checksum before deleting only the writer's fixed private journal/stage. */
 export async function deleteVerifiedPrivate(file: string, checksum: string, acl: WindowsPrivateAclVerifier): Promise<void> {

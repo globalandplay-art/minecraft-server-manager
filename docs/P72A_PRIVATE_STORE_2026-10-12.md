@@ -1,0 +1,15 @@
+# P7.2a-4 Private disabled bootstrap store
+
+Implemented an explicit disabled-only private store; not wired to startup, HTTP or remote providers. `open` and `read` do not create files. `initializeDisabled` requires the existing Manager owner mutation exclusion. Paths are fixed backend-derived access/provider records and stages; no client paths are accepted.
+
+Production publication reuses protected entry creation, bounded new-file write/sync and native publication primitives. New `publishPrivateStageNew` uses MoveFileEx flags8 (write-through, without replacement) rather than existing flags9 replacement. Existing credential publication remains unchanged. Unexpected destinations are not overwritten; interrupted stages are retained. Any stage for either provider blocks reopening/reading/initialization; no automatic recovery/deletion/replay exists yet.
+
+Store checks canonical directory identity, held Manager owner, private ACL before/after, bounded single-link file identity/content and record root/provider binding. Known records disappearing during the same store lifetime reject; absence after restart without an expected-record ledger cannot prove historic ownership. This store therefore remains restricted to disabled/external bootstrap and must not be generalized to owned/enabled records. Durable operation/journal/admission/recovery still require later implementation and independent verification.
+
+Filesystem races by same-user administrators and Windows directory fsync/power-loss limits remain. No claim of exclusion against external Tailscale configuration writers is made. No provider commands, Minecraft, real credentials, remote listeners or network settings were accessed.
+
+Validation: initial injected store/codec 7 PASS; after Manager-wide stage guard, store/codec/inventory/recent-admission 12 PASS. Tests use isolated temporary directories with injected ACL/publication and owner; they do not prove native Windows ACL/MoveFileEx execution. New production adapter requires an isolated native publication acceptance before runtime integration. First lint found an unused destructured stage variable, removed without semantic change; historical failure retained here. Final checks/review recorded in PROGRESS.
+
+Next: isolated native publication/no-replace verification, expected-record ledger and operation intent design, then tested durable operation/recovery implementation before any startup/API wiring. No full-suite rerun for this slice. No commit/push/PR.
+
+Independent first review: P1=0/P2=2/P3=0. Two findings: known record missing could be reinitialized in the same instance; absent-provider read skipped directory ACL validation. Each corrected at Attempt1: initialization now rejects known providers before any write, and absent reads verify ACL/identity/stages and recheck absence. Added regression confirms zero writes after deletion and ACL denial rejects empty reads. Current focused13 PASS. Delta signoff and final checks recorded in PROGRESS; original findings are retained here.

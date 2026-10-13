@@ -890,3 +890,95 @@ export const authWsTicketRequestSchema = strictObject({ serverId: Type.String({ 
 export type AuthWsTicketRequest = Static<typeof authWsTicketRequestSchema>;
 export const authWsTicketResponseSchema = strictObject({ data: strictObject({ ticket: authTokenSchema, expiresAt: timestampSchema }), meta: responseMetaSchema });
 export type AuthWsTicketResponse = Static<typeof authWsTicketResponseSchema>;
+
+// Desired defaults are not evidence of the host's actual network configuration.
+const unimplementedAccessMethod = (id: "tailscale" | "cloudflare") => strictObject({
+  id: Type.Literal(id), implemented: Type.Literal(false), desiredEnabled: Type.Literal(false),
+  observedState: Type.Literal("unknown"), managementMode: Type.Literal("external"),
+  connectionUrl: Type.Null(), remoteVerifiedAt: Type.Null(),
+  capabilities: strictObject({ preflight: Type.Literal(id === "tailscale"), enable: Type.Literal(false), disable: Type.Literal(false) })
+});
+export const accessMethodsResponseSchema = strictObject({ data: strictObject({
+  local: strictObject({ id: Type.Literal("local"), authenticationRequired: Type.Boolean(),
+    available: Type.Literal(true), managementMode: Type.Literal("manager") }),
+  tailscale: unimplementedAccessMethod("tailscale"), cloudflare: unimplementedAccessMethod("cloudflare")
+}), meta: responseMetaSchema });
+export type AccessMethodsResponse = Static<typeof accessMethodsResponseSchema>;
+
+// P7.2b-A observation only. Desired=false is not proof of an empty host configuration.
+export const tailscaleStatusResponseSchema = strictObject({ data: strictObject({
+  state: Type.Union(["disabled", "unavailable", "needs_setup", "checking", "ready", "enabling", "enabled", "degraded", "conflict", "disabling", "recovery_required"].map((state) => Type.Literal(state))),
+  desiredEnabled: Type.Literal(false), observedEnabled: Type.Union([Type.Boolean(), Type.Null()]),
+  observedServeMode: Type.Union(["unknown", "none", "external", "funnel"].map((mode) => Type.Literal(mode))),
+  managementMode: Type.Literal("external"), dependency: Type.Union([Type.Literal("unknown"), Type.Literal("available")]),
+  tailnet: Type.Union(["unknown", "not_ready", "ready"].map((state) => Type.Literal(state))),
+  https: Type.Union(["unknown", "needs_setup", "available"].map((state) => Type.Literal(state))),
+  target: Type.Literal("unconfigured"), lastCheckedAt: Type.Union([timestampSchema, Type.Null()]),
+  lastErrorCode: Type.Union([Type.String({ pattern: "^TAILSCALE_[A-Z_]{1,60}$" }), Type.Null()]),
+  connectionUrl: Type.Null(), remoteVerifiedAt: Type.Null(),
+  capabilities: strictObject({ preflight: Type.Literal(true), enable: Type.Literal(false), disable: Type.Literal(false) })
+}), meta: responseMetaSchema });
+export type TailscaleStatusResponse = Static<typeof tailscaleStatusResponseSchema>;
+export const tailscalePreflightRequestSchema = strictObject({});
+
+export const accessProviderSchema = Type.Union([Type.Literal("tailscale"), Type.Literal("cloudflare")]);
+const accessUuidSchema = Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" });
+const accessDigestSchema = Type.String({ pattern: "^[0-9a-f]{64}$" });
+
+/** Public operation shape only; admission and durable recovery require service verification. */
+export const accessOperationSchema = strictObject({
+  schemaVersion: Type.Literal(1),
+  id: accessUuidSchema,
+  resource: strictObject({ kind: Type.Literal("manager-access"), provider: accessProviderSchema }),
+  action: Type.Union([Type.Literal("enable"), Type.Literal("disable")]),
+  state: Type.Union([
+    Type.Literal("created"), Type.Literal("preflight_passed"), Type.Literal("intent_persisted"),
+    Type.Literal("applying"), Type.Literal("verifying"), Type.Literal("succeeded"),
+    Type.Literal("failed"), Type.Literal("conflict"), Type.Literal("recovery_required")
+  ]),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema,
+  errorCode: Type.Union([Type.Null(), Type.Literal("ACCESS_CONFLICT"),
+    Type.Literal("ACCESS_UNAVAILABLE"), Type.Literal("ACCESS_PRIVATE_UNSAFE"),
+    Type.Literal("ACCESS_RECOVERY_REQUIRED"), Type.Literal("ACCESS_VERIFICATION_FAILED")])
+});
+export type AccessOperation = Static<typeof accessOperationSchema>;
+
+/** New envelope is opt-in. Existing server operation schema and stored bytes are unchanged. */
+export const resourceOperationSchema = Type.Union([
+  strictObject({ resource: strictObject({ kind: Type.Literal("server") }), operation: operationSchema }),
+  strictObject({ resource: strictObject({ kind: Type.Literal("manager-access") }), operation: accessOperationSchema })
+]);
+export type ResourceOperation = Static<typeof resourceOperationSchema>;
+
+/** Private bootstrap record, not an API DTO and not proof of provider state or ownership. */
+export const accessDisabledRecordSchema = strictObject({
+  schemaVersion: Type.Literal(1),
+  provider: accessProviderSchema,
+  rootIdentity: accessDigestSchema,
+  revision: accessUuidSchema,
+  desiredEnabled: Type.Literal(false),
+  managementMode: Type.Literal("external"),
+  ownedRoute: Type.Null(),
+  operationId: Type.Null(),
+  ownershipRevision: Type.Null()
+});
+export type AccessDisabledRecord = Static<typeof accessDisabledRecordSchema>;
+
+export const accessMutationRequestSchema = strictObject({ revision: accessUuidSchema, confirm: Type.Literal(true) });
+export type AccessMutationRequest = Static<typeof accessMutationRequestSchema>;
+export const accessProviderParamsSchema = strictObject({ provider: accessProviderSchema });
+export const accessOperationParamsSchema = strictObject({ id: accessUuidSchema });
+export const accessOperationResponseSchema = strictObject({ data: accessOperationSchema, meta: responseMetaSchema });
+export type AccessOperationResponse = Static<typeof accessOperationResponseSchema>;
+
+export const tailscaleControlResponseSchema = strictObject({ data: strictObject({
+  state: Type.Union([Type.Literal("unavailable"), Type.Literal("ready"), Type.Literal("enabled"),
+    Type.Literal("conflict"), Type.Literal("recovery_required")]),
+  revision: Type.Union([accessUuidSchema, Type.Null()]), observedEnabled: Type.Union([Type.Boolean(), Type.Null()]),
+  recoveryOperationId: Type.Union([accessUuidSchema, Type.Null()]),
+  enableAllowed: Type.Boolean(), disableAllowed: Type.Boolean(),
+  connectionUrl: Type.Null(), remoteVerifiedAt: Type.Null(),
+  lastErrorCode: Type.Union([Type.String({ pattern: "^(ACCESS|TAILSCALE)_[A-Z_]+$", maxLength: 96 }), Type.Null()])
+}), meta: responseMetaSchema });
+export type TailscaleControlResponse = Static<typeof tailscaleControlResponseSchema>;

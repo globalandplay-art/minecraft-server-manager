@@ -10,6 +10,9 @@ import { DomainError } from "./services/domain-errors.js";
 import { ManagerLifetimeLock, LockOwnershipUnknownError } from "./auth/manager-lifetime-lock.js";
 import { AuthCoreError } from "./auth/password.js";
 import { initializeHttpAuthentication } from "./auth/bootstrap.js";
+import { AccessPrivateStore } from "./services/access-private-store.js";
+import { AccessOperationStore } from "./services/access-operation-store.js";
+import { AccessOperationService } from "./services/access-operation-service.js";
 
 async function main(): Promise<void> {
   const mode = resolveMode(process.env.MCSM_MODE);
@@ -19,18 +22,32 @@ async function main(): Promise<void> {
   // Offline credential actions share this OS-owned exclusion before adapters/startup recovery.
   // Unsupported platforms retain legacy local runtime; the Windows offline CLI fails closed there.
   // Keep native handles until OS process exit, including any admitted background operation.
-  if (process.platform === "win32") await ManagerLifetimeLock.acquire(managerRoot);
+  const accessOwner = process.platform === "win32" ? await ManagerLifetimeLock.acquire(managerRoot) : undefined;
   let app: ReturnType<typeof buildApp> | undefined;
   let adapters: Awaited<ReturnType<typeof createLocalAdapters>> | undefined;
   let adapterCreationComplete = mode === "mock";
   try {
   const authentication = await initializeHttpAuthentication(managerRoot, process.env.MCSM_AUTH);
+  let accessOperations = new AccessOperationService();
+  if (accessOwner) {
+    try {
+      const privateAccess = await AccessPrivateStore.open(managerRoot, accessOwner);
+      const accessStore = await AccessOperationStore.open(managerRoot, accessOwner);
+      accessOperations = new AccessOperationService({ store: accessStore,
+        configuration: async (provider) => (await privateAccess.read(provider))?.revision ?? null });
+    } catch {
+      // Access corruption blocks this resource only; local authentication/lifecycle remain available.
+      accessOperations = new AccessOperationService({ blocked: true });
+      process.stderr.write("Access initialization blocked: ACCESS_PRIVATE_UNSAFE.\n");
+    }
+  }
   adapters =
     mode === "mock" ? undefined : await createLocalAdapters(managerRoot, new LocalRuntimeFactory());
   adapterCreationComplete = true;
   const localAdapters = adapters?.filter(isLocalAdapter) ?? [];
   const transactionJournal = mode === "local" ? new TransactionJournalStore(managerRoot) : undefined;
   app = buildApp({
+    accessOperations,
     ...(authentication === undefined ? {} : { authentication }),
     logger: {
       level: "info",

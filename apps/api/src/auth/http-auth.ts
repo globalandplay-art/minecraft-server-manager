@@ -7,6 +7,7 @@ import { errorResponse, responseMeta, type LocalGuardDenialObserver } from "../i
 import { AuthCoreError, PasswordVerifier, validPassword, validUsername } from "./password.js";
 import { SessionCore } from "./session-core.js";
 import type { AuthAudit, AuthAuditEvent } from "./audit.js";
+import { DomainError } from "../services/domain-errors.js";
 
 const COOKIE = "mcsm_local_session";
 const COOKIE_FLAGS = "HttpOnly; SameSite=Strict; Path=/";
@@ -28,6 +29,25 @@ export class HttpAuthentication {
   constructor(verifier: PasswordVerifier, audit: AuthAudit, sessions = new SessionCore()) {
     this.#verifier = verifier; this.#audit = audit; this.#sessions = sessions;
     this.#websocket = new WebSocketAuthentication(sessions, audit);
+  }
+  /** Call after every awaited preflight, immediately before sensitive service admission.
+   * Existing HTTP Origin/Host/body guards remain required; this grants no transferable permit.
+   */
+  assertRecentMutation(request: FastifyRequest): void {
+    if (!mutation(request.method)) throw new DomainError(403, "AUTH_MUTATION_REQUIRED", "Sensitive authorization requires a mutation");
+    if (!this.#audit.ready()) throw new DomainError(503, "AUTH_AUDIT_UNAVAILABLE", "Authentication audit unavailable");
+    const raw = localSessionCookie(request.headers.cookie);
+    let recent: boolean;
+    try { recent = this.#sessions.read(raw, "local-http").recentReauthentication; }
+    catch { throw new DomainError(401, "AUTH_REQUIRED", "Authentication required"); }
+    try { this.#sessions.validateCsrf(raw, "local-http", request.headers["x-csrf-token"]); }
+    catch { throw new DomainError(403, "CSRF_REJECTED", "Authentication request denied"); }
+    // CSRF validation reads the monotonic clock too; check freshness at final admission.
+    try { recent = this.#sessions.read(raw, "local-http").recentReauthentication; }
+    catch { throw new DomainError(401, "AUTH_REQUIRED", "Authentication required"); }
+    // Session reads prune other sessions synchronously; revocation can invalidate audit health.
+    if (!this.#audit.ready()) throw new DomainError(503, "AUTH_AUDIT_UNAVAILABLE", "Authentication audit unavailable");
+    if (!recent) throw new DomainError(403, "AUTH_REAUTH_REQUIRED", "Recent administrator reauthentication required");
   }
   async observeLocalGuardDenial(...[event, requestId]: Parameters<LocalGuardDenialObserver>): Promise<boolean> {
     if (event !== "origin-rejected" || !this.#audit.ready()) return false;

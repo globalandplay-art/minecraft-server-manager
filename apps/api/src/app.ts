@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { AccessCoordinator } from "./services/access-coordinator.js";
+import { TailscaleReadOnlyService } from "./services/tailscale-readonly.js";
+import { TailscaleControlService } from "./services/tailscale-control-service.js";
+import { WindowsTailscaleReadRunner } from "./services/tailscale-cli-read-runner.js";
+import { registerAccessRoutes } from "./routes/access.js";
 import type { IncomingMessage } from "node:http";
 import type { HttpAuthentication } from "./auth/http-auth.js";
 import { PerformanceService } from "./services/performance-service.js";
@@ -57,8 +62,12 @@ import { BackupScheduleService } from "./services/backup-schedule-service.js";
 import { registerBackupScheduleRoutes } from "./routes/backup-schedules.js";
 import { BackupRetentionService } from "./services/backup-retention-service.js";
 import { registerBackupRetentionRoutes } from "./routes/backup-retention.js";
+import { AccessOperationService } from "./services/access-operation-service.js";
 
 export interface BuildAppOptions {
+  tailscaleReadOnly?: TailscaleReadOnlyService;
+  tailscaleControl?: TailscaleControlService;
+  accessOperations?: AccessOperationService;
   authentication?: HttpAuthentication;
   clock?: Clock;
   adapters?: readonly MinecraftServerAdapter[];
@@ -76,6 +85,10 @@ export interface BuildAppOptions {
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const clock = options.clock ?? systemClock;
   const mode = options.mode ?? "mock";
+  const accessOperations = options.accessOperations ?? new AccessOperationService();
+  if (options.tailscaleControl && options.tailscaleControl.operations !== accessOperations) {
+    throw new Error("Access control must share the same operation service.");
+  }
   const adapters = options.adapters ?? createMockAdapters(clock);
   const requestedLogger = typeof options.logger === "object" ? options.logger : undefined;
   const logger: FastifyServerOptions["logger"] = options.logger === false || options.logger === undefined ? false : {
@@ -137,6 +150,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return { data: { configured: false, authenticationRequired: false, auditReady: false } };
   });
   app.addHook("onReady", async () => {
+    await accessOperations.initialize();
     await options.transactionJournal?.initialize();
     await restores?.reconcileStartup();
     await worldCreates?.reconcileStartup();
@@ -163,6 +177,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await service.close();
   });
   registerHealthRoute(app, clock, mode, options.transactionJournal !== undefined && options.managerRoot !== undefined);
+  registerAccessRoutes(app, new AccessCoordinator(options.authentication !== undefined), clock, mode, accessOperations,
+    options.authentication, options.tailscaleReadOnly ?? new TailscaleReadOnlyService(new WindowsTailscaleReadRunner()),
+    options.tailscaleControl ?? new TailscaleControlService(accessOperations));
+  app.addHook("onClose", async () => { await accessOperations.close(); });
   const addonInventory = new AddonInventory();
   registerAddonRoutes(app, registry, clock, mode, addonInventory, options.transactionJournal !== undefined && options.managerRoot !== undefined);
   registerServerRoutes(app, service, clock, mode);

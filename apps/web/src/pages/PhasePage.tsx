@@ -1,6 +1,7 @@
 import type { HealthResponse, ServersResponse } from '@mcsm/contracts';
 import { Info, LockKeyhole, ShieldCheck } from 'lucide-react';
 import { PageHeading, PhaseNotice } from '../components/Ui';
+import { TailscaleAccess } from '../components/TailscaleAccess';
 
 type Features = HealthResponse['data']['features'];
 type ServerSummary = ServersResponse['data']['items'][number];
@@ -51,8 +52,9 @@ export function SettingsPage({ features }: { features?: Features | undefined }) 
       <section className="settings-panel">
         <div><span className="settings-icon"><ShieldCheck size={21} /></span><div><h2>本地连接</h2><p>管理器 API 仅监听 127.0.0.1:8080，前端通过同源代理访问。当前没有远程登录入口。</p></div><span className="phase-badge">只读</span></div>
         <div><span className="settings-icon"><Info size={21} /></span><div><h2>Server Properties</h2><p>Phase {propertiesPhase ?? '未知'} 才会提供白名单字段、变更对比与 revision 冲突保护。</p></div><span className="phase-badge">P{propertiesPhase ?? '—'}</span></div>
-        <div><span className="settings-icon"><LockKeyhole size={21} /></span><div><h2>Remote Access</h2><p>Phase {remotePhase ?? '未知'} 将独立设计认证、授权、TLS 与审计；当前不会扩大监听地址。</p></div><span className="phase-badge">P{remotePhase ?? '—'}</span></div>
+        <div><span className="settings-icon"><LockKeyhole size={21} /></span><div><h2>Remote Access</h2><p>Phase {remotePhase ?? '未知'}：本地账号认证已接入；真实远程入口保持关闭。</p></div><span className="phase-badge">P{remotePhase ?? '—'}</span></div>
       </section>
+      <TailscaleAccess />
     </div>
   );
 }

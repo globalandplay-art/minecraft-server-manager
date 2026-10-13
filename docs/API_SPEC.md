@@ -506,3 +506,30 @@ Phase 1 合约测试验证四个 GET、envelope、feature map、Mock 来源、�
 消费后的暂存列表 state 为 `consumed`，discardAllowed 为 false，可附 importOperationId 供人工检查显式恢复；即使消费标记丢失，持久 journal 引用仍阻止丢弃。缺少已验证 guard / 配置副本的早期中断保持人工恢复锁，不自动猜测或清理。不确定写请求仅允许用户明确使用原 body/key 确认，不自动重试。
 
 上述接口已实现；完整 Import 真实验收与独立最终 Gate 尚未全部完成，不代表 P3.3c PASS。
+
+## P7.2a Manager Access foundation (current candidate, 2026-10-12)
+
+Status: P7.2a ENGINEERING PASS (2026-10-12); no production provider mutation adapter. See [complete loop](./P72A_FOUNDATION_LOOP_2026-10-12.md). GET `/api/v1/access/methods` keeps truthful disabled/unimplemented remote capabilities. Additional authenticated operations:
+
+| Method/path | Request | Result |
+|---|---|---|
+| GET `/api/v1/access/operations/:id` | UUID operation ID; authenticated session | safe operation envelope; unknown404; no-store |
+| POST `/api/v1/access/:provider/enable` | provider tailscale/cloudflare; revision UUID; confirm=true; UUID Idempotency-Key |202 operation envelope; not proof of success |
+| POST `/api/v1/access/:provider/disable` | same strict admission contract |202 operation envelope |
+| POST `/api/v1/access/operations/:id/recover` | revision UUID; confirm=true |200 verified operation envelope; no retry/rollback |
+
+Writes share Session/CSRF/Origin/Host/audit and recent reauthentication, including final synchronous checks after readonly waits. Extra fields rejected; no path/port/command input. No anonymous fallback when authentication is absent. Current production has no reviewed provider adapter: mutations503 ACCESS_UNAVAILABLE with no admission/publication/provider change. Fake injection is constructor-only in tests. Same-key changed request409 ACCESS_CONFLICT; busy409 ACCESS_BUSY; incomplete/corrupt evidence409 ACCESS_RECOVERY_REQUIRED or fixed503 ACCESS_PRIVATE_UNSAFE. Access failure does not disable existing local management. Remote URL and remoteVerifiedAt remain null; no real remote acceptance.
+
+### P7.2b-A read-only Tailscale (2026-10-13)
+
+GET `/api/v1/access/tailscale` requires configured administrator authentication and returns cached strict status with Cache-Control:no-store; startup and GET never invoke CLI. POST `/api/v1/access/tailscale/preflight` accepts only `{}` and reuses Session/CSRF/Origin/Host/audit/recent reauthentication, including final admission checks. It returns 200 status even for fixed dependency-unavailable classifications; concurrent preflight is 409. Unknown fields, paths, commands and ports are rejected. Preflight is read-only and creates no durable enable operation.
+
+Status reports dependency, tailnet, HTTPS, observed Serve mode, last checked/error and target prerequisite. desiredEnabled=false, managementMode=external, target=unconfigured, connectionUrl=null and remoteVerifiedAt=null remain fixed. Verified empty Serve gives observedEnabled=false; unknown/conflicting configuration does not claim enabled ownership. Any occupied Serve/Funnel configuration blocks setup. Supported CLI is exactly 1.98.8; unknown schema/version fails closed. No raw CLI identities, domains, paths or diagnostics are public.
+
+Unified methods now advertises Tailscale preflight=true; implemented/enable/disable remain false. Cloudflare remains independent and unavailable. Native Tailscale installation/remote acceptance are not validated on this host. See [A report](./P72B_A_READONLY_2026-10-13.md).
+
+### Historical P7.2a-1 read-only access capability inventory
+
+Current addition (2026-10-13, B Mock Gate): authenticated GET `/api/v1/access/tailscale/control` returns strict `tailscaleControlResponseSchema`, no-store, safe state/revision/recovery operation ID/action availability only. No route target, hostname, receipt, secret or verified remote URL. Production response is unavailable, both actions false, revision null: no mutation bridge exists. Test-only construction injects reviewed Fake control and the same AccessOperationService as mutation routes; mismatched coordinators are refused. Reuses existing enable/disable/recover endpoints and strict DTO; final CAS receives a synchronous reauthorization callback. Authentication failure at commit preserves recovery evidence and returns its original fixed denial. See [B behavior, tests and limitations](./P72B_B_CONTROL_2026-10-13.md). The following P7.2a-1 description is preserved historical behavior.
+
+GET /api/v1/access/methods uses accessMethodsResponseSchema and existing global auth/session/audit plus local ingress guards; Cache-Control: no-store. data.local reports authenticationRequired from actual installed authentication. data.tailscale and data.cloudflare independently report implemented=false, desiredEnabled=false, observedState=unknown, managementMode=external, connectionUrl=null, remoteVerifiedAt=null and all preflight/enable/disable capabilities=false. This does not observe host networking. No mutation endpoints or durable remote operations exist in this slice. See P72A_ACCESS_INVENTORY_2026-10-12.md.

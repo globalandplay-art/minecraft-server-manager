@@ -1,4 +1,7 @@
 import {
+  tailscaleStatusResponseSchema, type TailscaleStatusResponse,
+  tailscaleControlResponseSchema, type TailscaleControlResponse,
+  accessOperationResponseSchema, type AccessOperationResponse, type AccessMutationRequest,
   authStatusResponseSchema, authSessionResponseSchema, authLogoutResponseSchema, authWsTicketResponseSchema,
   type AuthStatusResponse, type AuthSessionResponse, type AuthLogoutResponse, type AuthWsTicketResponse,
   type AuthCredentialsRequest,
@@ -195,6 +198,14 @@ async function requestJson<T>(path: string, schema: unknown, options: RequestOpt
 }
 
 export const api = {
+  tailscaleStatus: (signal?: AbortSignal) => requestJson<TailscaleStatusResponse>('/access/tailscale', tailscaleStatusResponseSchema, { signal }),
+  tailscalePreflight: () => requestJson<TailscaleStatusResponse>('/access/tailscale/preflight', tailscaleStatusResponseSchema, { method: 'POST', body: {}, headers: { 'X-Manager-Intent': 'local-ui' }, timeoutMs: 120_000 }),
+  tailscaleControl: (signal?: AbortSignal) => requestJson<TailscaleControlResponse>('/access/tailscale/control', tailscaleControlResponseSchema, { signal }),
+  tailscaleMutate: (action: 'enable' | 'disable', body: AccessMutationRequest, key: string) => requestJson<AccessOperationResponse>(`/access/tailscale/${action}`, accessOperationResponseSchema,
+    { method: 'POST', body, headers: { 'Idempotency-Key': key, 'X-Manager-Intent': 'local-ui' }, timeoutMs: 120_000 }),
+  accessOperation: (id: string) => requestJson<AccessOperationResponse>(`/access/operations/${encodeURIComponent(id)}`, accessOperationResponseSchema),
+  accessRecover: (id: string, body: AccessMutationRequest) => requestJson<AccessOperationResponse>(`/access/operations/${encodeURIComponent(id)}/recover`, accessOperationResponseSchema,
+    { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, timeoutMs: 120_000 }),
   authStatus: () => getJson<AuthStatusResponse>('/auth/status', authStatusResponseSchema),
   authSession: () => getJson<AuthSessionResponse>('/auth/session', authSessionResponseSchema),
   authLogin: (body: AuthCredentialsRequest) => requestJson<AuthSessionResponse>('/auth/login', authSessionResponseSchema,

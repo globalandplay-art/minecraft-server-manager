@@ -1,5 +1,7 @@
 # P7.2 Authentication UI / WebSocket integration
 
+2026-10-12 superseding checkpoint: **ENGINEERING FINAL PASS**, independent Sol High P1/P2/P3=0. Final evidence and retained limitations: [P72_FINAL_GATE_2026-10-12.md](./P72_FINAL_GATE_2026-10-12.md). The design/intermediate IN PROGRESS statements below describe historical checkpoints, not current status. No real remote acceptance is claimed.
+
 Status: IN PROGRESS. Entry: P7.1b HTTP ENGINEERING PASS, 1353 frozen regression tests, independent Sol High P1/P2/P3=0. This is the authentication prerequisite slice in the current PHASE7_PLAN sequence; it is not P7.2b Tailscale Serve. No real administrator initialization, Minecraft/user-world access, host network change or Git publication.
 
 ## Implementation boundary

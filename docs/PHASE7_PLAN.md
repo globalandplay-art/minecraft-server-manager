@@ -1,5 +1,17 @@
 # Phase 7 — Authentication / Remote Access
 
+2026-10-13 production feasibility checkpoint: investigated pinned stock1.98.8 ETag/If-Match OCC; it is not the monotonic identity/config+Managerreceipt atomic protocol assumed by the current Fake bridge. Independent Sol High reviewed [feasibility and options](./P72B_PRODUCTION_FEASIBILITY_2026-10-13.md), remaining actionable design P1/P2/P3=0. Production implementation still BLOCKED; lifecycle semantics choice pending before native contract revision/foreground investigation. Ingress remains a separate reviewed slice preserving trusted local OS users, exact proxy authority and existing local guards. No source/tests/native/provider operation or Git publication this checkpoint; C Mock PASS and all historical evidence unchanged. Do not start real Serve, Cloudflare or Phase7 Final Gate.
+
+2026-10-13 latest checkpoint: **P7.2b-C MOCK INTEGRATION PASS** with independent Sol High final remaining actionable P1/P2/P3=0, hashes349/349, new full13/1403/163=1579/native0, lint/typecheck/build/diff PASS, Tailscale browser6/auth browser3 and owned cleanup PASS. Three initial review findings closed Attempt1. **Whole requested P7.2b ENGINEERING BLOCKED/INCOMPLETE**: production atomic provider backend and authenticated remote ingress are not implemented; Fake success cannot close this missing implementation Gate. Real remote/native acceptance NOT RUN/NOT AUTHORIZED, production default off/unavailable/null URLs. [C report/ledger](./P72B_C_FINAL_2026-10-13.md). Stop; next requires reviewed production bridge/ingress design, not Cloudflare or Phase7 Final Gate. Earlier dated entries preserve historical results and pending language; they do not override this checkpoint.
+
+2026-10-13 latest checkpoint: **P7.2b-B MOCK ENGINEERING PASS**, independent Sol High final P1/P2/P3=0, hashes18/18. Affected API145, all Web159, Contracts13; read-only/Fake lifecycle browser360/768/1440 6PASS with owned cleanup; lint/typecheck/build/diff native0. Production has no atomic mutation bridge or remote ingress and keeps actions unavailable/default off. Real native/daemon/remote NOT RUN. Complete P7.2b engineering signoff remains pending C and a new frozen full regression. See [B report and ledger](./P72B_B_CONTROL_2026-10-13.md). Earlier dated checkpoints remain historical.
+
+2026-10-13 current checkpoint: P7.2a foundation ENGINEERING PASS. P7.2b-A ENGINEERING PASS: read-only Tailscale discovery/API/Settings and required validation completed; independent Sol High final evidence signoff P1/P2/P3=0 recorded in [A report](./P72B_A_READONLY_2026-10-13.md). Affected API90, Web156, Contracts12 and browser360/768/1440 3PASS; lint/typecheck/build/diff native0. Production default remains disabled; no controlled target or provider mutations. Installed native CLI and real remote acceptance NOT RUN (Tailscale absent). P7.2b-B/C remain pending. All earlier dated checkpoint text below is historical and does not override this current checkpoint.
+
+2026-10-12 next-slice checkpoint: P7.2a-1 read-only unified access capability inventory implemented with affected tests84PASS and independent SolHigh P1/P2/P3=0. Full durable coordinator, recent-reauth business authorization and remote transaction/recovery prerequisites remain pending; no real transport or configuration actions. Details P72A_ACCESS_INVENTORY_2026-10-12.md.
+
+2026-10-12 current checkpoint: **P7.2 Authentication UI / WebSocket ENGINEERING FINAL PASS**, independent Sol High P1/P2/P3=0,1429 regression tests and current360/768/1440 browser3PASS. Historical wrapper exit1/UNKNOWN performance causes and manual test-runner teardown remain explicitly recorded in P72_FINAL_GATE_2026-10-12.md. No real remote access is enabled. Next: unified Access Coordinator prerequisite/contract inventory, then the user's P7.2b-A/B/C Tailscale sequence; real network mutations require separate authorization. Earlier checkpoint text below is historical.
+
 Status: P7.0 DESIGN PASS. Independent SolHigh P1=0/P2=0/P3=0.
 2026-10-09 current checkpoint: P7.1b HTTP auth ENGINEERING PASS, frozen v3;
 focused 69 PASS, new full regression 1353 PASS (contracts7/API1206/Web140),
@@ -178,6 +190,18 @@ transaction locks, idempotency, ownership or recovery because login succeeded.
 
 ## Remote transport — pending user choice and later deployment approval
 
+### 2026-10-13 additional public-access requirement
+
+User requests a public browser-access mode protected by login, alongside private Tailscale. User currently has no domain. Record this as planned P7.2c Cloudflare Tunnel + Access, not an implemented or enabled capability; it does not supersede the pending P7.2b-B/C Gates.
+
+Planned route: public HTTPS hostname -> Cloudflare Access policy -> Tunnel -> controlled loopback production ingress -> existing Manager administrator Session/HTTP/WS authorization. Access authentication supplements Manager login and never grants Manager administrator permissions by itself. Phone users access through a browser; no Tailscale client is required for this separate public route. Only the Manager web application is published, never Minecraft gameplay or RCON.
+
+Settings will keep Local, Tailscale Private and Cloudflare Public as independent access methods, with default-off state, dependency/preflight status, validated hostname, explicit administrator reauthentication/confirmation, durable enable/disable operation and fail-closed recovery. Hostname/token input, private storage, tunnel ownership, Access JWT verification and trusted ingress details require a separate reviewed design; no arbitrary target port, shell command or API-supplied permission bypass. Tokens must never appear in public responses or logs.
+
+Mock design/development need not wait for a domain. Stable real public acceptance requires a user-controlled hostname with appropriate Cloudflare routing, explicit deployment authorization and authorized/unauthorized HTTP/WS tests. No real tunnel, provider account, DNS, firewall or credential configuration is authorized by this feature request. Temporary random tunnel URLs are not the production completion criterion. Do not advertise a reachable URL before actual verification.
+
+References: [published application routing](https://developers.cloudflare.com/tunnel/concepts/routing/), [Access-protected public application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/).
+
 Preferred design is private Tailscale access with TLS reverse proxy to loopback
 Manager, never exposing Fastify8080/Vite3000 or RCON publicly. Cloudflare Tunnel
 with Access is a separately reviewed alternative, not an automatic deployment.
@@ -240,3 +264,10 @@ Next slice P7.1a can proceed independently of transport selection.
 - [OWASP WebSocket Security](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html)
 
 Parameters/bounds above are project design choices, not claims of implementation.
+# P7.2a complete-loop ENGINEERING PASS (2026-10-12)
+
+Durable Manager Access operations, cross-restart idempotency, conservative startup recovery, explicit evidence-only recovery and shared authenticated APIs pass the whole engineering Gate. New frozen full check10/1325/153=1488 PASS/native0; lint/typecheck/build/diff PASS; hashes25/25 unchanged. Native four-checkpoint new-process acceptance PASS (12 owned children closed, no recovery reapply); original auth browser360/768/1440 3PASS with closed fixtures/released port. Independent whole-loop Sol High final P1/P2/P3=0. No real adapters/network changes, no Settings UI or Git publication. Real remote NOT RUN. Earlier checkpoints below preserve their original scope/results. See [foundation loop](./P72A_FOUNDATION_LOOP_2026-10-12.md). Stop after P7.2a; next separately authorized stage is P7.2b-A read-only Tailscale detection/state, not automatic remote enablement.
+
+# Historical P7.2a record contract checkpoint (2026-10-12)
+
+Opt-in Manager-access resource/operation shape and disabled-only private record codec implemented; legacy server records unchanged. Durable private publication, admission, idempotency and restart reconciliation remain pending. This checkpoint does not enable remote access or satisfy P7.2b prerequisites. See [record contract](./P72A_RECORD_CONTRACT_2026-10-12.md).
