@@ -4,13 +4,14 @@ import type { Duplex } from "node:stream";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
 import type { AuthAudit, AuthAuditEvent } from "./audit.js";
-import { localSessionCookie } from "./cookies.js";
+import { AuthenticationRequestProfiles } from "./request-profiles.js";
+import type { TailscaleIngressBoundary } from "./tailscale-ingress-boundary.js";
 import { AuthCoreError } from "./password.js";
 import { SessionCore } from "./session-core.js";
 
 export const EVENTS_PROTOCOL = "mcsm.events.v1";
 type Prepared = { socketId: string; requestId: string; serverId: string; origin: string; transport: Duplex };
-type Reservation = { requestId: string; transport: Duplex; socket?: WebSocket; cleanup?: () => void; closing: boolean };
+type Reservation = { requestId: string; transport: Duplex; socket?: WebSocket; cleanup?: () => void; closing: boolean; boundary: TailscaleIngressBoundary | undefined };
 const invalid = () => new AuthCoreError("AUTH_INVALID");
 
 /** Authenticated upgrades are restricted to the existing event route and nonsecret replay cursor. */
@@ -29,7 +30,7 @@ export function websocketServerId(method: string, url: string | undefined): stri
   }
   return serverId;
 }
-function handshake(request: IncomingMessage): { raw: string; ticket: string; origin: string; serverId: string } {
+function handshake(request: IncomingMessage, profiles: AuthenticationRequestProfiles): { raw: string; ticket: string; origin: string; serverId: string } {
   const serverId = websocketServerId(request.method ?? "", request.url);
   const headers = request.headers;
   for (const name of ["origin", "cookie", "sec-websocket-protocol", "sec-websocket-version", "sec-websocket-origin"]) {
@@ -38,12 +39,12 @@ function handshake(request: IncomingMessage): { raw: string; ticket: string; ori
   }
   if (!serverId || String(headers["sec-websocket-version"]) !== "13" || headers["sec-websocket-origin"] !== undefined ||
     headers.upgrade?.toLowerCase() !== "websocket" || typeof headers.origin !== "string" ||
-    !["http://127.0.0.1:3000", "http://localhost:3000", "http://127.0.0.1:8080", "http://localhost:8080"].includes(headers.origin)) throw invalid();
+    !profiles.originAllowed(request, headers.origin)) throw invalid();
   const protocols = headers["sec-websocket-protocol"];
   if (typeof protocols !== "string" || protocols.length > 128) throw invalid();
   const offered = protocols.split(",").map((entry) => entry.trim());
   const tickets = offered.filter((entry) => /^ticket\.[A-Za-z0-9_-]{43}$/u.test(entry));
-  const raw = localSessionCookie(headers.cookie);
+  const raw = profiles.cookie(request);
   if (offered.length !== 2 || offered.filter((entry) => entry === EVENTS_PROTOCOL).length !== 1 || tickets.length !== 1 || !raw) throw invalid();
   return { raw, ticket: tickets[0]!.slice(7), origin: headers.origin, serverId };
 }
@@ -56,15 +57,17 @@ export class WebSocketAuthentication {
   #closed = false;
   #sessions: SessionCore;
   #audit: AuthAudit;
-  constructor(sessions: SessionCore, audit: AuthAudit) {
+  #profiles: AuthenticationRequestProfiles;
+  constructor(sessions: SessionCore, audit: AuthAudit, profiles = new AuthenticationRequestProfiles()) {
     this.#sessions = sessions; this.#audit = audit;
+    this.#profiles = profiles;
     sessions.observeSocketRevocation((id) => this.#stop(id, true));
   }
   ready(): boolean { return !this.#closed && this.#audit.ready(); }
   early(request: FastifyRequest): void {
     if (!this.#audit.ready() || this.#closed) throw invalid();
-    const value = handshake(request.raw);
-    this.#sessions.inspectTicket(value.raw, "local-http", value.ticket, value.serverId, value.origin);
+    const value = handshake(request.raw, this.#profiles);
+    this.#sessions.inspectTicket(value.raw, this.#profiles.profile(request.raw), value.ticket, value.serverId, value.origin);
   }
   async prepare(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     this.early(request);
@@ -80,11 +83,11 @@ export class WebSocketAuthentication {
     this.#prepared.delete(request);
     if (!context || this.#closed || !this.#audit.ready()) return false;
     try {
-      const value = handshake(request);
+      const value = handshake(request, this.#profiles);
       if (value.serverId !== context.serverId || value.origin !== context.origin) throw invalid();
-      this.#sessions.consumeTicket(value.raw, "local-http", value.ticket, value.serverId, value.origin);
-      this.#sessions.reserveSocket(value.raw, "local-http", context.socketId);
-      this.#reservations.set(context.socketId, { requestId: context.requestId, transport: context.transport, closing: false });
+      this.#sessions.consumeTicket(value.raw, this.#profiles.profile(request), value.ticket, value.serverId, value.origin);
+      this.#sessions.reserveSocket(value.raw, this.#profiles.profile(request), context.socketId);
+      this.#reservations.set(context.socketId, { requestId: context.requestId, transport: context.transport, closing: false, boundary: this.#profiles.boundary(request) });
       // completeUpgrade can still abort after verifyClient. Close owns release in both cases.
       context.transport.once("close", () => this.#release(context.socketId));
       this.#prepared.set(request, context);
@@ -92,6 +95,7 @@ export class WebSocketAuthentication {
       // Core pruning can synchronously revoke another socket and exhaust the audit queue.
       // Check after every consuming/reserving/scheduling side effect, immediately before101.
       if (!this.ready()) throw invalid();
+      this.#profiles.assert(request);
       return true;
     } catch {
       this.#prepared.delete(request);
@@ -118,7 +122,7 @@ export class WebSocketAuthentication {
     const reservation = this.#reservations.get(id);
     if (!reservation || reservation.closing) return false;
     try {
-      if (this.#closed || !this.#audit.ready()) throw invalid();
+      if (this.#closed || !this.#audit.ready() || (reservation.boundary && !reservation.boundary.admitting)) throw invalid();
       this.#sessions.socketRemaining(id);
       if (!this.ready()) throw invalid();
       return true;

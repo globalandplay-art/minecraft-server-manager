@@ -1,0 +1,31 @@
+# P7.2b Windows session boundary investigation
+
+Scope: investigation, not a production adapter or Tailscale acceptance. User chose close with Manager/manual re-enable. No installed Tailscale calls, Serve/Funnel changes, privileged helpers, system/network changes, credentials or Minecraft operations.
+
+## Static transport evidence
+
+The project's bundled runtime reports Node22.23.1/libuv1.51.0. [Pinned libuv pipe source](https://github.com/libuv/libuv/blob/v1.51.0/src/win/pipe.c#L129-L179) opens duplex pipes with CreateFileW and FILE_FLAG_OVERLAPPED; the inspected open path does not set SECURITY_SQOS_PRESENT/SECURITY_IDENTIFICATION. [Pinned Tailscale Windows pipe client](https://github.com/tailscale/tailscale/blob/v1.98.8/safesocket/pipe_windows.go#L18-L41) explicitly selects identification impersonation level. [Microsoft CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew) documents SQOS flags separately from overlapped I/O. This is a confirmed source-level difference, not proof of runtime rejection, compatible daemon authorization or secure native endpoint identity. Do not implement generic Node named-pipe transport on an unproven equivalence claim.
+
+Direct Manager-owned transport avoids an independently surviving CLI child in principle; the isolated probe below only examines its own mock pipe/child. It does not measure daemon cleanup, Windows token impersonation, endpoint ownership or Tailnet connectivity.
+
+## Abstract publication/cleanup witness
+
+Source: [watch defers](https://github.com/tailscale/tailscale/blob/v1.98.8/ipn/ipnlocal/local.go#L3133-L3172), [foreground deletion](https://github.com/tailscale/tailscale/blob/v1.98.8/ipn/ipnlocal/serve.go#L390-L402), [reload pruning](https://github.com/tailscale/tailscale/blob/v1.98.8/ipn/ipnlocal/serve.go#L1437-L1466).
+
+Probe models three mutex sections: publish own foreground entry, delete own foreground entry, unregister watch. Delete precedes unregister, but publish can interleave. Starting without a foreground entry makes the initial deletion a no-op; therefore a queued publication can still have the prior content ETag. With delete -> publish -> unregister, reload sees a registered watcher and retains its entry; subsequent unregister has no second deletion in this abstract model. Publication before deletion or after unregister is removed by the modeled deletion/pruning. A separate modeled StateStore failure shows that closing the watch also cannot prove deletion succeeded. These are deterministic abstract counterexamples, not a executed upstream daemon or host bug reproduction. Constant user-config preservation is a model assumption, not a native acceptance assertion.
+
+## Isolated probe and bounds
+
+`tests/acceptance/p72b-session-boundary-investigation.mjs`: built-in Node modules only. Creates one UUID named pipe owned by this probe and one `process.execPath` child directly connecting to it. No Tailscale pipe name or actual daemon access. Only the returned ChildProcess is terminated; no PID search or unknown process cleanup. Every accepted socket is tracked, secondary connections rejected/destroyed. Overall work deadline10s starts before listener acquisition; separate shared cleanup deadline5s covers owned listener/sockets/child. No temporary credential/world directories are created or removed. Reports use fresh UUID names under Git-ignored test-results and exclusive writes.
+
+Static review identified cleanup/bound defects before execution: listener close could be skipped when child cleanup was unconfirmed; listen/close were not fully bounded; secondary accepted sockets were untracked. Corrected in the initial pre-run revision: resource acquisition under work deadline, cancellation gate prevents late child spawn, unconditional owned-resource teardown under shared deadline, all sockets tracked. Preserve these findings as resolved static probe issues, not historical product defects. No trial/test run was consumed by static review.
+
+If cleanup cannot be confirmed, record CLEANUP_BLOCKED, retain report and exit only this probe process; do not declare the child gone. Original outcomes are preserved. An intentionally terminated child has its actual exitCode/signal reported; do not demand normal code0 for this crash probe or count it as a Minecraft shutdown.
+
+## Results and limits
+
+Independent GPT-6.1 Sol High pre-run safety delta review: remaining actionable probe P1/P2/P3=0 after the static cleanup/bound corrections. One controlled execution completed with native exit0. Evidence: `test-results/p72b-session-investigation-5c104489-2ff5-40aa-9dec-7feb10a62c13.json` (Git ignored). Three abstract schedules yielded routePresent false/true/false; modeled failed cleanup retained the entry. Mock Windows pipe PASS: childClosed=true, peerClosed=true, listenerClosed=true, remainingOwnedSockets=0. Deliberately terminated child exitCode=null/exitSignal=SIGTERM; this is the observed result, not a normal shutdown claim. No second probe run.
+
+Native Tailscale, Windows token/endpoint verification, daemon publication/cleanup race, real remote transport and production adapter remain NOT RUN/UNVERIFIED. Full previous1579 regression is not new evidence for this investigation; no product source changed. Production remains unavailable and complete P7.2b BLOCKED. Independent Sol High post-run source/evidence review PASS, remaining actionable investigation P1/P2/P3=0; reviewer verified report/source consistency and script SHA256 `9DC8FE99F77E1F625BD9AA130E256A64560B4B90EFC8E8EA9D4F9FB420EA75D0`. Main-thread node syntax check, lint and diff native0; reviewer did not rerun them. No credential/runtime/world directory was read or changed. No full regression/typecheck/build rerun for this standalone built-in Node probe/document-only slice; these are not production-code validation claims.
+
+Next: independently review the recorded results, then select a supported Windows transport identity mechanism and resolve queued-publication/crash cleanup before provider admission. An authenticated ingress slice can be developed independently after its design review; it must remain production-unwired while provider safety is unresolved. Do not weaken the existing Fake atomic contract or use global Serve reset to remove uncertainty.

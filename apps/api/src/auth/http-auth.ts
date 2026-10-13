@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { authStatusResponseSchema, authSessionResponseSchema, authLogoutResponseSchema, authWsTicketResponseSchema, type Mode } from "@mcsm/contracts";
-import { localSessionCookie } from "./cookies.js";
+import { AuthenticationRequestProfiles } from "./request-profiles.js";
+import type { TailscaleIngressBoundary } from "./tailscale-ingress-boundary.js";
 import { WebSocketAuthentication } from "./ws-auth.js";
 import type { Clock } from "../clock.js";
 import { errorResponse, responseMeta, type LocalGuardDenialObserver } from "../infra/http.js";
@@ -9,8 +10,6 @@ import { SessionCore } from "./session-core.js";
 import type { AuthAudit, AuthAuditEvent } from "./audit.js";
 import { DomainError } from "../services/domain-errors.js";
 
-const COOKIE = "mcsm_local_session";
-const COOKIE_FLAGS = "HttpOnly; SameSite=Strict; Path=/";
 const AUTH = "/api/v1/auth/";
 const mutation = (method: string) => !["GET", "HEAD", "OPTIONS"].includes(method);
 export { localSessionCookie } from "./cookies.js";
@@ -24,11 +23,14 @@ const credentials = (body: unknown): { username: string; password: string } | un
 /** Required local HTTP and event streams share one bounded session core. */
 export class HttpAuthentication {
   #verifier: PasswordVerifier; #sessions: SessionCore; #audit: AuthAudit;
+  #profiles = new AuthenticationRequestProfiles();
+  #remoteInstalled = false;
+  #remoteBoundary: TailscaleIngressBoundary | undefined;
   #websocket: WebSocketAuthentication;
   get websocket(): WebSocketAuthentication { return this.#websocket; }
   constructor(verifier: PasswordVerifier, audit: AuthAudit, sessions = new SessionCore()) {
     this.#verifier = verifier; this.#audit = audit; this.#sessions = sessions;
-    this.#websocket = new WebSocketAuthentication(sessions, audit);
+    this.#websocket = new WebSocketAuthentication(sessions, audit, this.#profiles);
   }
   /** Call after every awaited preflight, immediately before sensitive service admission.
    * Existing HTTP Origin/Host/body guards remain required; this grants no transferable permit.
@@ -36,14 +38,14 @@ export class HttpAuthentication {
   assertRecentMutation(request: FastifyRequest): void {
     if (!mutation(request.method)) throw new DomainError(403, "AUTH_MUTATION_REQUIRED", "Sensitive authorization requires a mutation");
     if (!this.#audit.ready()) throw new DomainError(503, "AUTH_AUDIT_UNAVAILABLE", "Authentication audit unavailable");
-    const raw = localSessionCookie(request.headers.cookie);
+    const raw = this.#profiles.cookie(request.raw);
     let recent: boolean;
-    try { recent = this.#sessions.read(raw, "local-http").recentReauthentication; }
+    try { recent = this.#sessions.read(raw, this.#profiles.profile(request.raw)).recentReauthentication; }
     catch { throw new DomainError(401, "AUTH_REQUIRED", "Authentication required"); }
-    try { this.#sessions.validateCsrf(raw, "local-http", request.headers["x-csrf-token"]); }
+    try { this.#sessions.validateCsrf(raw, this.#profiles.profile(request.raw), request.headers["x-csrf-token"]); }
     catch { throw new DomainError(403, "CSRF_REJECTED", "Authentication request denied"); }
     // CSRF validation reads the monotonic clock too; check freshness at final admission.
-    try { recent = this.#sessions.read(raw, "local-http").recentReauthentication; }
+    try { recent = this.#sessions.read(raw, this.#profiles.profile(request.raw)).recentReauthentication; }
     catch { throw new DomainError(401, "AUTH_REQUIRED", "Authentication required"); }
     // Session reads prune other sessions synchronously; revocation can invalidate audit health.
     if (!this.#audit.ready()) throw new DomainError(503, "AUTH_AUDIT_UNAVAILABLE", "Authentication audit unavailable");
@@ -54,7 +56,22 @@ export class HttpAuthentication {
     try { await this.#audit.record({ event: "csrf-denial", requestId }); return this.#audit.ready(); }
     catch { return false; }
   }
-  install(app: FastifyInstance, clock: Clock, mode: Mode): void {
+  /** Construction-only integration; production main has no remote listener wiring. */
+  installRemote(app: FastifyInstance, clock: Clock, mode: Mode, boundary: TailscaleIngressBoundary): void {
+    if (this.#remoteInstalled) throw new Error("REMOTE_INGRESS_ALREADY_INSTALLED");
+    boundary.observeClose(() => this.#sessions.clearProfile("remote-https"));
+    this.#remoteInstalled = true;
+    this.#remoteBoundary = boundary;
+    app.addHook("onRequest", async (request, reply) => {
+      this.#profiles.bindRemote(request.raw, boundary);
+      try { this.#profiles.assert(request.raw); }
+      catch { return reply.code(403).send(errorResponse(request.id, clock, "INGRESS_REJECTED", "Remote ingress unavailable", mode)); }
+    });
+    app.addHook("preClose", async () => { boundary.close(); });
+    this.#install(app, clock, mode, false);
+  }
+  install(app: FastifyInstance, clock: Clock, mode: Mode): void { this.#install(app, clock, mode, true); }
+  #install(app: FastifyInstance, clock: Clock, mode: Mode, ownsLifetime: boolean): void {
     const deny = async (request: FastifyRequest, reply: FastifyReply, status: number, code: string,
       event?: AuthAuditEvent["event"]) => {
       if (event && this.#audit.ready()) {
@@ -63,7 +80,7 @@ export class HttpAuthentication {
       }
       await reply.code(status).send(errorResponse(request.id, clock, code, "Authentication request denied", mode));
     };
-    const session = (request: FastifyRequest, refresh = false) => this.#sessions.read(localSessionCookie(request.headers.cookie), "local-http", refresh);
+    const session = (request: FastifyRequest, refresh = false) => this.#sessions.read(this.#profiles.cookie(request.raw), this.#profiles.profile(request.raw), refresh);
     const response = (request: FastifyRequest, remainingMs: number, csrfToken: string, recentReauthentication: boolean) => ({
       data: { authenticated: true, expiresAt: new Date(clock.now().getTime() + remainingMs).toISOString(), csrfToken, recentReauthentication },
       meta: responseMeta(request.id, clock, mode)
@@ -89,12 +106,12 @@ export class HttpAuthentication {
       }
       if (mutation(request.method)) {
         // The preceding local guard has already checked exact allowed Origin values.
-        if (!request.headers.origin || request.headers["x-manager-intent"] !== "local-ui" ||
+        if (!request.headers.origin || !this.#profiles.originAllowed(request.raw, request.headers.origin) || request.headers["x-manager-intent"] !== "local-ui" ||
           (request.headers["sec-fetch-site"] !== undefined && !["same-origin", "same-site", "none"].includes(String(request.headers["sec-fetch-site"])))) {
           await deny(request, reply, 403, "ORIGIN_REJECTED", "csrf-denial"); return;
         }
         if (!exactLogin) {
-          try { this.#sessions.validateCsrf(localSessionCookie(request.headers.cookie), "local-http", request.headers["x-csrf-token"]); }
+          try { this.#sessions.validateCsrf(this.#profiles.cookie(request.raw), this.#profiles.profile(request.raw), request.headers["x-csrf-token"]); }
           catch { await deny(request, reply, 403, "CSRF_REJECTED", "csrf-denial"); return; }
         }
         if (exactLogin || request.raw.url === AUTH + "reauth" || request.raw.url === AUTH + "logout" || request.raw.url === AUTH + "ws-ticket") {
@@ -109,9 +126,10 @@ export class HttpAuthentication {
         catch { await deny(request, reply, 401, "AUTH_REQUIRED"); }
       }
     });
+    const profiles = this.#profiles;
     const auditReady = () => this.#audit.ready();
     const auditRecord = (event: AuthAuditEvent) => this.#audit.record(event);
-    const validateCsrf = (request: FastifyRequest) => this.#sessions.validateCsrf(localSessionCookie(request.headers.cookie), "local-http", request.headers["x-csrf-token"]);
+    const validateCsrf = (request: FastifyRequest) => this.#sessions.validateCsrf(this.#profiles.cookie(request.raw), this.#profiles.profile(request.raw), request.headers["x-csrf-token"]);
     app.addHook("onRoute", (route) => {
       // WS handlers have a socket/request signature; final admission is verifyClient.
       if (route.websocket === true || route.wsHandler !== undefined) return;
@@ -120,6 +138,8 @@ export class HttpAuthentication {
         const exactStatus = request.method === "GET" && request.raw.url === AUTH + "status";
         const exactLogin = request.method === "POST" && request.raw.url === AUTH + "login";
         if (request.headers.upgrade !== undefined) return deny(request, reply, 403, "AUTH_WS_UNAVAILABLE", "ws-denial");
+        try { profiles.assert(request.raw); }
+        catch { return deny(request, reply, 403, "INGRESS_REJECTED"); }
         if (exactStatus) return handler.call(this, request, reply);
         if (!auditReady()) return deny(request, reply, 503, "AUTH_AUDIT_UNAVAILABLE");
         if (!exactLogin) {
@@ -146,13 +166,20 @@ export class HttpAuthentication {
           }
         }
         if (!auditReady()) return deny(request, reply, 503, "AUTH_AUDIT_UNAVAILABLE");
+        try { profiles.assert(request.raw); }
+        catch { return deny(request, reply, 403, "INGRESS_REJECTED"); }
         return handler.call(this, request, reply);
       };
     });
     // Apply even when the local guard rejects before the auth hook or a handler sets cache headers.
     app.addHook("onSend", async (_request, reply, payload) => { reply.header("Cache-Control", "no-store"); return payload; });
-    app.addHook("preClose", async () => { this.websocket.close(); this.#sessions.clear(); });
-    app.addHook("onClose", async () => { await this.#audit.close(); });
+    if (ownsLifetime) {
+      app.addHook("preClose", async () => {
+        this.#profiles.close(); this.#remoteBoundary?.close();
+        this.websocket.close(); this.#sessions.clear();
+      });
+      app.addHook("onClose", async () => { await this.#audit.close(); });
+    }
     app.get(AUTH + "status", { exposeHeadRoute: false, schema: { response: { 200: authStatusResponseSchema } } }, async () => ({ data: {
       configured: true, authenticationRequired: true, auditReady: this.#audit.ready()
     } }));
@@ -171,23 +198,24 @@ export class HttpAuthentication {
           try {
             session(request); await this.#audit.record({ event: "reauth-success", requestId: request.id });
             if (!this.#audit.ready()) throw new AuthCoreError("AUTH_PRIVATE_UNSAFE");
-            this.#sessions.markReauthenticated(localSessionCookie(request.headers.cookie), "local-http");
+            this.#sessions.markReauthenticated(this.#profiles.cookie(request.raw), this.#profiles.profile(request.raw));
             const view = session(request);
             if (!this.#audit.ready()) throw new AuthCoreError("AUTH_PRIVATE_UNSAFE");
             return response(request, view.remainingMs, view.csrfToken, view.recentReauthentication);
           } catch { await deny(request, reply, this.#audit.ready() ? 401 : 503, this.#audit.ready() ? "AUTH_REQUIRED" : "AUTH_AUDIT_UNAVAILABLE"); return; }
         }
         let created: ReturnType<SessionCore["create"]> | undefined;
+        const createdProfile = this.#profiles.boundary(request.raw) ? "remote-https" : "local-http";
         try {
-          created = this.#sessions.create("local-http", localSessionCookie(request.headers.cookie));
+          created = this.#sessions.create(this.#profiles.profile(request.raw), this.#profiles.cookie(request.raw));
           await this.#audit.record({ event: "login-success", requestId: request.id });
           if (!this.#audit.ready()) throw new AuthCoreError("AUTH_PRIVATE_UNSAFE");
-          const view = this.#sessions.read(created.sessionToken, "local-http");
+          const view = this.#sessions.read(created.sessionToken, this.#profiles.profile(request.raw));
           if (!this.#audit.ready()) throw new AuthCoreError("AUTH_PRIVATE_UNSAFE");
-          reply.header("Set-Cookie", `${COOKIE}=${created.sessionToken}; ${COOKIE_FLAGS}`);
+          reply.header("Set-Cookie", this.#profiles.cookieHeader(request.raw, created.sessionToken));
           return response(request, view.remainingMs, view.csrfToken, view.recentReauthentication);
         } catch (error) {
-          if (created) { try { this.#sessions.revoke(created.sessionToken, "local-http"); } catch { /* Already expired/revoked. */ } }
+          if (created) { try { this.#sessions.revoke(created.sessionToken, createdProfile); } catch { /* Already expired/revoked. */ } }
           await deny(request, reply, error instanceof AuthCoreError && error.code === "AUTH_CAPACITY" ? 429 : 503,
             this.#audit.ready() ? "AUTH_UNAVAILABLE" : "AUTH_AUDIT_UNAVAILABLE");
         }
@@ -211,8 +239,8 @@ export class HttpAuthentication {
       try {
         await this.#audit.record({ event: "ws-ticket", requestId: request.id });
         if (!this.#audit.ready()) throw new AuthCoreError("AUTH_PRIVATE_UNSAFE");
-        this.#sessions.validateCsrf(localSessionCookie(request.headers.cookie), "local-http", request.headers["x-csrf-token"]);
-        const issued = this.#sessions.issueTicket(localSessionCookie(request.headers.cookie), "local-http", body.serverId, request.headers.origin!);
+        this.#sessions.validateCsrf(this.#profiles.cookie(request.raw), this.#profiles.profile(request.raw), request.headers["x-csrf-token"]);
+        const issued = this.#sessions.issueTicket(this.#profiles.cookie(request.raw), this.#profiles.profile(request.raw), body.serverId, request.headers.origin!);
         if (!this.#audit.ready()) throw new AuthCoreError("AUTH_PRIVATE_UNSAFE");
         return { data: { ticket: issued.ticket, expiresAt: new Date(clock.now().getTime() + issued.remainingMs).toISOString() }, meta: responseMeta(request.id, clock, mode) };
       } catch (error) {
@@ -225,9 +253,9 @@ export class HttpAuthentication {
       if (request.raw.url !== AUTH + "logout" || typeof request.body !== "object" || request.body === null || Array.isArray(request.body) || Object.keys(request.body).length) {
         await deny(request, reply, 400, "VALIDATION_ERROR"); return;
       }
-      try { this.#sessions.revoke(localSessionCookie(request.headers.cookie), "local-http"); }
+      try { this.#sessions.revoke(this.#profiles.cookie(request.raw), this.#profiles.profile(request.raw)); }
       catch { await deny(request, reply, 401, "AUTH_REQUIRED"); return; }
-      reply.header("Set-Cookie", `${COOKIE}=; Max-Age=0; ${COOKIE_FLAGS}`);
+      reply.header("Set-Cookie", this.#profiles.cookieHeader(request.raw, "", true));
       try {
         await this.#audit.record({ event: "logout", requestId: request.id });
         if (!this.#audit.ready()) throw new AuthCoreError("AUTH_PRIVATE_UNSAFE");

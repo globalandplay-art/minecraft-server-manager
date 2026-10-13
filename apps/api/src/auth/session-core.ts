@@ -89,6 +89,10 @@ export class SessionCore {
     const { key } = this.#session(raw, profile); this.#remove(key);
   }
   clear(): void { for (const key of this.#sessions.keys()) this.#remove(key); this.#tickets.clear(); }
+  /** Close only the selected ingress's sessions; preserve local administration. */
+  clearProfile(profile: SessionProfile): void {
+    for (const [key, session] of this.#sessions) if (session.profile === profile) this.#remove(key);
+  }
   /** At most eight expirations between admissions; never exposes tokens or identifiers. */
   takeExpiredCount(): number { this.#time(); const count = this.#expired; this.#expired = 0; return count; }
   nextDeadline(): number | undefined {
