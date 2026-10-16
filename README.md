@@ -171,4 +171,6 @@ Phase 1 的范围仅包括：
 - 未知实例、空列表、API 断线、响应格式异常和旧数据状态；
 - 后续功能的阶段占位说明。
 
-真实 Java 进程管理由 Phase 2 本机模式提供；备份 / 世界由 Phase 3 提供。上面的 Mock 与 Phase 1 描述保留其示例模式范围。配置编辑与Addons由Phase4/5提供，Performance和Crash Analysis由Phase6提供；远程访问仍在后续Phase7。正常启动不会下载 Java 或服务端 JAR、接受 EULA；`prepare:local-test --apply` 会按上述说明备份并配置本机 RCON，新建或导入世界等明确授权操作也可能按各自事务契约更新世界选择设置。
+真实 Java 进程管理由 Phase 2 本机模式提供；备份 / 世界由 Phase 3 提供。上面的 Mock 与 Phase 1 描述保留其示例模式范围。配置编辑与Addons由Phase4/5提供，Performance和Crash Analysis由Phase6提供；Phase7远程开发已暂停，入口默认关闭，既有本地认证保留。正常启动不会下载 Java 或服务端 JAR、接受 EULA；`prepare:local-test --apply` 会按上述说明备份并配置本机 RCON，新建或导入世界等明确授权操作也可能按各自事务契约更新世界选择设置。
+
+本地配置改进中，Vanilla 26.3 已提供分组配置和保存前差异查看，白名单页面提供已保存成员的只读清单。成员添加/移除及白名单开关写入尚未开放；保存值与实际运行状态分别显示。支持版本和使用边界见[本地使用指南](docs/USER_GUIDE.md)。

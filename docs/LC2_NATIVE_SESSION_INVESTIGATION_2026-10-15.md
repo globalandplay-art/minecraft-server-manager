@@ -182,3 +182,15 @@ Next bounded design step: independently design an exact-owned broker/target iden
 Actual allowance checkpoint: primary used96%/remaining4%, ordinaryUsageAllowed=true. This is not an exhaustion claim. Save evidence and do not begin a larger unsafe transaction before safe handoff.
 
 Final independent SolHigh inert source/evidence/document review completed: P1/P2/P3=0; frozen2/2 independently matched. Product retention manifest rechecked12/12 unchanged. Active-orphan P2 OPEN/default native Gate BLOCKED/member writes UNWIRED; no feature PASS or whole-project regression claim. Git branch codex/phase-4-players-properties, HEAD ba28a6a44ebac5efee8bbe75b96ddcfc86aa2789,93 working-tree entries; tracked runtime/.manager/test-results files0. No commit/push/PR.
+
+
+## 2026-10-16 superseding limited-retention checkpoint
+
+2026-10-16 LC2 retention exclusion primitive PASS: native1PASS/24.38s/exit0 (ad447e9a-dc31-43a5-ab1d-ad60dc3696ae), frozen8/8 independently matched; source/evidence SolHigh P1/P2/P3=0. Surviving sibling holds exclusion after actual owner death until actual helper0/null close; accepted-before-inspection only, not blocked GetAcl/product transport. Affected11files213PASS/lint/typecheck0. Two new fixture FAIL runs retained and corrections verified. Limited retention P2 closed; maximum history and default native guard/crash remain pending/BLOCKED; member writes UNWIRED/LC2 IN PROGRESS; remote PAUSED. Prior authorized GitHub checkpoint7613cf1 uploaded; this newer slice not committed. See LC2_NATIVE_RETENTION_VALIDATION_2026-10-16.md.
+
+Older OPEN entries remain historical. Only the precisely scoped exclusion invariant is now closed; other Gates are unchanged.
+
+
+## 2026-10-16 capacity checkpoint
+
+2026-10-16 LC2 capacity:2 budget-only PASS; physical guard1000/64chunk/256KiB boundary PASS. Physical combined command workflow hit50s observation deadline(exit1/frozen7), rootlimit NOT RUN after stop. Failed4999pair root retained. Single readonly cold-open PASS25.643s/19999queries/29997targets/publication0/frozen3; old timeout exact stepUNKNOWN, no product fix or timeout increase. Maximum combined resources NOT RUN; default native guard/crash still BLOCKED, member writes UNWIRED/LC2 IN PROGRESS; remote PAUSED. See LC2_CAPACITY_INVESTIGATION_2026-10-16.md.
