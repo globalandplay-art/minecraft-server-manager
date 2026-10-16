@@ -8,7 +8,8 @@ import { createRedactor, isSensitiveKey } from "../infra/runtime/redactor.js";
 import { backupDirectoryIdentity } from "./backup-identity.js";
 import { DomainError } from "./domain-errors.js";
 
-export const PROPERTY_KEYS = ["max-players", "difficulty", "gamemode", "pvp", "online-mode", "view-distance", "simulation-distance", "motd"] as const;
+export const PROPERTY_KEYS = ["max-players", "difficulty", "gamemode", "pvp", "online-mode", "view-distance", "simulation-distance", "motd", "white-list", "enforce-whitelist"] as const;
+export const READ_ONLY_PROPERTY_KEYS: readonly string[] = ["view-distance", "simulation-distance", "white-list", "enforce-whitelist"];
 export type PropertyKey = typeof PROPERTY_KEYS[number];
 export type SafePropertyFields = Record<PropertyKey, string | number | boolean | null>;
 const unsafe = () => new DomainError(409, "PROPERTIES_READ_UNSAFE", "配置无法安全读取，请检查实例文件状态", "properties-identity-or-content-invalid");
@@ -51,7 +52,7 @@ export class PropertiesReader {
           if (key === "motd") safe = Buffer.byteLength(value, "utf8") <= 1024 ? value : null;
           else if (key === "difficulty") safe = ["peaceful", "easy", "normal", "hard"].includes(value) ? value : null;
           else if (key === "gamemode") safe = ["survival", "creative", "adventure", "spectator"].includes(value) ? value : null;
-          else if (key === "pvp" || key === "online-mode") safe = value === "true" ? true : value === "false" ? false : null;
+          else if (key === "pvp" || key === "online-mode" || key === "white-list" || key === "enforce-whitelist") safe = value === "true" ? true : value === "false" ? false : null;
           else if (/^(?:0|[1-9]\d{0,8})$/u.test(value)) {
             const number = Number(value);
             safe = key === "max-players" && (number < 1 || number > 10000) ? null : number;

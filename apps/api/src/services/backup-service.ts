@@ -11,7 +11,7 @@ import type { Clock } from "../clock.js";
 import type { RuntimeOperationContext } from "../infra/runtime-contract.js";
 import { parseProperties, readBoundedRegularFile, SERVER_PROPERTIES_LIMIT } from "../config/properties.js";
 import { DomainError } from "./domain-errors.js";
-import type { OperationService } from "./operation-service.js";
+import type { OperationAdmission, OperationService } from "./operation-service.js";
 import { ServerNotFoundError } from "./server-service.js";
 import type { TransactionJournalStore } from "./transaction-journal.js";
 import { inspectVanillaWorld } from "./world-inventory-service.js";
@@ -177,7 +177,7 @@ export class BackupService {
     return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  async create(serverId: string, body: BackupCreateRequest, idempotencyKey: string, origin: "manual" | "auto" = "manual", additionalPreflight?: () => void | Promise<void>): Promise<Operation> {
+  async create(serverId: string, body: BackupCreateRequest, idempotencyKey: string, origin: "manual" | "auto" = "manual", additionalPreflight?: () => void | Promise<void>, admission?: OperationAdmission): Promise<Operation> {
     const adapter = this.#adapter(serverId);
     return this.operations.requestBackup(serverId, idempotencyKey, JSON.stringify(body) + (origin === "auto" ? "\nauto" : ""),
       async (context) => { await additionalPreflight?.(); await this.#create(context, adapter, body, origin); },
@@ -191,7 +191,7 @@ export class BackupService {
         }
         const state = await adapter.getStatus();
         requireBackupState(state, body.allowStop);
-      });
+      }, "backup", undefined, admission);
   }
 
   /** Create a private addon guard while the caller owns the server operation slot. */

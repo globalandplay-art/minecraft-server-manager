@@ -17,7 +17,7 @@ describe('PropertiesFields', () => {
 
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByText('hard · 只读：版本规则未确认')).toBeInTheDocument();
+    expect(screen.getByText('困难 · 只读：版本规则未确认')).toBeInTheDocument();
     expect(screen.getByText('12 · 只读：版本规则未确认')).toBeInTheDocument();
   });
 
@@ -43,4 +43,24 @@ describe('PropertiesFields', () => {
     expect(screen.getByRole('option', { name: '未提供' })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('未提供')).toBeInTheDocument();
   });
+});
+it('groups settings and keeps the baseline distinct from pending numeric values', () => {
+  render(<PropertiesFields values={{ 'max-players': '32' }} currentValues={{ 'max-players': '20' }} rules={{
+    'max-players': { editable: true, restartRequired: true, reason: null },
+  }} disabled={false} onChange={vi.fn()} />);
+  for (const name of ['游戏玩法', '玩家管理', '性能', '其他设置']) expect(screen.getByRole('region', { name })).toBeInTheDocument();
+  expect(screen.getByRole('spinbutton', { name: '最大玩家数' })).toHaveValue(32);
+  expect(screen.getByText('当前值：20 · 待修改值：32')).toBeInTheDocument();
+});
+it('does not infer whitelist defaults or make unverified switches editable', () => {
+  render(<PropertiesFields values={{ 'white-list': 'false', 'enforce-whitelist': '' }} rules={{}} disabled={false} onChange={vi.fn()} />);
+  expect(screen.getByText('关闭 · 只读：版本规则未确认')).toBeInTheDocument();
+  expect(screen.getByText('启用白名单')).toBeInTheDocument();
+  expect(screen.getByText('强制执行白名单')).toBeInTheDocument();
+  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+});
+it('preserves literal MOTD enum-looking words in baseline and draft', () => {
+  render(<PropertiesFields values={{ motd: 'hard' }} currentValues={{ motd: 'true' }} rules={{}} disabled={false} onChange={vi.fn()} />);
+  expect(screen.getByText('hard · 只读：版本规则未确认')).toBeInTheDocument();
+  expect(screen.getByText('当前值：true · 待修改值：hard')).toBeInTheDocument();
 });

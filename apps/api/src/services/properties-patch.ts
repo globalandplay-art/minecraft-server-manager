@@ -15,7 +15,7 @@ function encode(value: string): string {
 export function patchPropertiesExact(original: string, changes: Readonly<Record<string, string>>): string {
   try {
     const entries = Object.entries(changes);
-    if (entries.some(([key, value]) => !(PROPERTY_KEYS as readonly string[]).includes(key) ||
+    if (entries.some(([key, value]) => !(PROPERTY_KEYS as readonly string[]).includes(key) || ["white-list", "enforce-whitelist"].includes(key) ||
       typeof value !== "string" || Buffer.from(value, "utf8").toString("utf8") !== value || /[\u0000-\u001f\u007f]/u.test(value) || Buffer.byteLength(value, "utf8") > 1024)) throw invalid();
     if (original.includes("\0") || original.startsWith("\ufeff")) throw invalid();
     parseEditableProperties(original); // Malformed escapes are not silently normalized.

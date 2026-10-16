@@ -13,6 +13,7 @@ import { BackupExportService } from "../src/services/backup-export-service.js";
 import { OperationService } from "../src/services/operation-service.js";
 import { MemoryOperationStore } from "../src/services/operation-store.js";
 import { TransactionJournalStore } from "../src/services/transaction-journal.js";
+import { DomainError } from "../src/services/domain-errors.js";
 
 const roots: string[] = [];
 const clock = { now: () => new Date("2026-10-01T00:00:00Z") };
@@ -78,6 +79,16 @@ afterEach(async () => {
 });
 
 describe("secure immutable world-set export", () => {
+  it("rechecks admission after manifest preflight without creating export files or an operation", async () => {
+    const f = await fixture(); const records = await f.store.list(), files = await readdir(f.directory);
+    let valid = true; const source = f.backups.exportSource.bind(f.backups);
+    vi.spyOn(f.backups, "exportSource").mockImplementationOnce(async (...args) => { const result = await source(...args); valid = false; return result; });
+    await expect(f.exports.request(f.adapter.serverId, f.backup.id, randomUUID(), () => {
+      if (!valid) throw new DomainError(401, "AUTH_REQUIRED", "Authentication required"); return undefined;
+    })).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+    expect(await f.store.list()).toEqual(records); expect(await readdir(f.directory)).toEqual(files);
+    expect(f.operations.getServerState(f.adapter.serverId)).toEqual({ activeOperationId: null, recoveryRequired: false });
+  });
   it("exports a readable ZIP without server secrets or live-world changes, and reuses the artifact", async () => {
     const f = await fixture();
     await writeFile(path.join(f.serverRoot, "world", "level.dat"), "live changed");

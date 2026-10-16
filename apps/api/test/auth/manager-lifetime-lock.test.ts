@@ -26,6 +26,12 @@ describe.skipIf(process.platform !== "win32")("native parent-owned Manager lifet
     const lock = await ManagerLifetimeLock.acquire(root);
     try {
       expect(JSON.stringify(lock)).toBe("{}"); lock.assertHeld(root);
+      const activity = lock.beginActivity(root), other = lock.beginActivity(root);
+      try {
+        await expect(lock.release()).rejects.toMatchObject({ code: "AUTH_BUSY" }); lock.assertHeld(root);
+        const publication = lock.beginOfflineMutation(root); publication(); activity(); activity();
+        await expect(lock.release()).rejects.toMatchObject({ code: "AUTH_BUSY" });
+      } finally { activity(); other(); }
       await expect(ManagerLifetimeLock.acquire(root)).rejects.toMatchObject({ code: "AUTH_BUSY" });
       await expect(rename(root, join(parent, "moved"))).rejects.toBeDefined();
       await expect(readFile(join(root, "manager.lifetime.lock"))).rejects.toBeDefined();

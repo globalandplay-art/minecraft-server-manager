@@ -15,6 +15,7 @@ import { ConsolePage } from './pages/Console';
 import { BackupsPage, WorldsPage } from './pages/WorldsBackups';
 import { PlayersPage } from './pages/Players';
 import { PropertiesPage } from './pages/Properties';
+import { WhitelistPage } from './pages/Whitelist';
 import { AddonsPage } from './pages/Addons';
 
 function interval(visibleMs: number, hiddenMs?: number) {
@@ -201,6 +202,7 @@ export function App() {
               : <Servers items={servers} mode={mode ?? 'local'} stale={serversStale} />
         } />
         <Route path="/players" element={invalidSelection ? <InvalidSelection /> : mode === 'local' && healthQuery.data?.data.features.players.implemented ? <PlayersPage key={selectedId} server={selectedServer} /> : phaseRoute('players')} />
+        <Route path="/whitelist" element={invalidSelection ? <InvalidSelection /> : <WhitelistPage key={selectedId} server={selectedServer} />} />
         <Route path="/worlds" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <WorldsPage server={selectedServer} /> : phaseRoute('worlds')} />
         <Route path="/addons" element={invalidSelection ? <InvalidSelection /> : <AddonsPage key={selectedId} server={selectedServer} />} />
         <Route path="/console" element={consoleRoute} />

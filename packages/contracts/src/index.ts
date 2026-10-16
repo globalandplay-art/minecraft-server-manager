@@ -572,7 +572,8 @@ export const operationKindSchema = Type.Union([
   Type.Literal("world-import-recovery"),
   Type.Literal("world-archive"),
   Type.Literal("properties-write"),
-  Type.Literal("addon-change")
+  Type.Literal("addon-change"),
+  Type.Literal("whitelist-change")
 ]);
 export type OperationKind = Static<typeof operationKindSchema>;
 
@@ -640,12 +641,16 @@ export const lifecycleActionResponseSchema = strictObject({
 export type LifecycleActionResponse = Static<typeof lifecycleActionResponseSchema>;
 
 const safePropertyKeys = ["max-players", "difficulty", "gamemode", "pvp", "online-mode", "view-distance", "simulation-distance", "motd"] as const;
+const observedWhitelistKeys = ["white-list", "enforce-whitelist"] as const;
 export const propertiesResponseSchema = strictObject({ data: strictObject({
-  fields: strictObject(Object.fromEntries(safePropertyKeys.map((key) => [key, Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()])]))),
+  fields: strictObject(Object.fromEntries([...safePropertyKeys.map((key) => [key, Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()])]),
+    ...observedWhitelistKeys.map((key) => [key, Type.Optional(Type.Union([Type.Boolean(), Type.Null()]))])])),
   revision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
-  fieldRules: strictObject(Object.fromEntries(safePropertyKeys.map((key) => [key, strictObject({
+  fieldRules: strictObject(Object.fromEntries([...safePropertyKeys.map((key) => [key, strictObject({
     editable: Type.Boolean(), restartRequired: Type.Boolean(), reason: Type.Union([Type.String(), Type.Null()])
-  })])))
+  })]), ...observedWhitelistKeys.map((key) => [key, Type.Optional(strictObject({
+    editable: Type.Literal(false), restartRequired: Type.Literal(true), reason: Type.String()
+  }))])]))
 }), meta: responseMetaSchema });
 export const propertiesWriteRequestSchema = strictObject({
   changes: Type.Object(Object.fromEntries(safePropertyKeys.filter((key) => key !== "view-distance" && key !== "simulation-distance")
@@ -658,6 +663,17 @@ export const propertiesWriteResponseSchema = strictObject({ data: strictObject({
 }), meta: responseMetaSchema });
 export type PropertiesResponse = Static<typeof propertiesResponseSchema>;
 export type PropertiesWriteResponse = Static<typeof propertiesWriteResponseSchema>;
+export const whitelistResponseSchema = strictObject({ data: strictObject({
+  availability: Type.Union([Type.Literal("available"), Type.Literal("unavailable")]),
+  reason: Type.Union([Type.String({ maxLength: 64 }), Type.Null()]),
+  configuredEnabled: Type.Union([Type.Boolean(), Type.Null()]), configuredEnforced: Type.Union([Type.Boolean(), Type.Null()]),
+  effectiveEnabled: Type.Null(),
+  items: Type.Array(strictObject({ name: Type.String({ pattern: "^[A-Za-z0-9_]{3,16}$" }),
+    uuid: Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }) }), { maxItems: 1000 }),
+  source: Type.Union([Type.Literal("whitelist-json"), Type.Null()]), sampledAt: timestampSchema,
+  membershipWritable: Type.Literal(false), writeReason: Type.Literal("MEMBER_RULE_UNAVAILABLE")
+}), meta: responseMetaSchema });
+export type WhitelistResponse = Static<typeof whitelistResponseSchema>;
 
 export const operationResponseSchema = strictObject({
   data: operationSchema,

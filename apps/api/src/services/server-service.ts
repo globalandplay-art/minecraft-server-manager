@@ -19,7 +19,7 @@ import {
 } from "../adapters/contract.js";
 import { AdapterRegistry } from "../adapters/registry.js";
 import { DomainError } from "./domain-errors.js";
-import type { OperationService } from "./operation-service.js";
+import type { OperationAdmission, OperationService } from "./operation-service.js";
 import type { ActiveWorldStateStore } from "./active-world-state-store.js";
 
 const unavailable = (reason: string) => ({ allowed: false as const, reason });
@@ -116,7 +116,8 @@ export class ServerService {
   async requestLifecycle(
     serverId: string,
     kind: "start" | "stop" | "restart",
-    idempotencyKey: string
+    idempotencyKey: string,
+    admission?: OperationAdmission
   ): Promise<Operation> {
     const adapter = this.getLocalAdapter(serverId);
     let noOp = false;
@@ -174,7 +175,8 @@ export class ServerService {
             readiness.reason
           );
         }
-      }
+      },
+      admission
     );
   }
 

@@ -3,7 +3,7 @@ import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { ServerType } from "@mcsm/contracts";
 import { backupDirectoryIdentity } from "./backup-identity.js";
-import { readPrivatePropertiesFile } from "./properties-private-file.js";
+import { readAddonInventoryFile } from "./addon-inventory-file.js";
 import { DomainError } from "./domain-errors.js";
 import { readAddonJarMetadata } from "./addon-jar-metadata.js";
 import { parseFabricAddonMetadata } from "./fabric-addon-metadata.js";
@@ -30,7 +30,7 @@ export function addonOpaqueId(serverId: string, kind: AddonKind, filename: strin
 export class AddonInventory {
   readonly #key = randomBytes(32);
   #busy = false;
-  constructor(readonly readFile = readPrivatePropertiesFile) {}
+  constructor(readonly readFile = readAddonInventoryFile) {}
   async read(serverId: string, registeredRoot: string, type: ServerType, lifecycleAvailable = false) {
     const profile = addonProfile(type);
     if (!profile) throw new DomainError(501, "ADDON_UNSUPPORTED", "此类型尚未支持扩展管理", "addon-profile-unsupported");

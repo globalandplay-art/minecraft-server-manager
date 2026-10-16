@@ -14,7 +14,7 @@ import type { OperationService } from "./operation-service.js";
 import { editablePropertyEntries, parseEditableProperties } from "./properties-grammar.js";
 import { PropertiesGuardStore } from "./properties-guard.js";
 import { patchPropertiesExact } from "./properties-patch.js";
-import { PropertiesReader, PROPERTY_KEYS } from "./properties-reader.js";
+import { PropertiesReader, PROPERTY_KEYS, READ_ONLY_PROPERTY_KEYS } from "./properties-reader.js";
 import { propertiesChecksum, readPrivatePropertiesFile } from "./properties-private-file.js";
 import { establishedPropertiesOutcome, propertiesCheckpointIdentity, verifyCommittedProperties } from "./properties-reconciliation.js";
 import { missingFile, safeRestorePath, syncRestoreDirectory } from "./restore-files.js";
@@ -44,7 +44,7 @@ export class PropertiesWriteService {
   fieldRules(serverId: string) {
     const known = this.local(serverId).plan.serverInfo.minecraftVersion === "26.3";
     return Object.fromEntries(PROPERTY_KEYS.map((key) => {
-      const editable = known && key !== "view-distance" && key !== "simulation-distance";
+      const editable = known && !READ_ONLY_PROPERTY_KEYS.includes(key);
       return [key, { editable, restartRequired: true, reason: editable ? null : "VERSION_RULE_UNAVAILABLE" }];
     }));
   }
@@ -69,7 +69,7 @@ export class PropertiesWriteService {
     const entries = Object.entries(body.changes);
     if (!entries.length || entries.length > 6) throw invalid();
     for (const [name, value] of entries) {
-      if (["view-distance", "simulation-distance"].includes(name)) throw new DomainError(409, "VERSION_RULE_UNAVAILABLE", "距离字段尚无已验证版本规则，当前只读", "version-rule-unavailable");
+      if (READ_ONLY_PROPERTY_KEYS.includes(name)) throw new DomainError(409, "VERSION_RULE_UNAVAILABLE", "此字段尚无已验证写入规则，当前只读", "version-rule-unavailable");
       if (typeof value !== "string" || Buffer.from(value, "utf8").toString("utf8") !== value || /[\u0000-\u001f\u007f]/u.test(value)) throw invalid();
       if (name === "max-players") { if (!/^[1-9]\d{0,4}$/u.test(value) || Number(value) > 10000) throw invalid(); }
       else if (name === "difficulty") { if (!["peaceful", "easy", "normal", "hard"].includes(value)) throw invalid(); }

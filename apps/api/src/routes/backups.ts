@@ -11,6 +11,7 @@ import {
   type ServerParams
 } from "@mcsm/contracts";
 import type { FastifyInstance } from "fastify";
+import type { HttpAuthentication } from "../auth/http-auth.js";
 
 import type { Clock } from "../clock.js";
 import { installWriteRequestGuard, responseMeta } from "../infra/http.js";
@@ -26,7 +27,8 @@ function idempotencyKey(value: string | string[] | undefined): string {
   return value.toLowerCase();
 }
 
-export function registerBackupRoutes(app: FastifyInstance, service: BackupService, clock: Clock, mode: Mode, exports?: BackupExportService): void {
+export function registerBackupRoutes(app: FastifyInstance, service: BackupService, clock: Clock, mode: Mode, exports: BackupExportService | undefined,
+  authentication: Pick<HttpAuthentication, "assertMutation"> | undefined): void {
   const writeGuard = installWriteRequestGuard(clock, mode);
   const exportErrors = { 400: apiErrorResponseSchema, 403: apiErrorResponseSchema, 404: apiErrorResponseSchema, 413: apiErrorResponseSchema,
     409: apiErrorResponseSchema, 428: apiErrorResponseSchema, 500: apiErrorResponseSchema, 501: apiErrorResponseSchema, 507: apiErrorResponseSchema };
@@ -41,7 +43,8 @@ export function registerBackupRoutes(app: FastifyInstance, service: BackupServic
       schema: { params: backupParamsSchema, body: { type: "object", properties: {}, additionalProperties: false },
         response: { 202: lifecycleActionResponseSchema, ...exportErrors } }
     }, async (request, reply) => {
-      const operation = await exports.request(request.params.serverId, request.params.backupId, idempotencyKey(request.headers["idempotency-key"]));
+      const operation = await exports.request(request.params.serverId, request.params.backupId, idempotencyKey(request.headers["idempotency-key"]),
+        authentication ? () => { authentication.assertMutation(request); return undefined; } : undefined);
       return reply.code(202).send({ data: { operation }, meta: responseMeta(request.id, clock, mode) });
     });
     app.get<{ Params: BackupParams }>("/api/v1/servers/:serverId/backups/:backupId/exports", {
@@ -100,7 +103,8 @@ export function registerBackupRoutes(app: FastifyInstance, service: BackupServic
     const operation = await service.create(
       request.params.serverId,
       request.body,
-      idempotencyKey(request.headers["idempotency-key"])
+      idempotencyKey(request.headers["idempotency-key"]), "manual", undefined,
+      authentication ? () => { authentication.assertMutation(request); return undefined; } : undefined
     );
     return reply.code(202).send({
       data: { operation },

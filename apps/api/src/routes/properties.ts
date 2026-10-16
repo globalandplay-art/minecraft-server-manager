@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { Clock } from "../clock.js";
 import { installWriteRequestGuard, responseMeta } from "../infra/http.js";
 import { DomainError } from "../services/domain-errors.js";
-import { PROPERTY_KEYS } from "../services/properties-reader.js";
+import { PROPERTY_KEYS, READ_ONLY_PROPERTY_KEYS } from "../services/properties-reader.js";
 import type { PropertiesWriteService } from "../services/properties-write-service.js";
 
 export function registerPropertiesRoutes(app: FastifyInstance, service: PropertiesWriteService | undefined, clock: Clock, mode: Mode): void {
@@ -28,7 +28,7 @@ export function registerPropertiesRoutes(app: FastifyInstance, service: Properti
         Object.keys(body).some((key) => !["changes", "confirmOfflineIdentity"].includes(key)) || typeof body.confirmOfflineIdentity !== "boolean" ||
         !body.changes || typeof body.changes !== "object" || Array.isArray(body.changes) ||
         Object.entries(body.changes).some(([key, value]) => !PROPERTY_KEYS.includes(key as typeof PROPERTY_KEYS[number]) ||
-          key === "view-distance" || key === "simulation-distance" || typeof value !== "string")) {
+          READ_ONLY_PROPERTY_KEYS.includes(key) || typeof value !== "string")) {
         throw new DomainError(400, "VALIDATION_ERROR", "配置修改不接受路径、密码或未知字段", "invalid-properties-request");
       }
     },

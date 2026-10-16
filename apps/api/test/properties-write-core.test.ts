@@ -59,6 +59,12 @@ it("commits exact non-target bytes with immutable old slot and verified pinned g
   await expect(verifyCommittedProperties(f.manager, f.journal, record, f.server, false)).resolves.toBeUndefined();
   expect(await readFile(path.join(f.server, record.intent.propertiesWrite!.workspaceName, "old.properties"), "utf8")).toBe(f.original);
 });
+it.each(['white-list', 'enforce-whitelist', 'view-distance', 'simulation-distance'])("keeps unverified %s writes closed with zero journal intent", async (field) => {
+  const f = await fixture();
+  expect(f.service.fieldRules(f.id)[field]?.editable).toBe(false);
+  await expect(f.service.save(f.id, { ...f.request, changes: { [field]: 'true' } }, randomUUID())).rejects.toMatchObject({ code: 'VERSION_RULE_UNAVAILABLE' });
+  expect((await f.journal.scan()).records).toEqual([]); expect(await readFile(path.join(f.server, 'server.properties'), 'utf8')).toBe(f.original);
+});
 
 it.each(["properties-intent-created", "properties-guard-complete", "properties-workspace-intent",
   "properties-workspace-verified", "properties-prepare-intent", "properties-prepared-verified",
@@ -205,6 +211,16 @@ it("app startup physically reconciles properties before OperationService reconst
     expect(noIntent.statusCode).toBe(403);
     const forbidden = await app.inject({ method: "PATCH", url, headers, payload: { ...payload, changes: { "rcon.password": "private" } } });
     expect(forbidden.statusCode).toBe(400);
+    for (const key of ['white-list', 'enforce-whitelist']) {
+      for (const changes of [{ [key]: 'true' }, { pvp: 'true', [key]: 'true' }]) {
+        const beforeRecords = await store.list(), beforeJournal = (await f.journal.scan()).records;
+        const beforeBytes = await readFile(path.join(f.server, 'server.properties'));
+        const denied = await app.inject({ method: 'PATCH', url, headers, payload: { ...payload, changes } });
+        expect(denied.statusCode).toBe(400); expect(await store.list()).toEqual(beforeRecords);
+        expect((await f.journal.scan()).records).toEqual(beforeJournal);
+        expect(await readFile(path.join(f.server, 'server.properties'))).toEqual(beforeBytes);
+      }
+    }
     const missing = await app.inject({ method: "PATCH", url, headers: { ...headers, "if-match": "*" }, payload });
     expect(missing.statusCode).toBe(428);
     const unsafe = await app.inject({ method: "PATCH", url, headers, payload: { ...payload, root: "outside" } });

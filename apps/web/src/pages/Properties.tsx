@@ -89,12 +89,13 @@ export function PropertiesPage({ server }: { server?: ServersResponse['data']['i
   }
   return <div className="page-stack properties-page">
     <PageHeading eyebrow="SERVER CONFIGURATION" title="Server Properties" description="只编辑允许字段；保存前保护备份，保存后由你明确启动或重启。" />
-    <p>本地 API：127.0.0.1:8080。当前没有远程登录入口。</p>
+    <p>配置仅在已确认停止时保存；本页不会自动停止、启动或重启服务器。未验证的字段保持只读。</p>
+    {id ? <a className="button button--secondary" href={`/whitelist?server=${encodeURIComponent(id)}`}>查看白名单成员</a> : null}
     {!server ? <EmptyState title="请选择服务器" description="选择实例后查看配置。" /> : !server.capabilities.properties ?
       <EmptyState title="此实例未开放配置管理" description="由后端能力决定可用功能。" /> : query.isPending && !baseline ? <p role="status">正在读取配置…</p> :
       !baseline ? <ErrorState description={errorMessage(query.error)} retry={() => void refresh()} /> : <>
         {!ready ? <p role="status">需要已确认停止、无其他操作且没有恢复锁的实例才能保存。请在 Servers 操作后刷新状态。</p> : null}
-        <PropertiesFields values={values} rules={baseline.fieldRules} disabled={frozen} onChange={(key, value) => {
+        <PropertiesFields values={values} currentValues={baseValues} rules={baseline.fieldRules} disabled={frozen} onChange={(key, value) => {
           setEdits((old) => {
             const next = { ...old };
             if (value === baseValues[key]) delete next[key]; else next[key] = value;
@@ -102,7 +103,7 @@ export function PropertiesPage({ server }: { server?: ServersResponse['data']['i
           }); setConfirm(false); setOffline(false); setMessage('');
         }} />
         {Object.keys(changes).length ? <section className="settings-panel" aria-label="配置变更确认">
-          <h2>待保存变更</h2><ul>{Object.entries(changes).map(([key, value]) => <li key={key}>{key}：{baseValues[key] || '未提供'} → {value || '空值'}（需要重启）</li>)}</ul>
+          <h2>待保存变更</h2><ul>{Object.entries(changes).map(([key, value]) => <li key={key}>{key}：{baseValues[key] || '未提供'} → {value || '空值'}（{baseline.fieldRules[key]?.restartRequired ? '需要重启' : '无需重启'}）</li>)}</ul>
           {changes['online-mode'] === 'false' ? <label><input type="checkbox" disabled={frozen} checked={offline} onChange={(e) => setOffline(e.target.checked)} />我确认关闭在线验证会影响玩家身份验证，接受此设置风险。</label> : null}
           <label><input type="checkbox" disabled={frozen} checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />确认以上变更，创建保护备份后保存；不自动启动或重启。</label>
         </section> : null}

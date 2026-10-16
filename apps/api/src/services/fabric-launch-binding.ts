@@ -3,7 +3,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import yauzl from "yauzl";
 import { backupDirectoryIdentity } from "./backup-identity.js";
-import { readPrivatePropertiesFile } from "./properties-private-file.js";
+import { readFabricBindingFile } from "./fabric-binding-file.js";
 
 function mainAttributesEnd(text: string, complete = false): number | null {
   let lineStart = 0;
@@ -82,11 +82,11 @@ export async function captureFabricLaunchBinding(root: string, launcherPath: str
     if (!/^[a-zA-Z0-9_+.\/-]+\.jar$/u.test(relative) || relative.split("/").some((part) => part === ".." || part === "")) throw new Error("unsafe-fabric-dependency");
     const parts = relative.split("/");
     for (let n = 1; n < parts.length; n++) await directory(parts.slice(0, n).join("/"));
-    const value = await readPrivatePropertiesFile(path.join(root, relative), 64 * 1024 ** 2);
+    const value = await readFabricBindingFile(path.join(root, relative), 64 * 1024 ** 2);
     files.push({ relative, identity: value.identity, sha256: value.checksum }); return value.bytes;
   }
   await directory("");
-  const launcher = await readPrivatePropertiesFile(launcherPath, 64 * 1024 ** 2);
+  const launcher = await readFabricBindingFile(launcherPath, 64 * 1024 ** 2);
   const metadata = await launchMetadata(launcher.bytes, ["META-INF/MANIFEST.MF", "install.properties", "fabric-server-launch.properties"]);
   if (metadata.has("fabric-server-launch.properties")) throw new Error("fabric-launch-resource-override");
   if (manifestField(metadata.get("META-INF/MANIFEST.MF") ?? "", "Main-Class") !== "net.fabricmc.installer.ServerLauncher") throw new Error("unsupported-fabric-launcher");
@@ -123,10 +123,10 @@ export async function captureFabricLaunchBinding(root: string, launcherPath: str
   }
   for (const [relative, identity] of directories) if (await backupDirectoryIdentity(path.join(root, relative)) !== identity) throw new Error("fabric-directory-changed");
   for (const saved of files) {
-    const current = await readPrivatePropertiesFile(path.join(root, saved.relative), 64 * 1024 ** 2);
+    const current = await readFabricBindingFile(path.join(root, saved.relative), 64 * 1024 ** 2);
     if (current.identity !== saved.identity || current.checksum !== saved.sha256) throw new Error("fabric-dependency-changed");
   }
-  const currentLauncher = await readPrivatePropertiesFile(launcherPath, 64 * 1024 ** 2);
+  const currentLauncher = await readFabricBindingFile(launcherPath, 64 * 1024 ** 2);
   if (launcher.identity !== currentLauncher.identity || launcher.checksum !== currentLauncher.checksum) throw new Error("fabric-launcher-changed");
   if (JSON.stringify((await readdir(path.join(root, "versions"))).sort()) !== JSON.stringify([version])) throw new Error("ambiguous-fabric-versions");
   const identitySha256 = createHash("sha256").update(JSON.stringify({ directories: [...directories], files })).digest("hex");

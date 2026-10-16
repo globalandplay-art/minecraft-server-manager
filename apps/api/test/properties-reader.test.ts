@@ -11,6 +11,12 @@ async function fixture(text = "max-players=20\npvp=true\nonline-mode=true\nview-
 }
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 describe("properties descriptor identity and private revision core", () => {
+  it.each([['true', true], ['false', false], ['invalid', null]] as const)("reads whitelist toggles without inferring missing values: %s", async (raw, expected) => {
+    const f = await fixture(`white-list=${raw}\nenforce-whitelist=${raw}\n`);
+    const result = await new PropertiesReader().read("test", f.root);
+    expect(result.fields['white-list']).toBe(expected); expect(result.fields['enforce-whitelist']).toBe(expected);
+    expect(await readFile(f.file, 'utf8')).toBe(f.text);
+  });
   it("retains overridden sensitive values for redaction while safe fields remain last-wins", async () => {
     const f = await fixture("rcon.password=OLD-PRIVATE\nrcon.password=NEW-PRIVATE\npvp=false\npvp=true\nmotd=hello OLD-PRIVATE\n");
     const result = await new PropertiesReader().read("test", f.root);
@@ -26,7 +32,7 @@ describe("properties descriptor identity and private revision core", () => {
   it("exposes only safe whitelist fields and leaves the complete file unchanged", async () => {
     const f = await fixture(); const result = await new PropertiesReader().read("test", f.root);
     expect(result.fields).toMatchObject({ "max-players": 20, pvp: true, difficulty: "normal", motd: "Hello" });
-    expect(Object.keys(result.fields)).toHaveLength(8); expect(JSON.stringify(result)).not.toContain("private-fixture");
+    expect(Object.keys(result.fields).sort()).toEqual(["max-players", "difficulty", "gamemode", "pvp", "online-mode", "view-distance", "simulation-distance", "motd", "white-list", "enforce-whitelist"].sort()); expect(JSON.stringify(result)).not.toContain("private-fixture");
     expect(await readFile(f.file, "utf8")).toBe(f.text);
   });
   it("uses keyed root/server/content revisions, invalidating on reader restart", async () => {

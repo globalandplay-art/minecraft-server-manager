@@ -1,0 +1,64 @@
+2026-10-15 LC2 inert broker feasibility: pure10PASS/lint/syntax0, one native INERT_BRIDGE_LAUNCH_ONLY PASS2603ms/exit0; actual broker+target close, target exit37/silent, frozen2/2, readonly inventory empty. Source-review P2/P3 fixed before run, delta0; final independent evidence review P1/P2/P3=0. Not active-orphan/realACL/maximum-history proof. Default native Gate BLOCKED/member writes UNWIRED/LC2 IN PROGRESS; remote PAUSED; no Git or real-server action. See LC2_NATIVE_SESSION_INVESTIGATION_2026-10-15.md.
+
+# Local configuration and monitoring
+
+2026-10-15 latest LC2 checkpoint: readonly supported subset remains PASS; controlled member writes remain UNWIRED/IN PROGRESS. Native reuse/healthy rotation and exact-owner retention candidates verified by192 affected tests and separate normal/default-active-parent/idle-handoff native passes. Independent Sol High source/evidence no new sourceP1/P2; active surviving-orphan P2 and original default guard/crash Gate remain BLOCKED, maximum physical history capacity NOT RUN. Failed detached WinPS experimental prerequisite retained, not bypassed; no new whole-project regression or LC2 feature PASS. Detailed evidence/issue history: LC2_NATIVE_SESSION_INVESTIGATION_2026-10-15.md. LM1/LM2 NOT STARTED, remote PAUSED, no real server/world/network/system/Git publication. Older checkpoints below are historical.
+
+2026-10-14 latest LC2 storage candidate: no-TTL private command history with independent checkpoint witnesses implemented UNWIRED;70 focused PASS, independent Sol High delta P1/P2/P3=0; frozen375/375 full1782 PASS, check exit0, lint/typecheck/build/diff PASS; final independent Sol High evidence P1/P2/P3=0,375/375 independently matched; UNWIRED Fake storage foundation Gate PASS only. See LC2_COMMAND_STORAGE_VALIDATION_2026-10-14.md. Entire LC2 remains IN PROGRESS; member dispatch/guard/Operation/RCON integration and Native E2E NOT RUN. Remote PAUSED, LM1/LM2 NOT STARTED.
+
+2026-10-14 current LC2: readonly Gate ENGINEERING PASS (1728 prior full + three-width browser). New unwired member request/revision/set-consistency policy and reviewed integration plan completed;43 focused and fresh full1755 PASS,372/372 frozen unchanged, lint/typecheck/build/diff PASS. Final independent Sol High evidence signoff P1/P2/P3=0; unwired policy Gate ENGINEERING PASS only. Add/remove dispatch, private receipts and generation-bound RCON integration remain unimplemented; LC2 whole IN PROGRESS. See LC2_MEMBER_IMPLEMENTATION_PLAN_2026-10-14.md. Remote PAUSED; LM1/LM2 NOT STARTED. Earlier candidate/status entries below are historical checkpoints.
+
+2026-10-14 LC2 readonly candidate: per-server stored whitelist JSON/API/page implemented with registered root and bounded exact descriptor checks, fixed unavailable, saved-config/runtime distinction, no RCON/member writes. API affected72/Web21 and contracts1 PASS; independent source/delta P1/P2/P3=0, browser360/768/1440 PASS with zero member mutations and cleanupack. Fresh frozen regression running; LC2 overall IN PROGRESS, member implementation plan pending, LM1/LM2 NOT STARTED, Remote PAUSED. See LC2_WHITELIST_PLAN_2026-10-14.md. No real server/world/network/system/Git actions.
+
+Phase7 remote development PAUSED by user on2026-10-14, not PASS. Preserve authentication and all prior uncommitted candidates/evidence. No Tailscale/Cloudflare/native/Serve/deployment research or real network operation in this workstream. Default remote access stays closed.
+
+## Order
+
+LC1 Properties reuse and grouped UI -> LC2 whitelist read-only/design then controlled members -> LM1 existing monitoring UI/history -> LM2 trustworthy TPS/MSPT and alerts. Do not implement them concurrently. Each slice needs focused checks and independent Sol High review. Major integration requires a fresh frozen regression; real Minecraft verification requires separate authorization.
+
+## LC1 reuse and implemented scope
+
+Existing PropertiesReader, PropertiesWriteService, PropertiesPage/Fields, private revision/file checks, pinned original-byte guard, durable transaction journal, idempotency, interrupted recovery and explicit lifecycle remain the foundation. No new configuration writer or transaction semantics.
+
+Group gameplay, player management, performance and other settings. Numeric max players uses bounded numeric control; existing boolean and enum dropdowns retain unknown blank values. Display current baseline separately from draft and confirmation diff, using backend restart rules; literal MOTD is never translated as an enum. Every actual save still requires stopped/owned-none/no recovery and revision validation, and never starts/stops/restarts Minecraft.
+
+| Server/version | Existing six writable fields | white-list / enforce-whitelist | view-distance / simulation-distance |
+| --- | --- | --- | --- |
+| Vanilla26.3 | max-players, difficulty, gamemode, pvp, online-mode, motd; explicit restart | observed boolean/null only; writes unavailable until verified | existing read-only rules retained |
+| Other Vanilla versions | read-only, version rule unavailable | observed only where existing capability permits page | read-only |
+| Paper / Fabric | existing configuration service unavailable; no expansion | unavailable | unavailable |
+
+Whitelist switches are not membership records. No whitelist.json edits, invented UUIDs or RCON commands were added. LC2 will define independent member identity/confirmation and live command semantics. New read-only response fields are optional for backward compatibility; write contract remains six allowed fields. API rejects whole mixed read-only/allowed requests before AJV strips fields. Service and patch layers also reject whitelist writes. Sensitive online-mode confirmation remains unchanged.
+
+## Validation checkpoint
+
+Affected API115 PASS; Web24 PASS; initial contracts13 PASS, then added3 contract negative/backward-compatibility cases for final frozen check. Lint/typecheck/build/diff passed before new contract-only tests. Build chunk warning539.70kB retained.
+
+Browser final run `lc1-browser-cafaa98a-433c-480e-873f-a085336d66fc`:360/768/1440 synthetic authenticated HTTP/Chrome flows PASS, secrets excluded, no overflow; fixture acknowledged successful app close and removal, exit0/signalnull, owned children closed and HTTP ports free. No Java or real user world access.
+
+Independent Sol High source/delta/final evidence review P1/P2/P3=0. Final frozen regression `lc1-final-c32ffe36-03a2-471b-b95f-a77cb179d7ec`: exit0, Contracts16/API1525/Web166=1707 PASS; lint/typecheck/build/diff PASS,361/361 source/config hashes unchanged, original concurrency and deadlines unchanged. LC1 supported subset ENGINEERING PASS within the capability matrix; real Minecraft NOT RUN. Current full run includes retained earlier work, not a claim those historical roots are resolved. Raw check.log/result/frozen manifest and browser report remain in ignored test-results; earlier focused output was captured by session tool results, not a separate raw file.
+
+## Issue ledger
+
+- LC1-HTTP-READONLY/P2: mixed whitelist field could be stripped by AJV before safe write, fixedAttempt1 by rejecting all read-only keys in preValidation. Actual HTTP single/mixed negatives verify unchanged file/journal/store. Resolved.
+- LC1-MOTD-DISPLAY/P2: enum translation accidentally applied to text, fixedAttempt1 by field-kind-aware display; literal hard/true test. Resolved.
+- LC1-BROWSER-CLEANUP/P2: old fixture finally removed root even if close failed; child close did not prove cleanup. FixedAttempt1 in new owned IPC fixture, successful ack plus exit0 required. Source review and positive browser run confirm.
+- LC1-TS-READONLY/LOW: TS2542 in existing test response mutation, fixedAttempt1 using immutable fixture copy; strictness untouched. Typecheck passed.
+- LC1-BROWSER-AUTH/LOW: old anonymous fixture could not enter current authenticated UI; locator absent after unchanged5000ms, exit1. New isolated synthetic real auth fixture/login addedAttempt1. Historical browser result retained.
+- LC1-BROWSER-READINESS/LOW: protected health endpoint unavailable before login; fixedAttempt1 using public auth status solely for readiness. No authentication bypass or timeout change; successful browser run retained.
+
+Earlier P7/native/Fabric failures and partial candidates remain preserved, remote work PAUSED. No commit/push/PR, no original worlds, real server, system permission or network changes. LC2/LM1/LM2 remain NOT STARTED.
+
+## Later Synthetic integration checkpoint
+
+2026-10-14 LC2 Synthetic integration candidate: exact-byte guard/common OperationService/no-TTL/recovery/Fake causal evidence and owner activity implemented UNWIRED. Focused94 PASS; shared affected71 PASS; earlier native owner component3 PASS. Sol High owner P2 fixedAttempt1 and delta0; final frozen check/evidence review pending. No real RCON/API/UI mutation wiring; native store E2E/fresh-process crash/real Minecraft NOT RUN. WholeLC2 IN PROGRESS, remote PAUSED. See LC2_SYNTHETIC_INTEGRATION_2026-10-14.md. No Git publication.
+Earlier entries describe their historical slice and remain unchanged. Native/private-store E2E, fresh-process whitelist transaction crash and production/real RCON proof remain pending; Synthetic receipts are not ordinary RCON capabilities.
+
+## Synthetic integration final evidence
+
+2026-10-14 LC2 UNWIRED SYNTHETIC INTEGRATION PASS: exact-byte pinned guard/common OperationService/no-TTL replay/proof-based recovery/Fake causal archived evidence and shared owner activity completed. Focused94/shared affected71 PASS; native owner component3 PASS (not native new-store E2E). New frozen379/379 full exit0 Contracts17/API1619/Web170=1806 PASS; lint/typecheck/build/diff PASS; independent Sol High source/delta/final evidence P1/P2/P3=0,379/379 independently matched. Evidence prefix lc2-synthetic-final-a15278ef-338b-4dbf-9d80-4d4363c17b9b. WholeLC2 IN PROGRESS: native new-store E2E/fresh-process crash/realRCON/API/UI member mutation remain NOT RUN or unwired. Remote PAUSED; LM1/LM2 NOT STARTED. See LC2_SYNTHETIC_INTEGRATION_2026-10-14.md. No real server/world/network/system or Git publication.
+Historical pending entries above are superseded only for this limited Synthetic Gate. Whole LC2 and native/real-runtime gates are not marked PASS.
+
+## 2026-10-15 native investigation continuation
+
+Test-only guard reuse mechanism1PASS/38.23s with23actual queries/63targets; dedicated UNWIRED scope64focused+78affected PASS and real native scope1PASS/20.20s. Lint/typecheck/build/diff PASS, current source/evidence independentSolHigh0 findings. Longscan rotation and active-query parent-death/restart remain2designP2 prerequisites; defaultstore native Gate BLOCKED, wholeLC2 IN PROGRESS, no new full regression baseline. LM1/LM2 NOT STARTED, remote PAUSED. Underlying fix-count limit removed byuser; safety gates unchanged. See LC2_NATIVE_SESSION_INVESTIGATION_2026-10-15.md and LC2_SCOPED_ACL_IMPLEMENTATION_PLAN_2026-10-15.md. No real server/world/network/system/Git changes.

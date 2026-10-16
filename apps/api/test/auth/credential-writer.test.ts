@@ -33,8 +33,13 @@ describe.skipIf(process.platform !== "win32")("native offline credential publica
     expect(await readFile(join(root, "auth", `credential.backup.${initial.revision}.json`))).toEqual(before);
     expect((await reader.read()).revision).toBe(reset.revision);
     const acl = new WindowsPrivateAclVerifier();
-    for (const file of await readdir(join(root, "auth"))) expect(await acl.verify(join(root, "auth", file))).toMatch(/^[0-9a-f]{64}$/u);
-    expect(await acl.verify(join(root, "auth"))).toMatch(/^[0-9a-f]{64}$/u);
+    const targets = [...(await readdir(join(root, "auth"))).map((file) => join(root, "auth", file)), join(root, "auth")];
+    for (let offset = 0; offset < targets.length; offset += 8) {
+      const batch = targets.slice(offset, offset + 8);
+      const snapshots = await acl.verifyMany(batch);
+      expect(snapshots).toHaveLength(batch.length);
+      for (const snapshot of snapshots) expect(snapshot).toMatch(/^[0-9a-f]{64}$/u);
+    }
     // Actual native broad Allow on a fresh synthetic fixture must fail despite a protected DACL.
     const file = join(root, "auth", "credential.json");
     await addEveryoneReadForTest(file);

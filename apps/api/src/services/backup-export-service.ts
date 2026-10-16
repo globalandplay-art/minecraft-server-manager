@@ -7,7 +7,7 @@ import type { BackupExportResponse, Operation } from "@mcsm/contracts";
 import type { RuntimeOperationContext } from "../infra/runtime-contract.js";
 import type { BackupManifest, BackupService } from "./backup-service.js";
 import { DomainError } from "./domain-errors.js";
-import type { OperationService } from "./operation-service.js";
+import type { OperationAdmission, OperationService } from "./operation-service.js";
 
 // A deliberately bounded, stored ZIP profile: no ZIP64, encryption or nested archives.
 const MAX_BYTES = 2 * 1024 ** 3;
@@ -226,7 +226,7 @@ async function verifyArchive(handle: FileHandle, manifest: BackupManifest, artif
 export class BackupExportService {
   constructor(private readonly backups: BackupService, private readonly operations: OperationService) {}
 
-  async request(serverId: string, backupId: string, key: string): Promise<Operation> {
+  async request(serverId: string, backupId: string, key: string, admission?: OperationAdmission): Promise<Operation> {
     if (!UUID.test(backupId)) throw blocked("invalid-backup-id");
     return this.operations.requestBackup(serverId, key, JSON.stringify({ backupId }),
       async (context) => {
@@ -235,7 +235,7 @@ export class BackupExportService {
           if (error instanceof DomainError) throw error;
           throw new DomainError(409, "EXPORT_FAILED", "导出未完成，可检查备份后重试。", "export-io-failure");
         }
-      }, async () => { validateManifest((await this.backups.exportSource(serverId, backupId)).manifest); }, "backup-export");
+      }, async () => { validateManifest((await this.backups.exportSource(serverId, backupId)).manifest); }, "backup-export", undefined, admission);
   }
 
   async status(serverId: string, backupId: string): Promise<ExportStatus> {

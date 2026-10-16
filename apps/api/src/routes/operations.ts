@@ -26,6 +26,7 @@ import type { Clock } from "../clock.js";
 import { installWriteRequestGuard, responseMeta } from "../infra/http.js";
 import { DomainError } from "../services/domain-errors.js";
 import type { ServerService } from "../services/server-service.js";
+import type { HttpAuthentication } from "../auth/http-auth.js";
 
 const errorResponses = {
   400: apiErrorResponseSchema,
@@ -61,7 +62,8 @@ export function registerOperationRoutes(
   app: FastifyInstance,
   service: ServerService,
   clock: Clock,
-  mode: Mode
+  mode: Mode,
+  authentication: Pick<HttpAuthentication, "assertMutation"> | undefined
 ): void {
   const writeGuard = installWriteRequestGuard(clock, mode);
 
@@ -84,7 +86,8 @@ export function registerOperationRoutes(
         const operation = await service.requestLifecycle(
           request.params.serverId,
           kind,
-          requireIdempotencyKey(request.headers["idempotency-key"])
+          requireIdempotencyKey(request.headers["idempotency-key"]),
+          authentication ? () => { authentication.assertMutation(request); return undefined; } : undefined
         );
         return reply.code(202).send({
           data: { operation },

@@ -36,6 +36,8 @@ import { registerWorldCreatePlanRoutes } from "./routes/world-create-plans.js";
 import { WorldCreatePlanService } from "./services/world-create-plan-service.js";
 import { WorldCreateService } from "./services/world-create-service.js";
 import { registerBackupRoutes } from "./routes/backups.js";
+import { registerWhitelistRoutes } from "./routes/whitelist.js";
+import { WhitelistService } from "./services/whitelist-service.js";
 import { DomainError } from "./services/domain-errors.js";
 import { EventStreamService } from "./services/event-stream-service.js";
 import { OperationService } from "./services/operation-service.js";
@@ -142,6 +144,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.addHook("onRequest", installLocalRequestGuard(clock, mode,
     options.authentication?.observeLocalGuardDenial.bind(options.authentication)));
   options.authentication?.install(app, clock, mode);
+  registerWhitelistRoutes(app, new WhitelistService(registry, operations, clock), clock, mode);
   if (!options.authentication) app.get("/api/v1/auth/status", {
     exposeHeadRoute: false, schema: { response: { 200: authStatusResponseSchema, 400: apiErrorResponseSchema } }
   }, async (request, reply) => {
@@ -186,7 +189,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerServerRoutes(app, service, clock, mode);
   registerPerformanceRoutes(app, new PerformanceService(registry, clock), clock, mode);
   registerCrashAnalysisRoutes(app, new CrashAnalysisService(registry, clock), clock, mode);
-  registerOperationRoutes(app, service, clock, mode);
+  registerOperationRoutes(app, service, clock, mode, options.authentication);
   registerWorldRoutes(app, worlds, clock, mode);
   if (options.transactionJournal !== undefined && options.managerRoot !== undefined) {
     const uploads = new WorldImportUploadService(registry, operations, options.managerRoot,undefined,options.transactionJournal,clock,options.importAutomaticCleanup ?? false);
@@ -232,7 +235,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       backups,
       clock,
       mode,
-      new BackupExportService(backups, operations)
+      new BackupExportService(backups, operations),
+      options.authentication
     );
   }
   registerPropertiesRoutes(app, properties, clock, mode);

@@ -11,6 +11,7 @@ import { TransactionJournalStore } from "../src/services/transaction-journal.js"
 import { BackupService } from "../src/services/backup-service.js";
 import { OperationService } from "../src/services/operation-service.js";
 import { MemoryOperationStore } from "../src/services/operation-store.js";
+import { DomainError } from "../src/services/domain-errors.js";
 
 const roots: string[] = [];
 const now = new Date("2026-09-30T00:00:00.000Z");
@@ -72,6 +73,18 @@ async function waitForCompletion(operations: OperationService, id: string) {
 }
 
 describe("BackupService manual snapshots", () => {
+  it("rechecks request admission after status preflight without creating a backup or stopping", async () => {
+    const f = await fixture(true); let valid = true;
+    const status = f.adapter.getStatus.bind(f.adapter);
+    vi.spyOn(f.adapter, "getStatus").mockImplementationOnce(async () => { const result = await status(); valid = false; return result; });
+    await expect(f.backups.create("vanilla-test", { scope: "world-set", allowStop: true },
+      "a23e4567-e89b-42d3-a456-426614174099", "manual", undefined, () => {
+        if (!valid) throw new DomainError(401, "AUTH_REQUIRED", "Authentication required"); return undefined;
+      })).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+    expect(await f.backups.list("vanilla-test")).toEqual([]);
+    expect(f.operations.getServerState("vanilla-test")).toEqual({ activeOperationId: null, recoveryRequired: false });
+    expect(f.stop).not.toHaveBeenCalled(); expect(f.start).not.toHaveBeenCalled();
+  });
   it.each(["paper", "fabric"] as const)("creates a complete private pinned %s addon protection snapshot", async (type) => {
     const f = await fixture(false, undefined, type);
     const enabled = type === "paper" ? "plugins" : "mods";

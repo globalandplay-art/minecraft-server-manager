@@ -32,6 +32,23 @@ export class HttpAuthentication {
     this.#verifier = verifier; this.#audit = audit; this.#sessions = sessions;
     this.#websocket = new WebSocketAuthentication(sessions, audit, this.#profiles);
   }
+  /** Synchronous request-bound check after business queue/preflight waits; does not grant a reusable permit. */
+  assertMutation(request: FastifyRequest): void {
+    if (!mutation(request.method)) throw new DomainError(403, "AUTH_MUTATION_REQUIRED", "Authorization requires a mutation");
+    try { this.#profiles.assert(request.raw); }
+    catch { throw new DomainError(403, "INGRESS_REJECTED", "Authentication request denied"); }
+    if (!this.#audit.ready()) throw new DomainError(503, "AUTH_AUDIT_UNAVAILABLE", "Authentication audit unavailable");
+    const raw = this.#profiles.cookie(request.raw);
+    try { this.#sessions.read(raw, this.#profiles.profile(request.raw)); }
+    catch { throw new DomainError(401, "AUTH_REQUIRED", "Authentication required"); }
+    try { this.#sessions.validateCsrf(raw, this.#profiles.profile(request.raw), request.headers["x-csrf-token"]); }
+    catch { throw new DomainError(403, "CSRF_REJECTED", "Authentication request denied"); }
+    try { this.#sessions.read(raw, this.#profiles.profile(request.raw)); }
+    catch { throw new DomainError(401, "AUTH_REQUIRED", "Authentication required"); }
+    if (!this.#audit.ready()) throw new DomainError(503, "AUTH_AUDIT_UNAVAILABLE", "Authentication audit unavailable");
+    try { this.#profiles.assert(request.raw); }
+    catch { throw new DomainError(403, "INGRESS_REJECTED", "Authentication request denied"); }
+  }
   /** Call after every awaited preflight, immediately before sensitive service admission.
    * Existing HTTP Origin/Host/body guards remain required; this grants no transferable permit.
    */

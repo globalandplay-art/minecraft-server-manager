@@ -64,7 +64,7 @@ it('preserves a conflict draft and uses fresh revision only after renewed confir
   expect(screen.getByLabelText('玩家对战')).toHaveValue('false');
   fireEvent.click(screen.getByLabelText(/确认以上变更/));
   expect(screen.getByRole('button', { name: '备份并保存配置' })).toBeDisabled();
-  const fresh = snapshot(); fresh.data.revision = 'b'.repeat(64); fresh.data.fields.motd = 'Updated elsewhere';
+  const old = snapshot(); const fresh = { ...old, data: { ...old.data, revision: 'b'.repeat(64), fields: { ...old.data.fields, motd: 'Updated elsewhere' } } };
   vi.mocked(api.properties).mockResolvedValue(fresh);
   fireEvent.click(screen.getByRole('button', { name: '刷新当前配置，保留草稿' }));
   await waitFor(() => expect(screen.getByLabelText('服务器描述')).toHaveValue('Updated elsewhere'));

@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { AuthCoreError } from "./password.js";
 import { nativePathData, runWindowsNativeScript } from "./windows-native.js";
+import { wrapWithNativeOwnerRetention } from "./windows-owner-retention.js";
 
 // Windows file sharing is enforced across processes and sessions. Duplicate the
 // exclusive handle into Node: helper exit does not release it; Node death does.
@@ -100,6 +101,8 @@ export class ManagerLifetimeLock {
   #handles: string[];
   #released = false;
   #mutation = false;
+  #mutationEpoch: symbol | undefined;
+  readonly #activities = new Set<symbol>();
   #root: string;
   private constructor(root: string, handles: string[]) { this.#root = root; this.#handles = handles; }
   static async acquire(managerRoot: string): Promise<ManagerLifetimeLock> {
@@ -140,13 +143,33 @@ export class ManagerLifetimeLock {
   beginOfflineMutation(root: string): () => void {
     this.assertHeld(root);
     if (this.#mutation) throw new AuthCoreError("AUTH_BUSY", 1);
-    this.#mutation = true;
+    this.#mutation = true; this.#mutationEpoch = Symbol("native-owner-mutation");
     let finished = false;
-    return () => { if (!finished) { finished = true; this.#mutation = false; } };
+    return () => { if (!finished) { finished = true; this.#mutation = false; this.#mutationEpoch = undefined; } };
+  }
+  /** Internal fixed ACL factory only. Private proof never becomes a public DTO.
+   * Revoked at this exact lease's end; cannot borrow a later mutation epoch. */
+  nativeAclChildWrapper(root: string): (trustedScript: string) => string {
+    this.assertHeld(root);
+    if (!this.#mutation || !this.#mutationEpoch) throw new AuthCoreError("AUTH_PRIVATE_UNSAFE");
+    const epoch = this.#mutationEpoch;
+    return (trustedScript) => {
+      this.assertHeld(root);
+      if (!this.#mutation || this.#mutationEpoch !== epoch) throw new AuthCoreError("AUTH_PRIVATE_UNSAFE");
+      return wrapWithNativeOwnerRetention(trustedScript, { root: this.#root, nodePid: process.pid,
+        directoryHandle: this.#handles[0]!, fileHandle: this.#handles[1]!, directoryIdentity: this.#handles[2]!,
+        fileIdentity: this.#handles[3]!, processIdentity: this.#handles[4]! });
+    };
+  }
+  /** Retain the native owner through admitted asynchronous work and terminal persistence.
+   * Independent of the non-reentrant publication mutex; no native call or privilege change. */
+  beginActivity(root: string): () => undefined {
+    this.assertHeld(root); const token = Symbol("manager-owner-activity"); this.#activities.add(token);
+    return () => { this.#activities.delete(token); return undefined; };
   }
   async release(): Promise<void> {
     if (this.#released) return;
-    if (this.#mutation) throw new AuthCoreError("AUTH_BUSY", 1);
+    if (this.#mutation || this.#activities.size) throw new AuthCoreError("AUTH_BUSY", 1);
     this.#released = true;
     try {
       const output = await runWindowsNativeScript(script(`[ManagerLockNative]::Release(${nativePathData(this.#root)},${process.pid},[long]::Parse('${this.#handles[0]}'),[long]::Parse('${this.#handles[1]}'),'${this.#handles[2]}','${this.#handles[3]}','${this.#handles[4]}')\n@{released=$true} | ConvertTo-Json -Compress`));

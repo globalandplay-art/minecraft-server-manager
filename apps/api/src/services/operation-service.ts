@@ -10,6 +10,8 @@ import type { JournalScanResult } from "./transaction-journal.js";
 
 const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 type LifecycleKind = "start" | "stop" | "restart";
+/** Trusted backend checks only; Promise-returning callbacks are not an admission boundary. */
+export type OperationAdmission = () => undefined;
 type OperationListener = (operation: Operation) => void;
 
 export interface OperationServerState {
@@ -75,6 +77,9 @@ export class OperationService {
     }
     for (const record of stored) {
       let current = record;
+      // A command receipt is not a world transaction. Until a dedicated controller
+      // verifies its outcome, even a saved success must remain fail-closed on restart.
+      if (record.operation.kind === "whitelist-change") this.#addRecovery(record.operation.serverId, `operation:${record.operation.id}`);
       const terminal = transactionScan?.records.find((item) => (item.intent.operationId === record.operation.id ||
         (item.intent.worldImport && item.checkpoints.some((c) => c.name === "import-recovery-operation" && c.details?.resourceId === record.operation.id))) &&
         ["committed", "rolled-back"].includes(item.state));
@@ -114,7 +119,7 @@ export class OperationService {
         if (!terminal) this.#addRecovery(current.operation.serverId, `operation:${current.operation.id}`);
       }
       this.#records.set(current.operation.id, current);
-      if (Date.parse(current.expiresAt) > now.getTime()) {
+      if (current.operation.kind === "whitelist-change" || Date.parse(current.expiresAt) > now.getTime()) {
         this.#idempotency.set(this.#idempotencyScope(current), current);
       }
     }
@@ -122,7 +127,12 @@ export class OperationService {
 
   get(operationId: string): Operation | undefined {
     const record = this.#records.get(operationId);
-    return record === undefined ? undefined : structuredClone(record.operation);
+    if (!record) return undefined;
+    const operation = structuredClone(record.operation);
+    if (operation.kind === "whitelist-change" && this.#recoveryCauses.get(operation.serverId)?.has(`operation:${operationId}`)) {
+      return { ...operation, state: "interrupted", step: "recovery-required", error: { code: "RECOVERY_REQUIRED", message: "白名单结果需要独立核验" } };
+    }
+    return operation;
   }
 
   getServerState(serverId: string): OperationServerState {
@@ -138,6 +148,54 @@ export class OperationService {
 
   requireTransactionRecovery(serverId: string, operationId: string): void {
     this.#addRecovery(serverId, `operation:${operationId}`);
+  }
+  matchesWhitelistBinding(serverId: string, operationId: string, requestBody: string, keyHash: string): boolean {
+    const record = this.#records.get(operationId);
+    return Boolean(record && record.operation.kind === "whitelist-change" && record.operation.serverId === serverId &&
+      record.requestFingerprint === createHash("sha256").update(`${serverId}\nwhitelist-change\n${requestBody}`).digest("hex") &&
+      createHash("sha256").update(record.idempotencyKey.toLowerCase()).digest("hex") === keyHash);
+  }
+
+  /** Dedicated backend verifier only; never accept verification or admission from HTTP input.
+   * Read-only startup inspection cannot change an interrupted result. Explicit recovery
+   * may settle only a receipt that the command controller can independently prove. */
+  async verifyWhitelistOutcome(serverId: string, operationId: string, verify: () => Promise<void>,
+    admission: OperationAdmission, explicitRecovery = false): Promise<Operation> {
+    await this.#mutate(async () => {
+      admission();
+      const op = this.#records.get(operationId)?.operation;
+      if (!op || op.serverId !== serverId || op.kind !== "whitelist-change" ||
+        (!explicitRecovery && op.state !== "succeeded") || this.#activeByServer.has(serverId) || this.#exclusiveLocks.has(serverId)) {
+        throw new DomainError(409, "RECOVERY_REQUIRED", "白名单操作尚不能安全确认", "whitelist-outcome-unavailable");
+      }
+      if (explicitRecovery && (!this.#recoveryCauses.get(serverId)?.has(`operation:${operationId}`) || !["interrupted", "succeeded"].includes(op.state))) {
+        throw new DomainError(409, "RECOVERY_REQUIRED", "白名单操作不属于当前恢复原因", "whitelist-recovery-owner-invalid");
+      }
+      if (explicitRecovery && [...(this.#recoveryCauses.get(serverId) ?? [])].some((cause) => cause !== `operation:${operationId}`)) {
+        throw new DomainError(409, "RECOVERY_REQUIRED", "实例仍有其他恢复原因", "unrelated-recovery");
+      }
+      this.#exclusiveLocks.add(serverId);
+    });
+    try {
+      await verify();
+      return await this.#mutate(async () => {
+        admission(); const current = this.#records.get(operationId)!;
+        if (explicitRecovery && [...(this.#recoveryCauses.get(serverId) ?? [])].some((cause) => cause !== `operation:${operationId}`)) {
+          throw new DomainError(409, "RECOVERY_REQUIRED", "实例新增了其他恢复原因", "unrelated-recovery");
+        }
+        if (!explicitRecovery && current.operation.state !== "succeeded") throw new DomainError(409, "RECOVERY_REQUIRED", "结果仍不确定");
+        let outcome = current.operation;
+        if (explicitRecovery) {
+          outcome = { ...outcome, state: "succeeded", step: "whitelist-verified-recovery", updatedAt: this.#clock.now().toISOString(),
+            error: null, result: { resourceId: operationId, rollbackAvailable: false } };
+          const record = { ...current, operation: outcome }; await this.#store.save(record);
+          this.#records.set(operationId, record); this.#idempotency.set(this.#idempotencyScope(record), record); this.#emit(outcome);
+        }
+        const causes = this.#recoveryCauses.get(serverId); causes?.delete(`operation:${operationId}`);
+        if (!causes?.size) this.#recoveryServers.delete(serverId);
+        return structuredClone(outcome);
+      });
+    } finally { await this.#mutate(async () => { this.#exclusiveLocks.delete(serverId); }); }
   }
 
   async storedOutcomes(): Promise<Operation[]> {
@@ -237,11 +295,13 @@ export class OperationService {
     kind: LifecycleKind,
     idempotencyKey: string,
     execute: (context: RuntimeOperationContext) => Promise<void>,
-    preflight?: () => Promise<void>
+    preflight?: () => Promise<void>,
+    admission?: OperationAdmission
   ): Promise<Operation> {
     const fingerprint = createHash("sha256").update(`${serverId}\n${kind}\n{}`).digest("hex");
     let created = false;
     const operation = await this.#mutate(async () => {
+      admission?.();
       const scope = `${serverId}:${kind}:${idempotencyKey}`;
       const existing = this.#idempotency.get(scope);
       if (existing !== undefined && Date.parse(existing.expiresAt) > this.#clock.now().getTime()) {
@@ -285,6 +345,8 @@ export class OperationService {
         requestFingerprint: fingerprint,
         expiresAt: new Date(timestamp.getTime() + IDEMPOTENCY_WINDOW_MS).toISOString()
       };
+      // Authorization linearizes at dispatch: a valid admitted save is not undone by later session closure.
+      admission?.();
       await this.#store.save(record);
       this.#records.set(next.id, record);
       this.#idempotency.set(scope, record);
@@ -306,19 +368,23 @@ export class OperationService {
     requestBody: string,
     execute: (context: RuntimeOperationContext) => Promise<void>,
     preflight?: () => Promise<void>,
-    kind: "backup" | "backup-export" | "restore" | "rollback" | "world-create" | "world-import" | "world-import-recovery" | "world-archive" | "properties-write" | "addon-change" = "backup",
-    recoveryOwner?: string
+    kind: "backup" | "backup-export" | "restore" | "rollback" | "world-create" | "world-import" | "world-import-recovery" | "world-archive" | "properties-write" | "addon-change" | "whitelist-change" = "backup",
+    recoveryOwner?: string,
+    admission?: OperationAdmission,
+    lifetime?: () => () => undefined
   ): Promise<Operation> {
     const fingerprint = createHash("sha256").update(`${serverId}\n${kind}\n${requestBody}`).digest("hex");
     let created = false;
+    let releaseOwner: (() => undefined) | undefined;
     const operation = await this.#mutate(async () => {
+      admission?.();
       const scope = `${serverId}:${kind}:${idempotencyKey}`;
       const existing = this.#idempotency.get(scope);
-      if (existing !== undefined && Date.parse(existing.expiresAt) > this.#clock.now().getTime()) {
+      if (existing !== undefined && (kind === "whitelist-change" || Date.parse(existing.expiresAt) > this.#clock.now().getTime())) {
         if (existing.requestFingerprint !== fingerprint) {
           throw new DomainError(409, "OPERATION_CONFLICT", "Idempotency-Key 已用于不同请求", "idempotency-key-reused");
         }
-        return structuredClone(existing.operation);
+        return kind === "whitelist-change" ? this.get(existing.operation.id)! : structuredClone(existing.operation);
       }
       if (this.#recoveryServers.has(serverId)) {
         if (kind === "rollback" && recoveryOwner) await this.assertRecoveryOwner(serverId, recoveryOwner);
@@ -340,6 +406,8 @@ export class OperationService {
         requestFingerprint: fingerprint,
         expiresAt: new Date(timestamp.getTime() + IDEMPOTENCY_WINDOW_MS).toISOString()
       };
+      admission?.();
+      releaseOwner = lifetime?.();
       await this.#store.save(record);
       this.#records.set(next.id, record);
       this.#idempotency.set(scope, record);
@@ -347,14 +415,15 @@ export class OperationService {
       created = true;
       this.#emit(next);
       return structuredClone(next);
-    });
-    if (created) queueMicrotask(() => void this.#execute(operation.id, execute));
+    }).catch((error: unknown) => { releaseOwner?.(); releaseOwner = undefined; throw error; });
+    if (created) queueMicrotask(() => void this.#execute(operation.id, execute, releaseOwner));
     return operation;
   }
 
   async #execute(
     operationId: string,
-    execute: (context: RuntimeOperationContext) => Promise<void>
+    execute: (context: RuntimeOperationContext) => Promise<void>,
+    releaseOwner?: () => undefined
   ): Promise<void> {
     const controller = new AbortController();
     let sideEffectStarted = false;
@@ -399,6 +468,8 @@ export class OperationService {
       }
     } finally {
       const operation = this.#records.get(operationId)?.operation;
+      try { if (releaseOwner && releaseOwner() !== undefined && operation) this.#addRecovery(operation.serverId, `operation:${operation.id}`); }
+      catch { if (operation) this.#addRecovery(operation.serverId, `operation:${operation.id}`); }
       if (operation !== undefined) this.#activeByServer.delete(operation.serverId);
     }
   }

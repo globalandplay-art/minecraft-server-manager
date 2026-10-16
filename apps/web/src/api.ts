@@ -10,6 +10,7 @@ import {
   propertiesResponseSchema, propertiesWriteResponseSchema,
   type PropertiesResponse, type PropertiesWriteRequest, type PropertiesWriteResponse,
   playersResponseSchema, type PlayersResponse,
+  whitelistResponseSchema, type WhitelistResponse,
   backupScheduleResponseSchema, type BackupScheduleResponse, type BackupScheduleUpdate,
   backupRetentionResponseSchema, type BackupRetentionResponse, type BackupRetentionUpdate,
   worldImportUploadResponseSchema,
@@ -227,6 +228,8 @@ export const api = {
       { method: 'PATCH', body, headers: { 'X-Manager-Intent': 'local-ui', 'If-Match': `"${revision}"`, 'Idempotency-Key': key }, expectedStatus: 202 }),
   players: (serverId: string, signal?: AbortSignal) =>
     getJson<PlayersResponse>(`/servers/${encodeURIComponent(serverId)}/players`, playersResponseSchema, signal),
+  whitelist: (serverId: string, signal?: AbortSignal) =>
+    getJson<WhitelistResponse>(`/servers/${encodeURIComponent(serverId)}/whitelist`, whitelistResponseSchema, signal),
   worldImportPlan: (serverId: string, body: { uploadId: string; name: string }) =>
     requestJson<WorldImportPlanResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-plan`, worldImportPlanResponseSchema,
       { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
