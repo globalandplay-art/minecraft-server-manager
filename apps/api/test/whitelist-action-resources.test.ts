@@ -115,3 +115,20 @@ it("refuses additional cleanup dispatch after synchronous prior cleanup exhausts
   expect(b.resource.drain).not.toHaveBeenCalled(); expect(resources.failed).toBe(true);
   b.resource.closedConfirmed = true; b.result.resolve(2); await first; await second;
 });
+
+it("uses an earlier outer cleanup deadline instead of starting another5s", async () => {
+  vi.useFakeTimers(); let now = 0;
+  const resources = new WhitelistActionResources(() => undefined, () => undefined, () => now), t = task();
+  const work = expect(resources.start(() => t.resource)).rejects.toThrow("WHITELIST_ACTION_UNSAFE");
+  const drain = expect(resources.drain(1000)).rejects.toThrow("CLEANUP_BLOCKED");
+  now = 1000; await vi.advanceTimersByTimeAsync(1000); await drain;
+  expect(vi.mocked(t.resource.drain).mock.calls[0]![0]).toBe(1000);
+  t.resource.closedConfirmed = true; t.result.resolve(1); await work;
+});
+
+it.each([NaN, Infinity, 5001, -1])("refuses invalid or expired outer cleanup deadline %s", async (deadline) => {
+  const resources = new WhitelistActionResources(() => undefined, () => undefined, () => 0), t = task();
+  const work = expect(resources.start(() => t.resource)).rejects.toThrow("WHITELIST_ACTION_UNSAFE");
+  await expect(resources.drain(deadline)).rejects.toThrow("CLEANUP_BLOCKED");
+  expect(t.resource.drain).not.toHaveBeenCalled(); t.resource.closedConfirmed = true; t.result.resolve(1); await work;
+});

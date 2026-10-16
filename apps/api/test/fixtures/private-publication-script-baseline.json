@@ -1,0 +1,93 @@
+{
+  "scope": "LEGACY_SYNTHETIC_SCRIPT_HASHES_LF_NORMALIZED_FOR_GIT_PORTABILITY",
+  "cases": [
+    {
+      "kind": "create-file",
+      "file": "C:\\isolated\\stage.json",
+      "sha256": "ba5bc2dfea6284e5fb97251f73866660c11bff9a55ad2f01746f4aea14fc415f"
+    },
+    {
+      "kind": "create-directory",
+      "file": "C:\\isolated\\stage.json",
+      "sha256": "2636065866579f7b43332db16856c38d198723e089c6ef9e04f1f33efd146a32"
+    },
+    {
+      "kind": "publish-new",
+      "file": "C:\\isolated\\stage.json",
+      "target": "C:\\isolated\\stage.json.target",
+      "sha256": "aff1101bb5fbb49325baa4488ef55ae4b3810a157252a322ec4f76036f5889f5"
+    },
+    {
+      "kind": "publish-replace",
+      "file": "C:\\isolated\\stage.json",
+      "target": "C:\\isolated\\stage.json.target",
+      "sha256": "8ffc84ab42894110de7c9f96ac72eb872422e8d6c3c36722a914e1d9971cbde4"
+    },
+    {
+      "kind": "create-file",
+      "file": "C:\\isolated fixture\\白名单.json",
+      "sha256": "85b5b15d75eac90753b190531e0f569f11b3de0f491317106d461dd12214a626"
+    },
+    {
+      "kind": "create-directory",
+      "file": "C:\\isolated fixture\\白名单.json",
+      "sha256": "fa1ec9a8e775fd0ea72fafecc3b114111f6b767cf145cb9f5e7da2a1945954f3"
+    },
+    {
+      "kind": "publish-new",
+      "file": "C:\\isolated fixture\\白名单.json",
+      "target": "C:\\isolated fixture\\白名单.json.target",
+      "sha256": "2ba1f9cad5778fdf3999e78b5781f418bbbf91cc78d0a813ccbf88001e886fca"
+    },
+    {
+      "kind": "publish-replace",
+      "file": "C:\\isolated fixture\\白名单.json",
+      "target": "C:\\isolated fixture\\白名单.json.target",
+      "sha256": "db3b2ac116b48925f1c5d21f1c9ba86871d283d63a2fc2c4e5f18d9cb8333cde"
+    },
+    {
+      "kind": "create-file",
+      "file": "C:\\isolated\\o'hare-$x-`q.json",
+      "sha256": "46434438bc3f8f1709b0f312efee42908154a078b7ccd5458d528470acd17e4f"
+    },
+    {
+      "kind": "create-directory",
+      "file": "C:\\isolated\\o'hare-$x-`q.json",
+      "sha256": "5ca579cb7926638cd9b8508cf83a6e5245833a31a8a2029f0ca61e6227321d2a"
+    },
+    {
+      "kind": "publish-new",
+      "file": "C:\\isolated\\o'hare-$x-`q.json",
+      "target": "C:\\isolated\\o'hare-$x-`q.json.target",
+      "sha256": "07029ae71608679fa30281e0975c52e22d4be882c7a86819d89b5def896bbf40"
+    },
+    {
+      "kind": "publish-replace",
+      "file": "C:\\isolated\\o'hare-$x-`q.json",
+      "target": "C:\\isolated\\o'hare-$x-`q.json.target",
+      "sha256": "6539f1be65cff20f7ea9b7f01a2b8345c7aff7459d2ccb1b67007054a0e4cefc"
+    },
+    {
+      "kind": "create-file",
+      "file": "C:\\isolated\\semi;[test].json",
+      "sha256": "8cce3d0685e91556852292a851abdaf3c68a7b3eb8aacd55a7ef077035b0b93f"
+    },
+    {
+      "kind": "create-directory",
+      "file": "C:\\isolated\\semi;[test].json",
+      "sha256": "f006a4ac1640f1a908c49c18169b0f9fac7c41552f5a3a43fb9e4f8dcfc306a5"
+    },
+    {
+      "kind": "publish-new",
+      "file": "C:\\isolated\\semi;[test].json",
+      "target": "C:\\isolated\\semi;[test].json.target",
+      "sha256": "a64e61a3c57648348d8636e44a10cc015f8707a5b780a82e52dd1a7ee0555a92"
+    },
+    {
+      "kind": "publish-replace",
+      "file": "C:\\isolated\\semi;[test].json",
+      "target": "C:\\isolated\\semi;[test].json.target",
+      "sha256": "281a5b7d585cede4a9bf1f24c3cffe55f57094e6d57adaf5f26c33e0a3ca44eb"
+    }
+  ]
+}

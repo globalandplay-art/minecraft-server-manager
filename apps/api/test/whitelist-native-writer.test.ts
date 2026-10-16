@@ -159,3 +159,52 @@ it("publishes the one shared close promise before kill can synchronously reenter
   const result = expect(writer.run("FIXED_SCRIPT")).rejects.toMatchObject({ reason: "cancelled" });
   const drain = writer.close(); expect(reentered).toBe(drain); await drain; await result; expect(child.kills).toBe(1);
 });
+
+it("shares an earlier outer drain deadline without another5s wait", async () => {
+  vi.useFakeTimers(); let now = 0; const child = new FakeChild(), writer = new WhitelistNativeWriter(wrapper, () => child, () => now);
+  const result = expect(writer.run("FIXED_SCRIPT")).rejects.toMatchObject({ reason: "cancelled" });
+  const first = writer.close(1000), drain = expect(first).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+  expect(writer.close(5000)).toBe(first); now = 1000; await vi.advanceTimersByTimeAsync(1000); await drain; await result;
+  child.finish(); await expect(writer.close()).rejects.toThrow("CLEANUP_BLOCKED");
+});
+
+it.each([NaN, Infinity, 5001, -1])("refuses invalid or expired cleanup deadline %s", async (deadline) => {
+  const writer = new WhitelistNativeWriter(wrapper, () => new FakeChild(), () => 0);
+  await expect(writer.close(deadline)).rejects.toThrow("CLEANUP_BLOCKED");
+  await expect(writer.run("FIXED_SCRIPT")).rejects.toMatchObject({ reason: "used" });
+});
+
+it("reports only fixed sanitized actual-close metadata", async () => {
+  const child = new FakeChild(), writer = new WhitelistNativeWriter(wrapper, () => child);
+  expect(writer.closeEvidence).toEqual({ actualClose: false, exitCode: null, exitSignal: null });
+  const result = expect(writer.run("FIXED_SCRIPT")).rejects.toMatchObject({ reason: "exit" });
+  child.emit("close", "SECRET_CODE", "SECRET_SIGNAL"); await result;
+  expect(writer.closeEvidence).toEqual({ actualClose: true, exitCode: null, exitSignal: "UNKNOWN" });
+  await writer.close();
+});
+
+it("does not dispatch a kill after the outer cleanup deadline is already expired", async () => {
+  const child = new FakeChild(), writer = new WhitelistNativeWriter(wrapper, () => child, () => 0);
+  const result = expect(writer.run("FIXED_SCRIPT")).rejects.toMatchObject({ reason: "cancelled" });
+  await expect(writer.close(-1)).rejects.toThrow("CLEANUP_BLOCKED"); await result;
+  expect(child.kills).toBe(0); expect(writer.closedConfirmed).toBe(false);
+  child.finish(); await expect(writer.close()).rejects.toThrow("CLEANUP_BLOCKED");
+});
+
+it("preserves original15s work supervision after expired cleanup, without reviving its result", async () => {
+  vi.useFakeTimers(); const child = new FakeChild(), writer = new WhitelistNativeWriter(wrapper, () => child, () => 0);
+  const result = expect(writer.run("FIXED_SCRIPT")).rejects.toMatchObject({ reason: "cancelled" });
+  await expect(writer.close(-1)).rejects.toThrow("CLEANUP_BLOCKED"); await result;
+  await vi.advanceTimersByTimeAsync(14999); expect(child.kills).toBe(0);
+  await vi.advanceTimersByTimeAsync(1); expect(child.kills).toBe(1);
+  child.finish(); expect(vi.getTimerCount()).toBe(0);
+  await expect(writer.close()).rejects.toThrow("CLEANUP_BLOCKED");
+});
+
+it("clears retained work supervision when the child actually closes before15s", async () => {
+  vi.useFakeTimers(); const child = new FakeChild(), writer = new WhitelistNativeWriter(wrapper, () => child, () => 0);
+  const result = expect(writer.run("FIXED_SCRIPT")).rejects.toMatchObject({ reason: "cancelled" });
+  await expect(writer.close(-1)).rejects.toThrow("CLEANUP_BLOCKED"); await result;
+  child.finish(); expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(15000); expect(child.kills).toBe(0);
+});

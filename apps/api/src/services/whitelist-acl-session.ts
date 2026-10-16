@@ -63,6 +63,7 @@ export class WhitelistAclSession {
   #stderrFlags = { inputEncoding: false, outputEncoding: false, readAcl: false };
   #waitClosed: Promise<void> | undefined; #scopeTimer: ReturnType<typeof setTimeout> | undefined;
   #startedAt: number | undefined; #closeTask: Promise<void> | undefined;
+  #cleanupTimer: ReturnType<typeof setTimeout> | undefined;
   #creationUncertain = false;
   constructor(private readonly factory: (trustedScript: string) => OwnedAclChild = defaultFactory,
     private readonly now: () => number = () => performance.now(),
@@ -75,11 +76,11 @@ export class WhitelistAclSession {
   }
   get diagnostic() { return { protocolLocation: this.#protocolLocation, stderrKind: this.#stderrKind, ...this.#stderrFlags }; }
   #protocol(location: ProtocolLocation) { this.#protocolLocation ??= location; this.#poison("protocol"); }
-  #poison(reason: SessionFault) {
+  #poison(reason: SessionFault, mayKill = true) {
     this.#fault ??= reason;
     const pending = this.#pending; this.#pending = undefined;
     if (pending) { clearTimeout(pending.timer); pending.reject(new AclSessionError(this.#fault)); }
-    if (this.#child && !this.#closed && !this.#killRequested) {
+    if (mayKill && this.#child && !this.#closed && !this.#killRequested) {
       this.#killRequested = true;
       try { this.#child.kill(); } catch { /* close proof still required */ }
     }
@@ -95,6 +96,7 @@ export class WhitelistAclSession {
     const child = this.#child;
     this.#waitClosed = new Promise<void>((resolve) => child.once("close", (code: number | null, signal: string | null) => {
       this.#closed = true; this.#closeResult = { code, signal }; if (this.#scopeTimer) clearTimeout(this.#scopeTimer);
+      if (this.#cleanupTimer) clearTimeout(this.#cleanupTimer);
       if (!this.#closing || code !== 0 || signal !== null || this.#buffer.length) this.#poison("closed"); resolve();
     }));
     child.on("error", () => this.#poison("spawn")); child.stdin.on("error", () => this.#poison("closed"));
@@ -155,32 +157,64 @@ export class WhitelistAclSession {
       try {
         this.#start(deadline);
         if (this.now() >= deadline) this.#poison("timeout");
-        if (this.#fault) frame.fill(0);
+        if (this.#fault) { frame.fill(0); this.#poison(this.#fault); }
         else this.#child!.stdin.write(frame, (error) => { frame.fill(0); if (error) this.#poison("closed"); });
       } catch { frame.fill(0); this.#poison("spawn"); }
     });
   }
-  close(): Promise<void> { return this.#closeTask ??= this.#close(); }
-  async #close(): Promise<void> {
-    if (this.#cleanupFailed) throw new AclSessionError("cleanup");
+  /** Shared drain; a caller may shorten, never restart, the original5000ms budget. */
+  close(deadline?: number): Promise<void> {
+    if (this.#closeTask) return this.#closeTask;
+    const started = this.now(), ownDeadline = started + 5000;
+    const end = deadline === undefined ? ownDeadline :
+      Number.isFinite(deadline) && deadline <= ownDeadline ? deadline : started;
+    let resolve!: () => void, reject!: (error: unknown) => void;
+    // Publish before any EOF/kill callback can synchronously reenter close.
+    this.#closeTask = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+    void this.#close(end).then(resolve, reject);
+    return this.#closeTask;
+  }
+  async #close(closeDeadline: number): Promise<void> {
+    if (this.#cleanupFailed || this.now() >= closeDeadline) {
+      this.#cleanupFailed = true;
+      // No new EOF/kill and no guessed cancellation. Original query/lifetime timers stay live.
+      throw new AclSessionError("cleanup");
+    }
+    const fence = () => {
+      if (this.now() >= closeDeadline) {
+        this.#cleanupFailed = true; this.#poison("cleanup", false);
+        throw new AclSessionError("cleanup");
+      }
+    };
     if (!this.#closed && this.#startedAt !== undefined && this.now() - this.#startedAt >= 40_000) this.#poison("timeout");
+    fence();
     this.#closing = true;
-    if (this.#scopeTimer) clearTimeout(this.#scopeTimer);
+    // Only actual close cancels lifetime supervision, including during a shortened drain.
     if (!this.#child) {
-      if (this.#creationUncertain) { this.#cleanupFailed = true; throw new AclSessionError("cleanup"); }
+      if (this.#creationUncertain) {
+        this.#cleanupFailed = true; this.#poison("closed", false);
+        throw new AclSessionError("cleanup");
+      }
       this.#closed = true; if (this.#fault) throw new AclSessionError(this.#fault); return;
     }
-    const closeDeadline = this.now() + 5000;
-    if (this.#pending) this.#poison("closed");
-    if (!this.#closed) { try { this.#child.stdin.end(); } catch { this.#poison("closed"); } }
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Promise.race([this.#waitClosed, new Promise<never>((_, reject) => { timer = setTimeout(() => {
+      // Arrange the original exact-child timeout reaction while admission is still timely.
+      const timeout = new Promise<never>((_, reject) => { this.#cleanupTimer = setTimeout(() => {
         this.#cleanupFailed = true; this.#poison("cleanup"); reject(new AclSessionError("cleanup"));
-      }, 5000); })]);
-    } finally { if (timer) clearTimeout(timer); this.#buffer.fill(0); this.#buffer = Buffer.alloc(0); this.#stderrBuffer.fill(0); this.#stderrBuffer = Buffer.alloc(0); }
+      }, Math.max(1, closeDeadline - this.now())); });
+      void timeout.catch(() => undefined);
+      if (this.#pending) this.#poison("closed");
+      fence();
+      if (!this.#closed) { try { this.#child.stdin.end(); } catch { this.#poison("closed"); } }
+      fence();
+      await Promise.race([this.#waitClosed, timeout]);
+    } finally {
+      // Failed post-fences cannot cancel the already-admitted timeout reaction.
+      if (this.#closed && this.#cleanupTimer) clearTimeout(this.#cleanupTimer);
+      this.#buffer.fill(0); this.#buffer = Buffer.alloc(0); this.#stderrBuffer.fill(0); this.#stderrBuffer = Buffer.alloc(0);
+    }
     if (this.#startedAt !== undefined && this.now() - this.#startedAt >= 40_000) this.#poison("timeout");
-    if (this.now() >= closeDeadline) { this.#cleanupFailed = true; this.#poison("cleanup"); throw new AclSessionError("cleanup"); }
+    fence();
     if (!this.#closed || !this.#closeResult) throw new AclSessionError("cleanup");
     if (this.#fault) throw new AclSessionError(this.#fault);
   }

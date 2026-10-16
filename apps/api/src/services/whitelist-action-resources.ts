@@ -62,12 +62,15 @@ export class WhitelistActionResources {
   /** Drain proof only. Caller must separately require primary success and owner identity.
    * Any unknown creation/close/unsettled work retains the outer owner's lease.
    */
-  drain(): Promise<void> {
+  drain(deadline?: number): Promise<void> {
     if (this.#drainTask) return this.#drainTask;
-    const deadline = this.now() + 5000;
+    const started = this.now(), ownDeadline = started + 5000;
+    // The outer action may shorten this budget, never restart/extend its cleanup.
+    const end = deadline === undefined ? ownDeadline :
+      Number.isFinite(deadline) && deadline <= ownDeadline ? deadline : started;
     let resolve!: () => void, reject!: (error: unknown) => void;
     this.#drainTask = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
-    void this.#drain(deadline).then(resolve, reject);
+    void this.#drain(end).then(resolve, reject);
     return this.#drainTask;
   }
   async #drain(deadline: number): Promise<void> {

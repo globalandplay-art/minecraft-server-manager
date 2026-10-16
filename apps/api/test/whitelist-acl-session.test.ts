@@ -235,3 +235,86 @@ it("does not guess a child identity or close proof when a factory creates then t
   await expect(session.close()).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
   expect(session.closedConfirmed).toBe(false); expect(session.healthyForRotation).toBe(false); expect(abandoned!.kills).toBe(0);
 });
+
+it("publishes the shared close promise before a synchronous EOF callback reenters", async () => {
+  const child = new FakeChild(), session = new PrototypeAclSession(() => child);
+  const query = session.query(["fixture"]); child.reply(); await query;
+  let nested: Promise<void> | undefined;
+  const end = vi.spyOn(child.stdin, "end").mockImplementation(() => {
+    nested = session.close(); child.emit("close", 0, null); return child.stdin;
+  });
+  const first = session.close(); expect(nested).toBe(first); await first;
+  expect(end).toHaveBeenCalledOnce(); expect(child.kills).toBe(0);
+});
+it.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 0, 5001])("rejects unsafe close deadline %s without child creation or a new budget", async (deadline) => {
+  const factory = vi.fn(() => new FakeChild()), session = new PrototypeAclSession(factory, () => 0);
+  const first = session.close(deadline);
+  await expect(first).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+  expect(session.close()).toBe(first); expect(factory).not.toHaveBeenCalled();
+  await expect(session.query(["fixture"])).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+});
+it("uses the shortened shared cleanup budget without retry after a late actual close", async () => {
+  vi.useFakeTimers(); let tick = 0; const child = new FakeChild(); child.closeOnEnd = false; child.closeOnKill = false;
+  const session = new PrototypeAclSession(() => child, () => tick), query = session.query(["fixture"]); child.reply(); await query;
+  const first = session.close(250), failure = expect(first).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+  expect(session.close(5000)).toBe(first);
+  tick = 249; await vi.advanceTimersByTimeAsync(249); expect(child.kills).toBe(0);
+  tick = 250; await vi.advanceTimersByTimeAsync(1); await failure;
+  expect(child.kills).toBe(1); expect(session.closedConfirmed).toBe(false);
+  child.emit("close", 0, null); expect(session.closedConfirmed).toBe(true);
+  expect(session.close()).toBe(first); await expect(first).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+});
+it("preserves the original pending query supervisor after expired cleanup", async () => {
+  vi.useFakeTimers(); let tick = 0; const child = new FakeChild(); child.closeOnKill = false;
+  const session = new PrototypeAclSession(() => child, () => tick);
+  const query = expect(session.query(["fixture"])).rejects.toMatchObject({ reason: "timeout" });
+  const end = vi.spyOn(child.stdin, "end"); tick = 1;
+  await expect(session.close(1)).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+  expect(child.kills).toBe(0); expect(end).not.toHaveBeenCalled();
+  tick = 4999; await vi.advanceTimersByTimeAsync(4999); expect(child.kills).toBe(0);
+  tick = 5000; await vi.advanceTimersByTimeAsync(1); await query;
+  expect(child.kills).toBe(1); expect(session.closedConfirmed).toBe(false); child.emit("close", null, "SIGTERM");
+  expect(session.closedConfirmed).toBe(true); expect(vi.getTimerCount()).toBe(0);
+});
+it("preserves idle lifetime supervision after invalid cleanup and does not pretend its query was cancelled", async () => {
+  vi.useFakeTimers(); let tick = 0; const child = new FakeChild(); child.closeOnKill = false;
+  const session = new PrototypeAclSession(() => child, () => tick), query = session.query(["fixture"]);
+  await expect(session.close(Number.NaN)).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+  child.reply(); await expect(query).resolves.toEqual([{}]); expect(child.kills).toBe(0);
+  tick = 40_000; await vi.advanceTimersByTimeAsync(40_000); expect(child.kills).toBe(1);
+  child.emit("close", null, "SIGTERM"); expect(vi.getTimerCount()).toBe(0);
+  await expect(session.close()).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+});
+it("retains the arranged reaction but does not dispatch a kill from the non-timer post-EOF fence", async () => {
+  vi.useFakeTimers(); let tick = 0; const child = new FakeChild(); child.closeOnEnd = false; child.closeOnKill = false;
+  const session = new PrototypeAclSession(() => child, () => tick), query = session.query(["fixture"]); child.reply(); await query;
+  vi.spyOn(child.stdin, "end").mockImplementation(() => { tick = 251; return child.stdin; });
+  await expect(session.close(250)).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+  expect(child.kills).toBe(0); expect(session.closedConfirmed).toBe(false);
+  await vi.advanceTimersByTimeAsync(250); expect(child.kills).toBe(1);
+  child.emit("close", null, "SIGTERM"); expect(vi.getTimerCount()).toBe(0);
+});
+it("allows only the already arranged timeout reaction when its callback is late", async () => {
+  vi.useFakeTimers(); let tick = 0; const child = new FakeChild(); child.closeOnEnd = false; child.closeOnKill = false;
+  const session = new PrototypeAclSession(() => child, () => tick), query = session.query(["fixture"]); child.reply(); await query;
+  const first = session.close(100), failed = expect(first).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+  tick = 150; await vi.advanceTimersByTimeAsync(100); await failed; expect(child.kills).toBe(1);
+  child.emit("close", null, "SIGTERM"); expect(vi.getTimerCount()).toBe(0); expect(session.close()).toBe(first);
+});
+it("rejects a late actual close without a new kill and clears lifetime supervision", async () => {
+  vi.useFakeTimers(); let tick = 0; const child = new FakeChild(); child.closeOnEnd = false;
+  const session = new PrototypeAclSession(() => child, () => tick), query = session.query(["fixture"]); child.reply(); await query;
+  const failed = expect(session.close(100)).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+  tick = 101; child.emit("close", 0, null); await failed;
+  expect(child.kills).toBe(0); expect(session.closedConfirmed).toBe(true); expect(vi.getTimerCount()).toBe(0);
+});
+it("revokes a query if its factory reenters valid close before returning the child", async () => {
+  vi.useFakeTimers(); const child = new FakeChild(); child.closeOnKill = false;
+  let closing: Promise<void> | undefined;
+  const session = new PrototypeAclSession(() => { closing = session.close(); return child; });
+  await expect(session.query(["fixture"])).rejects.toMatchObject({ reason: "closed" });
+  await expect(closing).rejects.toMatchObject({ code: "CLEANUP_BLOCKED" });
+  expect(child.frames).toHaveLength(0); expect(child.kills).toBe(1); expect(session.closedConfirmed).toBe(false);
+  expect(session.close()).toBe(closing); child.emit("close", null, "SIGTERM");
+  expect(session.closedConfirmed).toBe(true); expect(vi.getTimerCount()).toBe(0);
+});

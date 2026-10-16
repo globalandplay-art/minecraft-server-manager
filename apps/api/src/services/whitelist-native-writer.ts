@@ -28,6 +28,7 @@ export class WhitelistNativeWriter {
   #child: OwnedAclChild | undefined;
   #creationUncertain = false;
   #closed = true;
+  #closeResult: { code: number | null; signal: string | null } | undefined;
   #fault: WriterFault | undefined;
   #killRequested = false;
   #bytes = 0;
@@ -43,15 +44,21 @@ export class WhitelistNativeWriter {
 
   /** Physical close proof, never operation success or permission to release other tasks. */
   get closedConfirmed(): boolean { return this.#closed && !this.#creationUncertain; }
+  /** Fixed, bounded process metadata only. Never exposes native output or owner proof. */
+  get closeEvidence() {
+    return { actualClose: this.closedConfirmed && this.#closeResult !== undefined,
+      exitCode: this.#closeResult?.code ?? null, exitSignal: this.#closeResult?.signal ?? null };
+  }
 
   #wipe() { this.#stdout.fill(0); this.#stdout = Buffer.alloc(0); }
-  #fail(reason: WriterFault) {
+  #fail(reason: WriterFault, mayKill = true) {
     this.#fault ??= reason;
-    if (this.#timer) clearTimeout(this.#timer);
+    // Expired cleanup cannot dispatch a kill, but must retain original work supervision.
+    if (mayKill && this.#timer) clearTimeout(this.#timer);
     const pending = this.#pending; this.#pending = undefined;
     this.#wipe();
     pending?.reject(new WhitelistWriterError(this.#fault));
-    if (this.#child && !this.#closed && !this.#killRequested) {
+    if (mayKill && this.#child && !this.#closed && !this.#killRequested) {
       this.#killRequested = true;
       try { this.#child.kill(); } catch { /* Actual close, not kill return, proves drain. */ }
     }
@@ -81,6 +88,9 @@ export class WhitelistNativeWriter {
       const child = this.#child;
       this.#waitClosed = new Promise<void>((closed) => child.once("close", (code: unknown, signal: unknown) => {
         this.#closed = true;
+        if (this.#timer) clearTimeout(this.#timer);
+        this.#closeResult = { code: typeof code === "number" && Number.isSafeInteger(code) && Math.abs(code) <= 0xffffffff ? code : null,
+          signal: signal === null ? null : typeof signal === "string" && ["SIGTERM", "SIGKILL", "SIGINT", "SIGBREAK"].includes(signal) ? signal : "UNKNOWN" };
         closed();
         if (this.#fault) return;
         if (this.now() >= this.#deadline) { this.#fail("timeout"); return; }
@@ -115,15 +125,22 @@ export class WhitelistNativeWriter {
 
   cancel(): void { this.#used = true; if (this.#pending || !this.#closed) this.#fail("cancelled"); }
   /** Independent, shared 5s drain. A rejected run is never evidence that the child exited. */
-  close(): Promise<void> {
+  close(deadline?: number): Promise<void> {
     if (this.#closeTask) return this.#closeTask;
-    const deadline = this.now() + 5000;
+    const started = this.now(), ownDeadline = started + 5000;
+    const end = deadline === undefined ? ownDeadline :
+      Number.isFinite(deadline) && deadline <= ownDeadline ? deadline : started;
     let resolve!: () => void, reject!: (error: unknown) => void;
     this.#closeTask = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
-    void this.#close(deadline).then(resolve, reject);
+    void this.#close(end).then(resolve, reject);
     return this.#closeTask;
   }
   async #close(deadline: number): Promise<void> {
+    if (this.now() >= deadline) {
+      this.#used = true;
+      if (this.#pending || !this.#closed) this.#fail("cancelled", false);
+      throw new WhitelistWriterError("cleanup");
+    }
     this.cancel();
     if (this.#creationUncertain) throw new WhitelistWriterError("cleanup");
     if (this.now() >= deadline) throw new WhitelistWriterError("cleanup");
