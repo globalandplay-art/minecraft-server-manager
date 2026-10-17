@@ -1,0 +1,18 @@
+# LC2 separate sixteen-chunk capacity candidate
+
+UNWIRED. Existing eight-item builder/entry still rejects nine; its complete Create/Move payloads match the saved original eight-item pure payloads (normalized checkout newlines only). Authentication, single-file/default Stores, production API and member writes are unchanged. `buildWhitelistGuardWideGroup` and `runWideGroupedPublication` are separate trusted constructor-level entry points, not request/config/environment options.
+
+The sixteen-entry candidate uses the same fixed native creator/no-replace Move, exact complete three-ACE receipts, original parent baseline, held6-file read cohorts, actual-settlement resource registry and no-retry fail-closed policy. All16 bytes are captured before async work, at most65536 input bytes; six held read buffers add24576 for90112 controller data bytes, plus existing bounded protocol and caller-owned source data. No timeout, output cap, ACL permission, capacity limit or operation budget changed.
+
+At maximum184-character SID and all two-digit indices48–63, complete16-row JSON plus BOM/CRLF is12892 bytes, below conservative13312 and original16384-byte writer cap. No ACL row omitted. Both exact final retained-owner wrapped commands must fit32767 characters including executable/arguments/NUL before any Create and again at actual dispatch. Overlong groups fail without fallback to eight, splitting or retry. Original eight-item output bound remains unchanged.
+
+Focused v1=174PASS; extra third-partition identity drift and final pending raw-read tests v2=177PASS/6.86s. All16 Create failure positions and all16 Move positions preserve exact partial layouts/data with no later group or manifest. New valid sixteen case uses indices48–63, six peak read handles and15 logical ACL queries. The16=6+6+4 cohort label was corrected from fourth to third before freezing; behavior and assertions unchanged. Original legacy script16 baseline cases and negative-eight-limit tests remain present.
+
+Candidate frozen34 files in `test-results/lc2-wide-group-frozen-v1.json`; lint/typecheck v1 exit0. A distinct explicit normal16 native probe is mechanically based on the reviewed8 probe with only16 count, UUID prefix, separate entry and scope changed. Original50s work,15s helper/owner-release reserve and shared5s cleanup remain. Independent source/pre-run/static/affected/build/native evidence is recorded on completion below. No native or whole-capacity PASS inferred from Fake tests.
+
+Reducing maximum64-chunk source helper count from20 to12 is conditional arithmetic, not measured maximum capacity. Maximum-history scan remains independent. Actual64 creation, GuardStore/CommandStore integration, live product transport/Move/Node-I/O interruption and frozen wholeLC2 Final Gate remain pending. Prior8chunk/native-retention evidence remains historical for its exact source and scope.
+
+Remote PAUSED; no real world/server/RCON/credential/network/system or Git publication. This candidate does not authorize member commands.
+
+## Accepted component evidence
+Exactlyone freshnormal16 run lc2-owned-wide-group-daaa0b64-1d8b-4fff-863e-a94ae58ff196:17.147s component/actualexit0 at17.565s,all16x4096hashes/exactlayout/noextras,action+ownerreleased/resource0/drainedtrue/rootabsent. Frozen34/34/native14/14 independentlymatched; SolHigh finalP1/P2/P3=0, NORMAL SIXTEEN-CHUNK COMPONENT acceptedonly. New21files545affectedPASS45.43s,177focused6.86s,lint/typecheck/build/diff0;build5.22s existing543.14KiBwarning. Groupsegment6761ms is measurementonly, not64capacityproof. Finalreceipt test-results/lc2-wide-group-final-v1.json. No defaultStore/groupconfigurationorproductionmemberauthorization.

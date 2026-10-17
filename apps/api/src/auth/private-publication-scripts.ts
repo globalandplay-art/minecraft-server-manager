@@ -2,7 +2,7 @@ import { PRIVATE_ACL_INSPECT_SCRIPT } from "./windows-private-acl.js";
 import { nativePathData } from "./windows-native.js";
 
 // Internal fixed payloads only. No execution, ownership, permission or environment switch.
-const CREATOR = `
+export const PRIVATE_PUBLICATION_NATIVE = `
 using System;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -26,6 +26,7 @@ public static class AuthPrivateNative {
   public static void Publish(string source,string target) { if(!MoveFile(source,target,9)) throw new Exception("PRIVATE_PUBLISH_FAILED"); }
   public static void PublishNew(string source,string target) { if(!MoveFile(source,target,8)) throw new Exception("PRIVATE_PUBLISH_FAILED"); }
 }`;
+const CREATOR = PRIVATE_PUBLICATION_NATIVE;
 const script = (action: string) => `$ErrorActionPreference='Stop'\nAdd-Type -TypeDefinition @'\n${CREATOR}\n'@\n${action}\n@{ok=$true} | ConvertTo-Json -Compress`;
 export const buildPrivateCreateScript = (file: string, directory: boolean): string => `$ErrorActionPreference='Stop'\nAdd-Type -TypeDefinition @'\n${CREATOR}\n'@\n${PRIVATE_ACL_INSPECT_SCRIPT}\n$target=${nativePathData(file)}\n[AuthPrivateNative]::Create($target,$${directory})\n@{ok=$true;snapshot=(Read-AuthPrivateAcl $target)} | ConvertTo-Json -Depth 5 -Compress`;
 export const buildPrivatePublishNewScript = (stage: string, target: string): string =>

@@ -2,6 +2,7 @@ import type { ManagerLifetimeLock } from "../auth/manager-lifetime-lock.js";
 import { WindowsPrivateAclVerifier } from "../auth/windows-private-acl.js";
 import { WhitelistActionEnvelope, type WhitelistActionCapability } from "./whitelist-action-envelope.js";
 import { WhitelistAclSession } from "./whitelist-acl-session.js";
+import { WhitelistOwnedPublicationController, type WhitelistGuardPublication, type WhitelistGuardGroupedPublication, type WhitelistOwnedGuardAccess, type WhitelistPublicationTestDependencies } from "./whitelist-owned-publication.js";
 
 type Owner = Pick<ManagerLifetimeLock, "assertHeld" | "rootIdentity" | "beginActivity" | "beginOfflineMutation" | "nativeAclChildWrapper">;
 type Session = Pick<WhitelistAclSession, "query" | "close" | "closedConfirmed" | "healthyForRotation">;
@@ -30,14 +31,14 @@ interface Entry {
 
 /** Private borrowed controller. It never acquires/releases the owner's lease. */
 class Controller {
-  readonly #verifier = new WindowsPrivateAclVerifier();
   #entry: Entry | undefined;
   #poisoned = false; #querying = false; #transitioning = false; #units = 0;
   readonly acl: WhitelistEnvelopeAcl;
   constructor(private readonly capability: WhitelistActionCapability,
     private readonly wrapper: (script: string) => string, private readonly factory: SessionFactory,
     private readonly revoke: () => void, private readonly workDeadline: number,
-    private readonly now: () => number, private readonly unitLimit: number) {
+    private readonly now: () => number, private readonly unitLimit: number,
+    private readonly verifier: WindowsPrivateAclVerifier) {
     this.acl = Object.freeze({ verify: async (file: string) => (await this.#query([file]))[0]!,
       verifyMany: (files: readonly string[]) => this.#query(files),
       verifyNativeSnapshot: (snapshot: unknown) => this.#snapshot(snapshot), quiesce: () => this.quiesce() });
@@ -58,7 +59,7 @@ class Controller {
   #snapshot(snapshot: unknown, deadline = this.workDeadline): string {
     this.#gate(deadline);
     let hash: string;
-    try { hash = this.#verifier.verifyNativeSnapshot(snapshot); } catch { this.#fail(); }
+    try { hash = this.verifier.verifyNativeSnapshot(snapshot); } catch { this.#fail(); }
     this.#gate(deadline); return hash;
   }
   async #within<T>(task: Promise<T>, deadline: number): Promise<T> {
@@ -172,20 +173,77 @@ class Controller {
  */
 export class WhitelistEnvelopeAclAction {
   readonly #envelope: WhitelistActionEnvelope;
+  #verifier = new WindowsPrivateAclVerifier();
   constructor(private readonly owner: Owner, private readonly root: string,
     private readonly factory: SessionFactory = (wrapper, now) => new WhitelistAclSession(undefined, now, wrapper),
-    private readonly now: () => number = () => performance.now(), private readonly unitLimit = 262_144) {
+    private readonly now: () => number = () => performance.now(), private readonly unitLimit = 262_144,
+    private readonly publicationTestDependencies?: WhitelistPublicationTestDependencies) {
     if (!Number.isSafeInteger(unitLimit) || unitLimit < 2 || unitLimit > 262_144) throw unsafe();
     this.#envelope = new WhitelistActionEnvelope(owner, root, now);
   }
   get diagnostic() { return this.#envelope.diagnostic; }
+  /** Concrete-owner store composition. The SID pin never leaves this closure. */
+  static guardStoreExecutor(owner: ManagerLifetimeLock, root: string,
+    testDependencies?: { sessionFactory?: SessionFactory; publication?: WhitelistPublicationTestDependencies }, wide = false) {
+    if (typeof wide !== "boolean") throw unsafe();
+    const verifier = new WindowsPrivateAclVerifier(); let last: WhitelistEnvelopeAclAction | undefined;
+    let running = false, poisoned = false;
+    return Object.freeze({
+      get diagnostic() { return last?.diagnostic; },
+      run: async <T>(deadline: number, body: (access: WhitelistOwnedGuardAccess) => Promise<T>): Promise<T> => {
+        if (poisoned || running) throw unsafe(); running = true;
+        const action = new WhitelistEnvelopeAclAction(owner, root, testDependencies?.sessionFactory, undefined, undefined, testDependencies?.publication);
+        action.#verifier = verifier; last = action;
+        try { return await action.#runGuardStore(deadline, body, wide); }
+        finally { if (action.diagnostic.phase === "retained") poisoned = true; running = false; }
+      },
+    });
+  }
   run<T>(deadline: number, body: (acl: WhitelistEnvelopeAcl) => Promise<T>): Promise<T> {
+    return this.#run(deadline, (_capability, controller) => { void _capability; return body(controller.acl); });
+  }
+  runPublication<T>(deadline: number, body: (publication: WhitelistGuardPublication) => Promise<T>): Promise<T> {
+    return this.#run(deadline, async (capability, controller, wrapper) => {
+      const publication = new WhitelistOwnedPublicationController(this.root, capability, controller.acl, wrapper,
+        () => this.#envelope.cancel(), this.now, this.publicationTestDependencies);
+      try { const value = await body(publication.facade); publication.finish(); return value; }
+      catch { publication.poison(); throw unsafe(); }
+    });
+  }
+  /** Trusted UNWIRED group component only; default Store/publication shape unchanged. */
+  runGroupedPublication<T>(deadline: number, body: (publication: WhitelistGuardGroupedPublication) => Promise<T>): Promise<T> {
+    return this.#run(deadline, async (capability, controller, wrapper) => {
+      const publication = new WhitelistOwnedPublicationController(this.root, capability, controller.acl, wrapper,
+        () => this.#envelope.cancel(), this.now, this.publicationTestDependencies);
+      try { const value = await body(publication.groupedFacade); publication.finish(); return value; }
+      catch { publication.poison(); throw unsafe(); }
+    });
+  }
+  /** Separate trusted UNWIRED capacity candidate; original grouped entry remains <=8. */
+  runWideGroupedPublication<T>(deadline: number, body: (publication: WhitelistGuardGroupedPublication) => Promise<T>): Promise<T> {
+    return this.#run(deadline, async (capability, controller, wrapper) => {
+      const publication = new WhitelistOwnedPublicationController(this.root, capability, controller.acl, wrapper,
+        () => this.#envelope.cancel(), this.now, this.publicationTestDependencies, 16);
+      try { const value = await body(publication.groupedFacade); publication.finish(); return value; }
+      catch { publication.poison(); throw unsafe(); }
+    });
+  }
+  #runGuardStore<T>(deadline: number, body: (access: WhitelistOwnedGuardAccess) => Promise<T>, wide = false): Promise<T> {
+    return this.#run(deadline, async (capability, controller, wrapper) => {
+      const publication = new WhitelistOwnedPublicationController(this.root, capability, controller.acl, wrapper,
+        () => this.#envelope.cancel(), this.now, this.publicationTestDependencies, wide ? 16 : 8);
+      try { const value = await body(wide ? publication.wideStorageFacade : publication.storageFacade); publication.finish(); return value; }
+      catch { publication.poison(); throw unsafe(); }
+    });
+  }
+  #run<T>(deadline: number, body: (capability: WhitelistActionCapability, controller: Controller,
+    wrapper: (script: string) => string) => Promise<T>): Promise<T> {
     return this.#envelope.run(deadline, async (capability) => {
       let controller: Controller | undefined;
       try {
         capability.assertActive(); const wrapper = this.owner.nativeAclChildWrapper(this.root); capability.assertActive();
-        controller = new Controller(capability, wrapper, this.factory, () => this.#envelope.cancel(), deadline, this.now, this.unitLimit);
-        const value = await body(controller.acl);
+        controller = new Controller(capability, wrapper, this.factory, () => this.#envelope.cancel(), deadline, this.now, this.unitLimit, this.#verifier);
+        const value = await body(capability, controller, wrapper);
         await controller.quiesce(); return value;
       } catch {
         controller?.poison(); this.#envelope.cancel(); throw unsafe();

@@ -12,9 +12,10 @@ export class WhitelistWriterError extends Error {
   }
 }
 
+export const whitelistNativeWriterExecutable = () => path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 const nativeChild = (script: string): OwnedAclChild => {
   if (process.platform !== "win32") throw new WhitelistWriterError("spawn");
-  const executable = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const executable = whitelistNativeWriterExecutable();
   return spawn(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
     { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
 };
