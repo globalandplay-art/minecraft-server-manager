@@ -1,0 +1,131 @@
+$ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
+if ([IntPtr]::Size -ne 8) { 'SYNTHETIC_PLATFORM_UNSUPPORTED'; exit 1 }
+$assembly=[AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName('SyntheticSignerMemory')), [Reflection.Emit.AssemblyBuilderAccess]::Run)
+$module=$assembly.DefineDynamicModule('ManagedOnly')
+$type=$module.DefineType('SyntheticNativeMethods',[Reflection.TypeAttributes]'Public,Abstract,Sealed')
+$fields=@{}
+foreach($name in @('ProviderPointer','SignerPointer','LeafPointer')) {
+  $fields[$name]=$type.DefineField($name,[IntPtr],[Reflection.FieldAttributes]'Public,Static')
+}
+foreach($name in @('PolicyChecked','PolicyError','PolicyWrites','CloseStatus','ManagedDisposals','DisposedAtClose','CloseCalls')) {
+  $fields[$name]=$type.DefineField($name,[int],[Reflection.FieldAttributes]'Public,Static')
+}
+foreach($definition in @(
+  [pscustomobject]@{Name='WTHelperProvDataFromStateData';Pointer='ProviderPointer';Parameters=[Type[]]@([IntPtr])},
+  [pscustomobject]@{Name='WTHelperGetProvSignerFromChain';Pointer='SignerPointer';Parameters=[Type[]]@([IntPtr],[uint32],[int],[uint32])},
+  [pscustomobject]@{Name='WTHelperGetProvCertFromChain';Pointer='LeafPointer';Parameters=[Type[]]@([IntPtr],[uint32])}
+)) {
+  $method=$type.DefineMethod($definition.Name,[Reflection.MethodAttributes]'Public,Static',[IntPtr],$definition.Parameters)
+  $il=$method.GetILGenerator()
+  $il.Emit([Reflection.Emit.OpCodes]::Ldsfld,$fields[$definition.Pointer])
+  $il.Emit([Reflection.Emit.OpCodes]::Ret)
+}
+$method=$type.DefineMethod('CertVerifyCertificateChainPolicy',[Reflection.MethodAttributes]'Public,Static',[int],[Type[]]@([IntPtr],[IntPtr],[IntPtr],[IntPtr]))
+$il=$method.GetILGenerator()
+$skip=$il.DefineLabel()
+$il.Emit([Reflection.Emit.OpCodes]::Ldsfld,$fields.PolicyWrites)
+$il.Emit([Reflection.Emit.OpCodes]::Brfalse,$skip)
+$il.Emit([Reflection.Emit.OpCodes]::Ldarg_3)
+$il.Emit([Reflection.Emit.OpCodes]::Ldc_I4_4)
+$il.Emit([Reflection.Emit.OpCodes]::Ldsfld,$fields.PolicyError)
+$il.Emit([Reflection.Emit.OpCodes]::Call,[Runtime.InteropServices.Marshal].GetMethod('WriteInt32',[Type[]]@([IntPtr],[int],[int])))
+$il.MarkLabel($skip)
+$il.Emit([Reflection.Emit.OpCodes]::Ldsfld,$fields.PolicyChecked)
+$il.Emit([Reflection.Emit.OpCodes]::Ret)
+$method=$type.DefineMethod('WinVerifyTrust',[Reflection.MethodAttributes]'Public,Static',[int],[Type[]]@([IntPtr],[IntPtr],[IntPtr]))
+$il=$method.GetILGenerator()
+$il.Emit([Reflection.Emit.OpCodes]::Ldsfld,$fields.ManagedDisposals)
+$il.Emit([Reflection.Emit.OpCodes]::Stsfld,$fields.DisposedAtClose)
+$il.Emit([Reflection.Emit.OpCodes]::Ldsfld,$fields.CloseCalls)
+$il.Emit([Reflection.Emit.OpCodes]::Ldc_I4_1)
+$il.Emit([Reflection.Emit.OpCodes]::Add)
+$il.Emit([Reflection.Emit.OpCodes]::Stsfld,$fields.CloseCalls)
+$il.Emit([Reflection.Emit.OpCodes]::Ldsfld,$fields.CloseStatus)
+$il.Emit([Reflection.Emit.OpCodes]::Ret)
+$nativeType=$type.CreateType()
+$script:mockNativeType=$nativeType
+$native=$nativeType.GetMethod('WinVerifyTrust')
+function Set-Mock([string]$name,$value) { $nativeType.GetField($name).SetValue($null,$value) }
+function Get-Mock([string]$name) { $nativeType.GetField($name).GetValue($null) }
+function New-Memory([int]$size) {
+  $pointer=[Runtime.InteropServices.Marshal]::AllocHGlobal($size)
+  [Runtime.InteropServices.Marshal]::Copy((New-Object byte[] $size),0,$pointer,$size)
+  return $pointer
+}
+$cases=@(
+  @('valid','NONE',1),@('index-unwritten','signature-index-unknown',0),@('index-other','signature-index-unknown',0),
+  @('state-null','provider-unknown',0),@('provider-null','provider-unknown',0),
+  @('signer-null','signer-unknown',0),@('signer-size','signer-unknown',0),@('signer-error','signer-unknown',0),
+  @('chain-zero','chain-unknown',0),@('chain-over','chain-unknown',0),@('chain-null','chain-unknown',0),
+  @('leaf-null','leaf-unknown',0),@('leaf-size','leaf-unknown',0),@('leaf-error','leaf-unknown',0),@('context-null','leaf-unknown',0),
+  @('policy-false','root-policy-rejected',1),@('policy-error','root-policy-rejected',1),@('policy-unwritten','root-policy-rejected',1),
+  @('subject-over','subject-unsupported',1),@('eku-over','eku-unsupported',1),@('eku-count','eku-unsupported',1),
+  @('close-failure','NONE',1)
+)
+$summaries=@()
+foreach($case in $cases) {
+  foreach($name in @('PolicyError','CloseStatus','ManagedDisposals','DisposedAtClose','CloseCalls')) { Set-Mock $name ([int]0) }
+  Set-Mock 'PolicyChecked' ([int]1); Set-Mock 'PolicyWrites' ([int]1)
+  $signatureSettings=New-Memory 32; $data=New-Memory 88; $fileInfo=New-Memory 32; $action=New-Memory 16
+  $pathBuffer=[Runtime.InteropServices.Marshal]::StringToHGlobalUni('synthetic-only')
+  $signerMemory=New-Memory 64; $leafMemory=New-Memory 88
+  $policyPara=[IntPtr]::Zero; $policyStatus=[IntPtr]::Zero
+  [Runtime.InteropServices.Marshal]::WriteInt32($signatureSettings,16,0)
+  [Runtime.InteropServices.Marshal]::WriteIntPtr($data,56,[IntPtr]1)
+  [Runtime.InteropServices.Marshal]::WriteInt32($signerMemory,0,64)
+  [Runtime.InteropServices.Marshal]::WriteInt32($signerMemory,12,3)
+  [Runtime.InteropServices.Marshal]::WriteIntPtr($signerMemory,56,[IntPtr]1)
+  [Runtime.InteropServices.Marshal]::WriteInt32($leafMemory,0,88)
+  [Runtime.InteropServices.Marshal]::WriteIntPtr($leafMemory,8,[IntPtr]1)
+  Set-Mock 'ProviderPointer' ([IntPtr]1); Set-Mock 'SignerPointer' $signerMemory; Set-Mock 'LeafPointer' $leafMemory
+  $syntheticCertificate=[pscustomobject]@{SubjectName=[pscustomobject]@{RawData=[byte[]]@(0x30,0)};Extensions=@([pscustomobject]@{Oid=[pscustomobject]@{Value='2.5.29.37'};RawData=[byte[]]@(0x30,0)})}
+  $syntheticCertificate | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $script:mockNativeType.GetField('ManagedDisposals').SetValue($null,[int]1) }
+  $script:fileDisposals=0
+  $file=[pscustomobject]@{}
+  $file | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $script:fileDisposals++ }
+  switch($case[0]) {
+    'index-unwritten' { [Runtime.InteropServices.Marshal]::WriteInt32($signatureSettings,16,-1) }
+    'index-other' { [Runtime.InteropServices.Marshal]::WriteInt32($signatureSettings,16,1) }
+    'state-null' { [Runtime.InteropServices.Marshal]::WriteIntPtr($data,56,[IntPtr]::Zero) }
+    'provider-null' { Set-Mock 'ProviderPointer' ([IntPtr]::Zero) }
+    'signer-null' { Set-Mock 'SignerPointer' ([IntPtr]::Zero) }
+    'signer-size' { [Runtime.InteropServices.Marshal]::WriteInt32($signerMemory,0,63) }
+    'signer-error' { [Runtime.InteropServices.Marshal]::WriteInt32($signerMemory,40,5) }
+    'chain-zero' { [Runtime.InteropServices.Marshal]::WriteInt32($signerMemory,12,0) }
+    'chain-over' { [Runtime.InteropServices.Marshal]::WriteInt32($signerMemory,12,17) }
+    'chain-null' { [Runtime.InteropServices.Marshal]::WriteIntPtr($signerMemory,56,[IntPtr]::Zero) }
+    'leaf-null' { Set-Mock 'LeafPointer' ([IntPtr]::Zero) }
+    'leaf-size' { [Runtime.InteropServices.Marshal]::WriteInt32($leafMemory,0,87) }
+    'leaf-error' { [Runtime.InteropServices.Marshal]::WriteInt32($leafMemory,40,5) }
+    'context-null' { [Runtime.InteropServices.Marshal]::WriteIntPtr($leafMemory,8,[IntPtr]::Zero) }
+    'policy-false' { Set-Mock 'PolicyChecked' ([int]0) }
+    'policy-error' { Set-Mock 'PolicyError' ([int]5) }
+    'policy-unwritten' { Set-Mock 'PolicyWrites' ([int]0) }
+    'subject-over' { $syntheticCertificate.SubjectName.RawData=New-Object byte[] 4097 }
+    'eku-over' { $syntheticCertificate.Extensions[0].RawData=New-Object byte[] 129 }
+    'eku-count' { $syntheticCertificate.Extensions=@($syntheticCertificate.Extensions[0]) * 5 }
+    'close-failure' { Set-Mock 'CloseStatus' ([int]1) }
+  }
+  $result=[ordered]@{category='offline-signature-observed';verifiedSignatureIndex=$null;verifiedSignerObserved=$false;microsoftRootPolicyChecked=$false;microsoftRootPolicyStatus=$null;subjectDer=$null;ekuDer=@();stateClosed=$false}
+  $observedError='NONE'; $unexpected=$false; $stateMayReferenceBuffers=$true; $script:freeCount=0
+  try {
+__ACTUAL_GUARD__
+  } catch { $unexpected=$true }
+  finally {
+__ACTUAL_CLEANUP__
+  }
+  $closeFailed=$case[0] -ceq 'close-failure'
+  $expectedFree=if($case[2] -eq 1){7}else{5}
+  $pass=(-not $unexpected -and $observedError -ceq $case[1] -and (Get-Mock 'ManagedDisposals') -eq $case[2] -and (Get-Mock 'DisposedAtClose') -eq $case[2] -and (Get-Mock 'CloseCalls') -eq 1)
+  if($closeFailed) { $pass=$pass -and $stateMayReferenceBuffers -and -not $result.stateClosed -and $script:freeCount -eq 0 -and $script:fileDisposals -eq 0 -and $result.category -ceq 'cleanup-uncertain' }
+  else {
+    $pass=$pass -and -not $stateMayReferenceBuffers -and $result.stateClosed -and $script:freeCount -eq $expectedFree -and $script:fileDisposals -eq 1
+    [Runtime.InteropServices.Marshal]::FreeHGlobal($signerMemory); [Runtime.InteropServices.Marshal]::FreeHGlobal($leafMemory)
+  }
+  $summaries += [ordered]@{case=$case[0];passed=[bool]$pass;classification=$observedError;managedDisposed=[int](Get-Mock 'ManagedDisposals');disposedAtClose=[int](Get-Mock 'DisposedAtClose');closeCalls=[int](Get-Mock 'CloseCalls');ownedFreed=$script:freeCount;fileDisposed=$script:fileDisposals;retainedUntilProcessExit=[bool]$stateMayReferenceBuffers}
+  if(-not $pass) { break }
+}
+$passed=@($summaries|Where-Object{-not $_.passed}).Count -eq 0 -and $summaries.Count -eq $cases.Count
+[ordered]@{scope='SYNTHETIC_MEMORY_ONLY';caseCount=$summaries.Count;passed=[bool]$passed;summaries=$summaries;compilerExecuted=$false;signatureVerified=$false;compilerTrust='pending'} | ConvertTo-Json -Compress -Depth 5
+if(-not $passed) { exit 1 }

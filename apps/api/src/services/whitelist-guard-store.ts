@@ -237,7 +237,9 @@ export class WhitelistGuardStore {
     const names = await this.#list(this.#directory, access); if (names.length > 1000 || names.some((name) => !id.test(name))) throw unsafe();
     const result = [];
     for (const name of names) result.push({ operationId: name, ...await this.#verify(name, access) });
-    if ([...this.#known.keys()].some((file) => !names.some((name) => file.startsWith(path.join(this.#directory, name) + path.sep)))) throw unsafe();
+    // Same exact containment predicate; derive the bounded prefixes once per scan.
+    const prefixes = names.map((name) => path.join(this.#directory, name) + path.sep);
+    if ([...this.#known.keys()].some((file) => !prefixes.some((prefix) => file.startsWith(prefix)))) throw unsafe();
     if ((await this.#list(this.#directory, access)).sort().join("|") !== names.sort().join("|")) throw unsafe(); return result;
   }
   scan() { return this.#exclusive((access) => this.#scan(access)); }
