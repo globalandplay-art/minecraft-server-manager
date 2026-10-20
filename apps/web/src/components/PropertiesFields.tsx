@@ -1,3 +1,5 @@
+import type { ConfigurationDiscovery } from '@mcsm/contracts';
+import { DiscoveredProperties } from './DiscoveredProperties';
 import type { ChangeEvent } from 'react';
 
 export type PropertiesFieldKey =
@@ -13,8 +15,9 @@ export type PropertiesFieldKey =
   | 'enforce-whitelist';
 
 export type PropertiesFieldsProps = {
+  discovery?: ConfigurationDiscovery | undefined;
   values: Record<string, string>;
-  currentValues?: Record<string, string>;
+  currentValues?: Record<string, string> | undefined;
   rules: Record<string, { editable: boolean; restartRequired: boolean; reason: string | null }>;
   disabled: boolean;
   onChange: (key: string, value: string) => void;
@@ -47,7 +50,8 @@ const groups = [
 ];
 const displayValue = (value: string | undefined, kind: string) => value === undefined || value === '' ? '未提供' : kind === 'select' ? optionLabels[value] ?? value : value;
 
-export function PropertiesFields({ values, currentValues, rules, disabled, onChange }: PropertiesFieldsProps) {
+export function PropertiesFields({ discovery, values, currentValues, rules, disabled, onChange }: PropertiesFieldsProps) {
+  if (discovery) return <DiscoveredProperties discovery={discovery} values={values} currentValues={currentValues} rules={rules} disabled={disabled} onChange={onChange} />;
   return (
     <div className="page-stack" style={{ width: '100%', maxWidth: '100%' }}>
       <p>标记为需要重启的修改将在重启后生效。</p>

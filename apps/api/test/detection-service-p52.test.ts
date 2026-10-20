@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { detectServer } from "../src/services/detection-service.js";
+import { trustedLifecycle } from "../src/services/trusted-lifecycle.js";
 
 import { launchZip as zip } from "./helpers/launch-zip.js";
 import { fabricLaunchFixture } from "./helpers/fabric-launch.js";
@@ -17,6 +18,15 @@ it("recognizes exact Paperclip launcher and reports version/Java from embedded m
   await writeFile(jarPath, zip({ "META-INF/MANIFEST.MF": "Manifest-Version: 1.0\nMain-Class: io.papermc.paperclip.Main\n", "version.json": version("26.2") }));
   const info = await detectServer({ id: "paper", name: "paper", rootPath: root, jarPath, javaExecutable: process.execPath });
   expect(info).toMatchObject({ type: "paper", minecraftVersion: "26.2", java: { requiredMajor: 25 }, detection: { confidence: "high", evidence: expect.arrayContaining(["paperclip-main-class", "jar-version-json"]) } });
+});
+
+it("detects the verified Forge bootstrap marker for display without trusting lifecycle", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "mcsm-m1-forge-")); roots.push(root);
+  const jarPath = path.join(root, "forge-server.jar");
+  await writeFile(jarPath, zip({ "META-INF/MANIFEST.MF": "Manifest-Version: 1.0\nMain-Class: net.minecraftforge.bootstrap.ForgeBootstrap\n" }));
+  const info = await detectServer({ id: "forge", name: "forge", rootPath: root, jarPath, javaExecutable: process.execPath });
+  expect(info).toMatchObject({ type: "forge", detection: { confidence: "medium", evidence: ["jar-manifest", "forge-bootstrap-main-class"], warnings: expect.arrayContaining([expect.stringContaining("启动配置尚未受支持")]) } });
+  expect(trustedLifecycle(info)).toBe(false);
 });
 it.each(["duplicate-main", "duplicate-manifest", "outer-classpath"])("refuses Paper lifecycle identity for %s", async (change) => {
   const root = await mkdtemp(path.join(tmpdir(), "mcsm-p55-paper-")); roots.push(root);

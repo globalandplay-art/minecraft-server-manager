@@ -537,3 +537,10 @@ GET /api/v1/access/methods uses accessMethodsResponseSchema and existing global 
 ### LC2 construction-only Synthetic whitelist integration (2026-10-14)
 
 Operation kind `whitelist-change` is reserved for the UNWIRED Synthetic coordinator tests. No production member enable/add/remove/recovery route or Fake-provider request/environment switch is exposed. The existing whitelist API remains readonly. This kind retains idempotency protection without TTL and projects uncertain prior outcomes through recovery gating; other operation kinds retain their existing expiry behavior. Synthetic causal receipts and archived observations cannot be substituted with ordinary RCON output or a matching current member list. See [limited integration evidence](./LC2_SYNTHETIC_INTEGRATION_2026-10-14.md); production member writes and real-runtime proof remain pending.
+
+
+## LC1.1 configuration discovery (2026-10-20)
+
+GET /servers/:serverId/properties retains fields/revision/fieldRules and adds optional discovery metadata: registered server type/version; fixed server-properties file ID/source; opaque fileIdentity; bounded items and omittedCount. Items carry key/Chinese label/group/category, Java-decoded rawValue and display-inferred value/type, source/fileId, ruleStatus, editable/sensitive/duplicate flags, restartRequired(boolean or null), reason and description. Actual snapshot capabilities, not inferred types, determine fieldRules. Sensitive/unsafe values are withheld, not serialized as raw output. No client path or arbitrary config-file endpoint.
+
+PATCH contract and six-field allowlist remain unchanged. Missing, duplicate or unsafe targets reject with PROPERTIES_REVISION_CONFLICT before a journal intent. Existing revision/identity/CSRF/auth/idempotency/stopped/recovery checks remain. Discovery does not authorize remote switch changes or grant unknown-version writes. Revisions bind file identity too; identical-content replacement invalidates the prior revision.

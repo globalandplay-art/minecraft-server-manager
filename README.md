@@ -174,3 +174,16 @@ Phase 1 的范围仅包括：
 真实 Java 进程管理由 Phase 2 本机模式提供；备份 / 世界由 Phase 3 提供。上面的 Mock 与 Phase 1 描述保留其示例模式范围。配置编辑与Addons由Phase4/5提供，Performance和Crash Analysis由Phase6提供；Phase7远程开发已暂停，入口默认关闭，既有本地认证保留。正常启动不会下载 Java 或服务端 JAR、接受 EULA；`prepare:local-test --apply` 会按上述说明备份并配置本机 RCON，新建或导入世界等明确授权操作也可能按各自事务契约更新世界选择设置。
 
 本地配置改进中，Vanilla 26.3 已提供分组配置和保存前差异查看，白名单页面提供已保存成员的只读清单。成员添加/移除及白名单开关写入尚未开放；保存值与实际运行状态分别显示。支持版本和使用边界见[本地使用指南](docs/USER_GUIDE.md)。
+
+
+### Current technical debt
+
+See [the technical debt register](docs/TECHNICAL_DEBT.md) for active blockers, deferred features, platform limits and current validation. Historical failure evidence is retained; passing source review does not imply real-server acceptance.
+
+### 动态配置管理（LC1.1）
+
+在本地模式的 Settings 页面查看注册实例的 `server.properties`。核心字段按组展示，其他实际字段自动发现，可按中文名称或英文键搜索。未知字段和未验证版本保持只读；现有 Vanilla 26.3 写入范围不扩大。
+
+页面每 30 秒在可见时读取，亦可手动刷新。磁盘内容变化时先比较并明确确认，草稿不会自动写入磁盘；已移除或变成只读的草稿必须明确放弃。保存仍要求已确认停服，保留原有保护备份和恢复门控，不自动启停服务器。
+
+完整工程状态、版本边界与实际测试结果见 [LC1.1 验证记录](docs/LC11_DYNAMIC_CONFIGURATION_2026-10-20.md)。Paper/Spigot YAML、模组配置目录和真实 Minecraft 验收不包含在当前已验证范围内。

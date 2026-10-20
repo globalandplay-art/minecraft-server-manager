@@ -72,8 +72,14 @@ function probe(root: string, mode: string, key: string, children: ChildProcess[]
   children.push(child);
   console.info("LC2_NATIVE_PROCESS", JSON.stringify({ mode, pid: child.pid }));
   child.once("close", () => { closedChildren.add(child); });
-  const stages = new Set(["owner-acquire", "stores-open", "stores-opened", "guard-create", "guard-created", "owner-release",
-    "owner-reacquire", "guard-reopen", "guard-verify", "owner-final-release", "restart-reconcile", "intent-publish", "dispatch-intent-publish"]);
+  const stages = new Set(["owner-acquire", "stores-open", "stores-opened", "operations-ready", "guard-opened", "commands-opened", "reconciled", "replayed", "guard-create", "guard-created", "owner-release",
+    "owner-reacquire", "guard-reopen", "guard-verify", "owner-final-release", "restart-reconcile", "intent-publish", "dispatch-intent-publish",
+    "command-admit-scan-complete", "command-directory-created", "command-namespace-acl-verified", "command-namespace-published",
+    "command-anchor-published", "command-record-published", "command-admit-readback-complete",
+    "command-namespace-stage-written", "command-namespace-stage-readback", "command-namespace-atomic-publish", "command-namespace-target-readback",
+    "command-anchor-stage-written", "command-anchor-stage-readback", "command-anchor-atomic-publish", "command-anchor-target-readback",
+    "command-record-stage-written", "command-record-stage-readback", "command-record-atomic-publish", "command-record-target-readback",
+    "command-witness-stage-written", "command-witness-stage-readback", "command-witness-atomic-publish", "command-witness-target-readback"]);
   let observationCount = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let listener: (value: unknown) => void;
@@ -82,11 +88,11 @@ function probe(root: string, mode: string, key: string, children: ChildProcess[]
       if (!value || typeof value !== "object" || !("phase" in value)) return;
       const row = value as Record<string, unknown>;
       if (row.phase === "timing") {
-        if (observationCount++ < 16 && validTiming(row)) console.info("LC2_NATIVE_TIMING", JSON.stringify({ mode, ...row }));
+        if (observationCount++ < 32 && validTiming(row)) console.info("LC2_NATIVE_TIMING", JSON.stringify({ mode, ...row }));
         return;
       }
       if (row.phase === "stage") {
-        if (observationCount++ < 16 && Object.keys(row).sort().join(",") === "elapsedMs,phase,stage" && typeof row.stage === "string" && stages.has(row.stage) &&
+        if (observationCount++ < 32 && Object.keys(row).sort().join(",") === "elapsedMs,phase,stage" && typeof row.stage === "string" && stages.has(row.stage) &&
           typeof row.elapsedMs === "number" && Number.isInteger(row.elapsedMs) && row.elapsedMs >= 0) console.info("LC2_NATIVE_STAGE", JSON.stringify({ mode, ...row }));
         return;
       }

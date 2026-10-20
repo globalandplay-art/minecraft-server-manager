@@ -38,6 +38,7 @@ import { WorldCreateService } from "./services/world-create-service.js";
 import { registerBackupRoutes } from "./routes/backups.js";
 import { registerWhitelistRoutes } from "./routes/whitelist.js";
 import { WhitelistService } from "./services/whitelist-service.js";
+import type { WhitelistRconCoordinator } from "./services/whitelist-rcon-coordinator.js";
 import { DomainError } from "./services/domain-errors.js";
 import { EventStreamService } from "./services/event-stream-service.js";
 import { OperationService } from "./services/operation-service.js";
@@ -67,6 +68,9 @@ import { registerBackupRetentionRoutes } from "./routes/backup-retention.js";
 import { AccessOperationService } from "./services/access-operation-service.js";
 
 export interface BuildAppOptions {
+  /** Trusted construction only. Production main supplies no writer until real
+   * version rules/endpoint ownership gates pass; never selected by HTTP/env. */
+  whitelistMembers?: (operations: OperationService) => WhitelistRconCoordinator;
   tailscaleReadOnly?: TailscaleReadOnlyService;
   tailscaleControl?: TailscaleControlService;
   accessOperations?: AccessOperationService;
@@ -144,7 +148,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.addHook("onRequest", installLocalRequestGuard(clock, mode,
     options.authentication?.observeLocalGuardDenial.bind(options.authentication)));
   options.authentication?.install(app, clock, mode);
-  registerWhitelistRoutes(app, new WhitelistService(registry, operations, clock), clock, mode);
+  const whitelistMembers = options.whitelistMembers?.(operations);
+  registerWhitelistRoutes(app, new WhitelistService(registry, operations, clock, whitelistMembers), clock, mode, options.authentication);
   if (!options.authentication) app.get("/api/v1/auth/status", {
     exposeHeadRoute: false, schema: { response: { 200: authStatusResponseSchema, 400: apiErrorResponseSchema } }
   }, async (request, reply) => {
@@ -163,6 +168,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await addonInstalls?.reconcileStartup();
     await addonLifecycle?.reconcileStartup();
     await operations.initialize();
+    try { await whitelistMembers?.initialize(); }
+    catch {
+      whitelistMembers?.close();
+      // Local authentication and unrelated management must remain available.
+      // No raw exception/path/output from private evidence is logged.
+      app.log.warn("Whitelist member evidence unavailable; member writes remain disabled.");
+    }
     const scan = await options.transactionJournal?.scan();
     const restoreWorlds = new Map((scan?.records ?? []).filter((r) => r.intent.restore && ["active", "recovery-required"].includes(r.state))
       .map((r) => [r.intent.serverId, r.intent.restore!.levelName] as const));
@@ -175,6 +187,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     backupRetention?.start();
   });
   app.addHook("onClose", async () => {
+    whitelistMembers?.close();
     await Promise.all([backupRetention?.close(), backupSchedules?.close()]);
     streams.close();
     await service.close();

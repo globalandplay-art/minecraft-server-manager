@@ -1,3 +1,39 @@
+## 2026-10-20 本地优先路线更新（当前有效）
+
+Phase 7 远程访问状态：**STOPPED / OUT OF CURRENT SCOPE，非 PASS**。停止 Tailscale、Cloudflare、公网入口、Native Client/Serve 竞态及真实远程部署开发；保留全部已有实现与历史证据，远程入口保持关闭。
+
+## Settings / LC1 的当前职责（2026-10-20）
+
+Settings 是本地配置文件编辑器：前端展示当前选中、已注册实例的实际配置；用户提交字段和值后，Fastify 按 serverId 找到实例并读取、校验、保护性保存对应配置。请求不接受 Windows 文件路径，也不写入用户未选择的字段。保存成功后由用户自行决定是否重启；Manager 不自动停止、启动或重启服务端。
+
+复用 LC1.1 的 Properties 页面、动态 `server.properties` 发现、Fastify Properties API、版本字段规则、revision/冲突检查、`PropertiesGuardStore`、现有 `TransactionJournalStore`、操作幂等和实例状态门控。LC1 的 `PropertiesGuardStore` 是配置文件保存所用的现有保护机制；它与 LC2 的白名单 `WhitelistGuardStore` / `WhitelistCommandStore` 不同，Settings 不依赖 LC2、RCON 或命令派发。
+
+当前实际编辑范围：仅已注册本地 **Vanilla 26.3 `server.properties`** 中已验证且唯一存在的 `motd`、`max-players`、`difficulty`、`gamemode`、`pvp`、`online-mode` 六项。六项都需要显式保存确认并在重启后生效；关闭 `online-mode` 还需额外确认。保存要求服务器已确认停止、无其他操作、无恢复锁，并通过实例、文件身份及 revision 校验。
+
+动态发现可只读显示受支持解析器观察到的非敏感配置；类型推断只建议控件，不赋予写权限。未知字段、重复字段、其他版本/服务端规则未验证的字段、敏感字段及文件身份不确定的内容保持只读。Paper/Spigot YAML 和 Fabric/Forge/NeoForge 模组配置当前未实现，不宣称支持。
+
+LC1.1 当前已有受影响 API/UI 测试、360/768/1440 浏览器测试和静态检查通过记录；但最近全项目完整回归仍为 Contracts 18 PASS、API 2510 PASS / 12 FAIL、Web 207 PASS，故不能标记全项目 Final PASS。该历史失败中未有 LC1.1 配置/发现测试失败；LC2 原生失败不应成为 Settings 功能或 LC1 独立验收的产品依赖条件。全项目 Gate 仍须保留并如实处理失败。
+
+保留现有代码、测试、文档与历史证据，远程默认关闭。现有本地账号、Session、HTTP/WS 认证、CSRF/Origin、权限和审计继续作为服务器管理的必要依赖，不删除或降级。
+
+当前主线改为本地单用户服务器管理，优先交付用户可直接使用的功能。采用聚焦、受影响模块和阶段完整验证三级流程，不为普通本地功能引入远程访问或通用跨进程事务框架。
+
+LC2 旧 CommandStore 明确 DEFERRED。未来在线白名单 MVP 可评估本地 RCON 单次命令；响应不确定时只报告 UNKNOWN 并要求手动刷新，不自动重发。不得关闭既有本地 API、Origin、实例和操作互斥保护，也不得声称新操作链已经实现。
+
+当前主线按实际检查点推进：
+
+1. LC1.1：按上述 Settings 配置编辑器职责完成 Vanilla 独立验收；复用已有实现，不为普通设置编辑引入 LC2 命令存储或远程访问职责。Paper/模组配置按独立范围扩展，不宣称已支持。
+2. LM1：复用已实现的性能页面和历史曲线，核对剩余集成/验收，不重新开发已有功能。
+3. LM2：补齐有可信来源的监测与异常提示；无法可靠采集的 TPS/MSPT 保持 N/A。
+4. LC2：保留已验证的白名单只读能力。在线增删仍未实现；不恢复旧 CommandStore 优化。未来本地 MVP 必须验证用户/实例/输入、单次 RCON 发送及 UNKNOWN 手动刷新语义，但不预设通用 exactly-once 基础设施。
+5. 本地交付收尾：集中审查、适用完整回归与最终发布 Gate；既有未解决失败必须保留并如实阻塞全项目 PASS。真实 Minecraft 验收另需明确授权。
+
+冻结远程不等于删除代码、解决历史失败或宣布正式稳定版。本次仅更新方向与检查点；不自动 commit/push/PR、不启动真实服务器或变更网络。
+
+2026-10-20 LM2-A observation notices delivered: timestamped snapshot crash/recovery/unknown hints, unavailable/stale metric and failed-read notices, explicit unsupported TPS/MSPT semantics. Focused17PASS; fresh Web188PASS/32files; browser360/768/1440 3PASS; Web lint/typecheck/build PASS; independent SolHigh source+type-only delta P1/P2/P3=0. Initial TS2375 type-only issue fixed Attempt1 without changing strictness/runtime. Whole LM2 NOT PASS: no verified TPS/MSPT source or real acceptance. Local players metric remains unavailable; existing list API is separate. Prior API8FAIL/LC2 production BLOCKED retained; remote PAUSED, no Git publication. See LM2_VALIDATION_2026-10-20.md.
+
+2026-10-20 LM1 frontend history delivered: four truthful bounded SVG trends, source timestamps/gap handling, pause/manual refresh, hidden-page resume, range selection and explicit old-snapshot labels. Focused13PASS; fresh complete Web184PASS/31files; browser360/768/1440 3PASS; Web typecheck/changed-file lint/build PASS; independent SolHigh P1/P2/P3=0. See LM1_VALIDATION_2026-10-20.md. This supersedes older LM1 NOT STARTED entries only. Global regression remains BLOCKED with prior API2491PASS/8FAIL; LC2 production remains read-only/BLOCKED, no native rerun. Real monitoring acceptance NOT RUN. LM2 next; remote PAUSED; no commit/push/PR.
+
 2026-10-17 latest accepted checkpoint: MAX64_CREATE_ONLY empty-history component PASS after wide-only six-file stored reader. Run lc2-wide-capacity-6065f364-947f-486c-a519-2a9a11c5c1f8:productcreate39721.3965ms<original50s,component43745ms,actualforegroundexit0/44449ms,all64chunks+manifest/hash/pinned verified,action+ownerreleased/resources0/active0/root+parentabsent. Frozen35/native19 independentlymatch;finalSolHighP1/P2/P3=0.236focused/new21files604affected PASS,lint/typecheck/build/diff0(build4.72s,existing543.14KiBwarning). P3arrayrowRED preserved/Attempt1closed. Historical1596158c50030msBLOCKED report/fixture unchanged; exact old exhaustedawait stillUNKNOWN. NEXT maximum-history scan and live product interruption/CommandStore/default integration Gates;wholeLC2 IN PROGRESS/memberwrites UNWIRED,Remote PAUSED,no latestfullprojectPASS/noGitpublication. See LC2_STORED_BATCH_VALIDATION_2026-10-17.md. Prior checkpoint statements below are historical.
 
 2026-10-17 safe continuation checkpoint: MAX64 remains BLOCKED (LC2-MAX64-DEADLINE-001); no native rerun or post-failure product repair. Independent failure review confirms actiondeadline/create50030ms/actualexit1, releasedowner+resources0 and unchanged35/19 hashes; exact exhaustedawait UNKNOWN. Next six-file wide-only stored-read design independently approved(P1/P2/P3=0) for SOURCE implementation, not execution; see LC2_WIDE_STORED_READ_NEXT_2026-10-17.md. Current5-hourallowance lastobserved95%used/5%remaining; no new large step opened. Branch codex/phase-4-players-properties,HEAD77881234;35worktreeentries(8modified/27untracked),privateevidence tracked0,no commit/push/PR. Resume from typedwide readChunkBatch + deterministic fault tests;defaultStores/CommandStore/memberwrites UNWIRED,Remote PAUSED.
@@ -108,3 +144,5 @@ Historical pending entries above are superseded only for this limited Synthetic 
 ## 2026-10-15 native investigation continuation
 
 Test-only guard reuse mechanism1PASS/38.23s with23actual queries/63targets; dedicated UNWIRED scope64focused+78affected PASS and real native scope1PASS/20.20s. Lint/typecheck/build/diff PASS, current source/evidence independentSolHigh0 findings. Longscan rotation and active-query parent-death/restart remain2designP2 prerequisites; defaultstore native Gate BLOCKED, wholeLC2 IN PROGRESS, no new full regression baseline. LM1/LM2 NOT STARTED, remote PAUSED. Underlying fix-count limit removed byuser; safety gates unchanged. See LC2_NATIVE_SESSION_INVESTIGATION_2026-10-15.md and LC2_SCOPED_ACL_IMPLEMENTATION_PLAN_2026-10-15.md. No real server/world/network/system/Git changes.
+
+2026-10-20 STOP-LOSS: LC2 online member mutation delivery deferred; production readonly remains. Native CommandStore research does not block independent monitoring development. Resume LM1 actual remaining validation/integration work (its history UI already implemented), not an LM1 rewrite. Full regression historical failures remain, remotePAUSED. See LC2_COMMANDSTORE_DECISION_2026-10-20.md.

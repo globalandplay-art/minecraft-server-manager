@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { rm, readFile, readdir, link, rename, mkdir } from "node:fs/promises";
+import { rm, readFile, readdir, link, rename, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
@@ -107,6 +107,24 @@ it("guard namespace replacement is rejected without reading a new baseline", asy
   const f = await fixture(), s = await f.open(), capture = await f.runtime.capture("test"); await s.guards.create(randomUUID(), capture.snapshot, capture.bytes);
   await rename(path.join(f.root, "whitelist-guards"), path.join(f.root, "retained-guards")); await mkdir(path.join(f.root, "whitelist-guards"));
   await expect(s.guards.scan()).rejects.toMatchObject({ code: "WHITELIST_GUARD_UNSAFE" });
+});
+it.each(['acl', 'replacement'])("paired guard read rejects %s changes during its common after-check", async mode => {
+  const f = await fixture(), s = await f.open(), capture = await f.runtime.capture('test'), operationId = randomUUID();
+  await s.guards.create(operationId, capture.snapshot, capture.bytes);
+  const directory = path.join(f.root, 'whitelist-guards', operationId), first = path.join(directory, '00.bin');
+  const original = f.acl.verifyMany.bind(f.acl); let calls = 0;
+  const spy = vi.spyOn(f.acl, 'verifyMany').mockImplementation(async files => {
+    const hashes = await original(files);
+    if (files.length === 4 && files.includes(first) && ++calls === 2) {
+      if (mode === 'acl') hashes[3] = 'different-acl';
+      else { await rename(first, path.join(directory, 'retained.bin')); await writeFile(first, capture.bytes, { flag: 'wx' }); }
+    }
+    return hashes;
+  });
+  try {
+    await expect(s.guards.verify(operationId)).rejects.toMatchObject({ code: 'WHITELIST_GUARD_UNSAFE' });
+    expect(calls).toBe(2); expect(f.runtime.calls).toBe(0);
+  } finally { spy.mockRestore(); capture.bytes.fill(0); }
 });
 it("unavailable Fake runtime refuses preflight without any file writes", async () => {
   const f = await fixture(), s = await f.open(); const request = f.request(); f.runtime.unavailable = true;

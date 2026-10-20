@@ -116,26 +116,39 @@ async function commandFixture(f: Awaited<ReturnType<typeof fixture>>, count: num
   const managerRootIdentity = f.owner.rootIdentity(), identity = await directoryIdentity(directory);
   await writeFile(join(f.root, "whitelist-commands.receipt.json"), encodeWhitelistNamespace({ schemaVersion: 1, managerRootIdentity, directoryIdentity: identity }), { flag: "wx" });
   let first: Omit<WhitelistCommandRecord, "managerRootIdentity" | "directoryIdentity"> | undefined;
-  for (let i = 0; i < count; i++) {
+  for (let start = 0; start < count; start += 4) {
+    // Independent fixture files, bounded preparation only; product scan, worker
+    // count, original50s budget and all capacity assertions remain unchanged.
+    const results = await Promise.allSettled(Array.from({ length: Math.min(4, count - start) }, async () => {
     f.fence(); const input = command(); first ??= input;
     const record = { ...input, managerRootIdentity, directoryIdentity: identity }, bytes = encodeWhitelistCommand(record);
     await writeFile(join(directory, `${record.operationId}.0000.json`), bytes, { flag: "wx" });
     await writeFile(join(f.root, `whitelist-command-${record.operationId}.receipt.json`), encodeWhitelistAnchor({ schemaVersion: 1,
       managerRootIdentity, directoryIdentity: identity, operationId: record.operationId, genesisHash: whitelistCommandHash(bytes) }), { flag: "wx" });
+    }));
+    for (const result of results) if (result.status === 'rejected') throw result.reason;
   }
   return { directory, first: first! };
 }
 
 it("validates10000 physical command evidence entries, admits the last pair, replays at capacity and refuses a new pair without publication", () => physicalCase(async (f) => {
+  const mark = (stage: 'prepare' | 'open' | 'admit' | 'replay' | 'capacity-refusal' | 'complete') =>
+    console.info('LC2_CAPACITY_STAGE', JSON.stringify({ stage, elapsedMs: Math.floor(performance.now() - (f.end - 50_000)) }));
+  mark('prepare');
   const { directory, first } = await commandFixture(f, 4999);
+  mark('open');
   const store = await WhitelistCommandStore.open(f.root, f.owner, f.acl, f.publication); f.fence(); expect(f.publications()).toBe(0);
+  mark('admit');
   const final = command(); expect((await store.admit(final)).operationId).toBe(final.operationId); f.fence();
   expect(await readdir(directory)).toHaveLength(5000);
   expect((await readdir(f.root)).filter((name) => name.startsWith("whitelist-command-"))).toHaveLength(5000);
   const writes = f.publications();
+  mark('replay');
   const replay = await store.admit({ ...first, operationId: randomUUID() }); f.fence(); expect(replay.operationId).toBe(first.operationId); expect(f.publications()).toBe(writes);
+  mark('capacity-refusal');
   await expect(store.admit(command())).rejects.toMatchObject({ code: "WHITELIST_COMMAND_CAPACITY" }); f.fence(); expect(f.publications()).toBe(writes);
   expect(await readdir(directory)).toHaveLength(5000);
+  mark('complete');
 }), 60_000);
 
 it("enforces the independent10000 root-entry ceiling even when command evidence is far below its cap", () => physicalCase(async (f) => {

@@ -18,7 +18,10 @@ export function registerPropertiesRoutes(app: FastifyInstance, service: Properti
   }, async (request, reply) => {
     const data = await available().read(request.params.serverId);
     reply.header("Cache-Control", "no-store").header("ETag", `"${data.revision}"`);
-    const fieldRules = available().fieldRules(request.params.serverId);
+    const fieldRules = Object.fromEntries(Object.entries(available().fieldRules(request.params.serverId)).map(([key, rule]) => {
+      const item = data.discovery.items.find(entry => entry.key === key);
+      return [key, { ...rule, editable: item?.editable === true, reason: item?.editable ? null : item?.reason ?? 'PROPERTY_NOT_OBSERVED' }];
+    }));
     return { data: { ...data, fieldRules }, meta: responseMeta(request.id, clock, mode) };
   });
   app.patch<{ Params: ServerParams; Body: PropertiesWriteRequest }>("/api/v1/servers/:serverId/properties", {

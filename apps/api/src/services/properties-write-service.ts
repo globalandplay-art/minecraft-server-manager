@@ -1,3 +1,5 @@
+import { sensitivePropertyKey, privatePropertyValue } from './properties-sensitive.js';
+import { discoverConfiguration } from './configuration-discovery.js';
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readdir, rename } from "node:fs/promises";
 import path from "node:path";
@@ -6,7 +8,7 @@ import type { LocalMinecraftServerAdapter } from "../adapters/contract.js";
 import type { AdapterRegistry } from "../adapters/registry.js";
 import type { Clock } from "../clock.js";
 import type { RuntimeOperationContext } from "../infra/runtime-contract.js";
-import { createRedactor, isSensitiveKey } from "../infra/runtime/redactor.js";
+import { createRedactor } from "../infra/runtime/redactor.js";
 import { worldIdentity, type ActiveWorldStateStore } from "./active-world-state-store.js";
 import { backupDirectoryIdentity } from "./backup-identity.js";
 import { DomainError } from "./domain-errors.js";
@@ -36,13 +38,20 @@ export class PropertiesWriteService {
 
   async read(serverId: string) {
     return this.operations.runExclusive(serverId, async () => {
-      const adapter = this.local(serverId);
-      return this.reader.read(serverId, adapter.plan.rootPath);
+      const adapter = this.registry.getLocal(serverId);
+      if (!adapter) throw new DomainError(404, 'ACTION_UNAVAILABLE', 'Registered local instance required', 'properties-local-unavailable');
+      const snapshot = await this.reader.snapshot(serverId, adapter.plan.rootPath);
+      return { fields: snapshot.fields, revision: snapshot.revision, discovery: {
+        ...discoverConfiguration(snapshot.bytes.toString('utf8'), adapter.plan.serverInfo.type, adapter.plan.serverInfo.minecraftVersion ?? 'unknown',
+          this.fieldRules(serverId), snapshot.fields),
+        fileIdentity: snapshot.fileIdentity
+      } };
     });
   }
 
   fieldRules(serverId: string) {
-    const known = this.local(serverId).plan.serverInfo.minecraftVersion === "26.3";
+    const info = this.registry.getLocal(serverId)?.plan.serverInfo;
+    const known = info?.type === 'vanilla' && info.minecraftVersion === '26.3';
     return Object.fromEntries(PROPERTY_KEYS.map((key) => {
       const editable = known && !READ_ONLY_PROPERTY_KEYS.includes(key);
       return [key, { editable, restartRequired: true, reason: editable ? null : "VERSION_RULE_UNAVAILABLE" }];
@@ -113,9 +122,15 @@ export class PropertiesWriteService {
     const binding = await this.gate(adapter, operationId);
     const snapshot = await this.reader.snapshot(serverId, adapter.plan.rootPath);
     if (snapshot.revision !== body.revision || (parseEditableProperties(snapshot.bytes.toString("utf8")).get("level-name") ?? "world") !== binding.levelName) throw conflict();
-    const secrets = editablePropertyEntries(snapshot.bytes.toString("utf8")).filter(([name]) => isSensitiveKey(name)).map(([, value]) => value);
+    const allEntries = editablePropertyEntries(snapshot.bytes.toString('utf8'));
+    for (const name of Object.keys(body.changes)) {
+      if (allEntries.filter(([key]) => key === name).length !== 1 || snapshot.fields[name as keyof typeof snapshot.fields] === null) {
+        throw new DomainError(409, 'PROPERTIES_REVISION_CONFLICT', 'Property missing, duplicate or unsafe; refresh required', 'properties-ambiguous-target');
+      }
+    }
+    const secrets = allEntries.filter(([name]) => sensitivePropertyKey(name)).map(([, value]) => value);
     const redactor = createRedactor({ secrets: () => secrets });
-    if (Object.values(body.changes).some((value) => redactor.redactText(value) !== value)) throw new DomainError(400, "VALIDATION_ERROR", "修改内容不能包含敏感信息", "sensitive-property-value");
+    if (Object.values(body.changes).some((value) => privatePropertyValue(value) || redactor.redactText(value) !== value)) throw new DomainError(400, "VALIDATION_ERROR", "修改内容不能包含敏感信息", "sensitive-property-value");
     return { adapter, binding, snapshot };
   }
 

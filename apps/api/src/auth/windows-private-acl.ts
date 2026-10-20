@@ -56,8 +56,11 @@ export function validatePrivateAcl(value: unknown, frozenUserSid?: string): stri
   return snapshot.userSid;
 }
 
+export const PRIVATE_ACL_DESCRIPTOR_READ = `$acl=if(([IO.File]::GetAttributes($target) -band [IO.FileAttributes]::Directory) -ne 0) {
+  [IO.Directory]::GetAccessControl($target)
+} else { [IO.File]::GetAccessControl($target) }`;
 export const PRIVATE_ACL_INSPECT_SCRIPT = `function Read-AuthPrivateAcl([string]$target) {
-$acl=Get-Acl -LiteralPath $target
+${PRIVATE_ACL_DESCRIPTOR_READ}
 $raw=[Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
 $rows=@()
 foreach($ace in $raw.DiscretionaryAcl) {

@@ -10,7 +10,7 @@ import {
   propertiesResponseSchema, propertiesWriteResponseSchema,
   type PropertiesResponse, type PropertiesWriteRequest, type PropertiesWriteResponse,
   playersResponseSchema, type PlayersResponse,
-  whitelistResponseSchema, type WhitelistResponse,
+  whitelistResponseSchema, type WhitelistResponse, type WhitelistMemberRequest,
   backupScheduleResponseSchema, type BackupScheduleResponse, type BackupScheduleUpdate,
   backupRetentionResponseSchema, type BackupRetentionResponse, type BackupRetentionUpdate,
   worldImportUploadResponseSchema,
@@ -230,6 +230,12 @@ export const api = {
     getJson<PlayersResponse>(`/servers/${encodeURIComponent(serverId)}/players`, playersResponseSchema, signal),
   whitelist: (serverId: string, signal?: AbortSignal) =>
     getJson<WhitelistResponse>(`/servers/${encodeURIComponent(serverId)}/whitelist`, whitelistResponseSchema, signal),
+  changeWhitelistMember: (serverId: string, body: WhitelistMemberRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/whitelist/members`, lifecycleActionResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202 }),
+  recoverWhitelist: (serverId: string, operationId: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/whitelist/recover`, lifecycleActionResponseSchema,
+      { method: 'POST', body: { operationId, confirm: true }, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200 }),
   worldImportPlan: (serverId: string, body: { uploadId: string; name: string }) =>
     requestJson<WorldImportPlanResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-plan`, worldImportPlanResponseSchema,
       { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),

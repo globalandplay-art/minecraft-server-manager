@@ -1,22 +1,57 @@
 import { useQuery } from '@tanstack/react-query';
 import type { HealthResponse } from '@mcsm/contracts';
-import { useEffect, useState } from 'react';
+import { Component, lazy, Suspense, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiClientError, api, errorMessage, shouldRetry } from './api';
 import { AppShell } from './components/AppShell';
 import { AuthenticationControls } from './components/Authentication';
 import { ConnectionBanner, EmptyState, ErrorState, MockBanner, PageHeading, SkeletonMetrics } from './components/Ui';
-import { Dashboard } from './pages/Dashboard';
-import { PerformancePage } from './pages/Performance';
-import { CrashAnalysisPage } from './pages/CrashAnalysis';
-import { PhasePage, SettingsPage, type PhasePageKind } from './pages/PhasePage';
-import { Servers } from './pages/Servers';
-import { ConsolePage } from './pages/Console';
-import { BackupsPage, WorldsPage } from './pages/WorldsBackups';
-import { PlayersPage } from './pages/Players';
-import { PropertiesPage } from './pages/Properties';
-import { WhitelistPage } from './pages/Whitelist';
-import { AddonsPage } from './pages/Addons';
+import type { PhasePageKind } from './pages/PhasePage';
+
+const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
+const PerformancePage = lazy(() => import('./pages/Performance').then((module) => ({ default: module.PerformancePage })));
+const CrashAnalysisPage = lazy(() => import('./pages/CrashAnalysis').then((module) => ({ default: module.CrashAnalysisPage })));
+const PhasePage = lazy(() => import('./pages/PhasePage').then((module) => ({ default: module.PhasePage })));
+const SettingsPage = lazy(() => import('./pages/PhasePage').then((module) => ({ default: module.SettingsPage })));
+const Servers = lazy(() => import('./pages/Servers').then((module) => ({ default: module.Servers })));
+const ConsolePage = lazy(() => import('./pages/Console').then((module) => ({ default: module.ConsolePage })));
+const BackupsPage = lazy(() => import('./pages/WorldsBackups').then((module) => ({ default: module.BackupsPage })));
+const WorldsPage = lazy(() => import('./pages/WorldsBackups').then((module) => ({ default: module.WorldsPage })));
+const PlayersPage = lazy(() => import('./pages/Players').then((module) => ({ default: module.PlayersPage })));
+const PropertiesPage = lazy(() => import('./pages/Properties').then((module) => ({ default: module.PropertiesPage })));
+const WhitelistPage = lazy(() => import('./pages/Whitelist').then((module) => ({ default: module.WhitelistPage })));
+const AddonsPage = lazy(() => import('./pages/Addons').then((module) => ({ default: module.AddonsPage })));
+
+function RouteLoading() {
+  return (
+    <div className="page-stack" role="status" aria-live="polite">
+      <PageHeading eyebrow="LOADING" title="正在加载页面" description="页面资源正在准备，请稍候。" />
+      <SkeletonMetrics />
+    </div>
+  );
+}
+
+export class RouteErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+
+  override componentDidCatch() {
+    this.setState({ failed: true });
+  }
+
+  override render() {
+    if (this.state.failed) {
+      return (
+        <div className="page-stack" role="alert">
+          <PageHeading eyebrow="PAGE ERROR" title="页面暂时无法加载" description="页面资源加载失败。请检查连接后刷新页面。" />
+          <div><button className="button button--secondary" type="button" onClick={() => window.location.reload()}>刷新页面</button></div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function interval(visibleMs: number, hiddenMs?: number) {
   return () => document.hidden ? (hiddenMs ?? false) : visibleMs;
@@ -181,7 +216,9 @@ export function App() {
       {connectionError && (healthQuery.data || serversQuery.data) ? (
         <ConnectionBanner message={errorMessage(connectionError)} retry={retryCore} />
       ) : null}
-      <Routes>
+      <RouteErrorBoundary key={location.pathname}>
+        <Suspense fallback={<RouteLoading />}>
+          <Routes>
         <Route path="/dashboard" element={
           <DashboardRoute
             selectedId={selectedId}
@@ -211,7 +248,9 @@ export function App() {
         <Route path="/crashes" element={invalidSelection ? <InvalidSelection /> : healthQuery.data?.data.features.crashAnalysis.implemented ? <CrashAnalysisPage key={selectedId} server={selectedServer} /> : phaseRoute('crashes')} />
         <Route path="/settings" element={invalidSelection ? <InvalidSelection /> : mode === 'local' ? <PropertiesPage key={selectedId} server={selectedServer} /> : <SettingsPage features={healthQuery.data?.data.features} />} />
         <Route path="*" element={<Navigate to={`/dashboard${selectedId ? `?server=${encodeURIComponent(selectedId)}` : ''}`} replace />} />
-      </Routes>
+          </Routes>
+        </Suspense>
+      </RouteErrorBoundary>
     </AppShell>
   );
 }

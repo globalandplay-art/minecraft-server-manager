@@ -1,10 +1,11 @@
+import { sensitivePropertyKey, privatePropertyValue } from './properties-sensitive.js';
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { lstat, open } from "node:fs/promises";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 import { SERVER_PROPERTIES_LIMIT } from "../config/properties.js";
 import { editablePropertyEntries } from "./properties-grammar.js";
-import { createRedactor, isSensitiveKey } from "../infra/runtime/redactor.js";
+import { createRedactor } from "../infra/runtime/redactor.js";
 import { backupDirectoryIdentity } from "./backup-identity.js";
 import { DomainError } from "./domain-errors.js";
 
@@ -45,10 +46,10 @@ export class PropertiesReader {
       if (text.includes("\0") || text.startsWith("\ufeff")) throw unsafe();
       const entries = editablePropertyEntries(text);
       const parsed = new Map(entries);
-      const redactor = createRedactor({ secrets: () => entries.filter(([key]) => isSensitiveKey(key)).map(([, value]) => value) });
+      const redactor = createRedactor({ secrets: () => entries.filter(([key]) => sensitivePropertyKey(key)).map(([, value]) => value) });
       const fields = Object.fromEntries(PROPERTY_KEYS.map((key) => {
         const value = parsed.get(key); let safe: string | number | boolean | null = null;
-        if (value !== undefined && redactor.redactText(value) === value && !/[\u0000-\u001f\u007f]/u.test(value)) {
+        if (value !== undefined && !privatePropertyValue(value) && redactor.redactText(value) === value && !/[\u0000-\u001f\u007f]/u.test(value)) {
           if (key === "motd") safe = Buffer.byteLength(value, "utf8") <= 1024 ? value : null;
           else if (key === "difficulty") safe = ["peaceful", "easy", "normal", "hard"].includes(value) ? value : null;
           else if (key === "gamemode") safe = ["survival", "creative", "adventure", "spectator"].includes(value) ? value : null;
@@ -60,9 +61,10 @@ export class PropertiesReader {
         }
         return [key, safe];
       })) as SafePropertyFields;
-      const revision = createHmac("sha256", this.#revisionKey).update(serverId).update("\0").update(identity).update("\0").update(bytes).digest("hex");
+      const fileIdentity = createHash("sha256").update(`${before.dev}\0${before.ino}\0${before.birthtimeMs}`).digest("hex");
+      const revision = createHmac("sha256", this.#revisionKey).update(serverId).update("\0").update(identity).update("\0").update(fileIdentity).update("\0").update(bytes).digest("hex");
       return { fields, revision, bytes, rootIdentity: identity,
-        fileIdentity: createHash("sha256").update(`${before.dev}\0${before.ino}\0${before.birthtimeMs}`).digest("hex"),
+        fileIdentity,
         checksum: createHash("sha256").update(bytes).digest("hex") };
     } catch { throw unsafe(); }
   }

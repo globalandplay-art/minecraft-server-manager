@@ -1,3 +1,19 @@
+## 当前状态更新 — 2026-10-20（覆盖更早 PAUSED 状态的措辞）
+
+Phase 7 远程访问状态：**STOPPED / OUT OF CURRENT SCOPE，非 PASS**。不继续 Tailscale、Cloudflare、公网入口、Native Client/Serve 竞态或真实远程部署开发。已有代码、测试、文档和历史失败证据完整保留，远程访问默认关闭。只有用户明确重新授权后才可恢复工作。
+
+保留现有代码、测试、文档与历史证据，远程默认关闭。现有本地账号、Session、HTTP/WS 认证、CSRF/Origin、权限和审计继续作为服务器管理的必要依赖，不删除或降级。
+
+当前主线改为本地服务器管理，按实际检查点推进：
+
+1. LC1.1：优先完成 Vanilla 动态配置端到端收口及当前交付验证；保留未知字段只读与原有安全写入规则。Paper/模组配置按独立范围扩展，不宣称已支持。
+2. LM1：复用已实现的性能页面和历史曲线，核对剩余集成/验收，不重新开发已有功能。
+3. LM2：补齐有可信来源的监测与异常提示；无法可靠采集的 TPS/MSPT 保持 N/A。
+4. LC2：保留已验证的白名单只读能力。在线增删仍为 DEFERRED/BLOCKED；不恢复无限原生 CommandStore 优化，也不绕过发送前意图、幂等及恢复门控。
+5. 本地交付收尾：集中审查、适用完整回归与最终发布 Gate；既有未解决失败必须保留并如实阻塞全项目 PASS。真实 Minecraft 验收另需明确授权。
+
+冻结远程不等于删除代码、解决历史失败或宣布正式稳定版。本次仅更新方向与检查点；不自动 commit/push/PR、不启动真实服务器或变更网络。
+
 # Phase 7 — Authentication / Remote Access
 
 2026-10-14 LC1 local configuration checkpoint: grouped Properties UI/baseline-draft comparison, exact MOTD display, safe readonly white-list/enforce-whitelist observation implemented. Existing Vanilla26.3 six-field writes and sensitive confirmation/transaction gates retained; distance and whitelist writes remain unavailable, Paper/Fabric config service not expanded. Fresh frozen361/361 full1707 PASS (Contracts16/API1525/Web166), lint/typecheck/build/diff PASS; three-width synthetic authenticated browser PASS with explicit fixture cleanupack/exit0 and portsfree. Source/delta/final evidence independent SolHigh P1/P2/P3=0; LC1 supported subset ENGINEERING PASS, real Minecraft NOT RUN. Phase7 remote PAUSED, historical failures/unfinished candidates retained; LC2/LM1/LM2 NOT STARTED, no real Minecraft/network/Git action. See LOCAL_CONFIGURATION_MONITORING_PLAN_2026-10-14.md.

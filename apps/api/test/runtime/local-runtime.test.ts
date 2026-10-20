@@ -143,6 +143,82 @@ afterEach(async () => {
 });
 
 describe("LocalMinecraftRuntime", () => {
+  it("offers fixed generation-bound whitelist RCON commands without stdin or mutation replay", async () => {
+    const root = await fixtureRoot(); const commands: string[] = [];
+    let onCommand: (() => void) | undefined;
+    const server = net.createServer(socket => {
+      sockets.add(socket); let buffer = Buffer.alloc(0);
+      socket.on("data", chunk => {
+        buffer = Buffer.concat([buffer, chunk]);
+        while (buffer.length >= 4 && buffer.length >= buffer.readInt32LE(0) + 4) {
+          const length = buffer.readInt32LE(0), packet = buffer.subarray(4, length + 4);
+          buffer = buffer.subarray(length + 4);
+          const id = packet.readInt32LE(0), type = packet.readInt32LE(4), body = packet.subarray(8, length - 2).toString();
+          if (type === 2) { commands.push(body); onCommand?.(); }
+          socket.write(encodeRconPacket(id, type === 3 ? 2 : 0, type === 2 ? "fake-response" : ""));
+        }
+      });
+    });
+    servers.add(server);
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address(); if (!address || typeof address === "string") throw new Error("no port");
+    const base = plan(root, childScript({ exitOnStop: true }));
+    const runtime = new LocalMinecraftRuntime({ ...base, serverInfo: { ...base.serverInfo, minecraftVersion: "26.3" },
+      getRconConnection: async () => ({ host: "127.0.0.1", port: address.port, password: "test-secret" }) }, {
+      spawnProcess: trackedSpawn(), statusProbe: async () => children.size ? "running" : "stopped", readinessPollMs: 5
+    });
+    await runtime.initialize();
+    try {
+      await expect(runtime.openWhitelistSession()).rejects.toMatchObject({ commandDispatched: false });
+      const starting = runtime.start(operation()); await waitForChild();
+      await appendFile(join(root, "logs", "latest.log"), "[Server thread/INFO]: Done (whitelist)!\n"); await starting;
+      const session = await runtime.openWhitelistSession();
+      expect(session.runtimeId).toMatch(/^[a-f0-9-]{36}$/u);
+      await expect(session.add("bad;stop", () => undefined)).rejects.toMatchObject({ code: "ACTION_UNAVAILABLE" });
+      await expect(session.add("Player_One", () => { throw new Error("auth-expired"); })).rejects.toThrow("auth-expired");
+      await expect(session.add("Player_One", (() => Promise.reject(new Error("invalid-async-permit"))) as unknown as () => undefined))
+        .rejects.toMatchObject({ code: "RCON_PROTOCOL_ERROR", commandDispatched: false });
+      expect(commands).toEqual([]);
+      const listing = session.list();
+      await expect(session.add("Player_Two", () => undefined)).rejects.toMatchObject({ code: "OPERATION_CONFLICT" });
+      await expect(listing).resolves.toBe("fake-response");
+      await expect(session.add("Player_One", () => undefined)).resolves.toBe("fake-response");
+      await expect(session.remove("Player_One", () => undefined)).rejects.toMatchObject({ code: "OPERATION_CONFLICT" });
+      expect(commands).toEqual(["whitelist list", "whitelist add Player_One"]);
+      const another = await runtime.openWhitelistSession(); expect(another.runtimeId).toBe(session.runtimeId);
+      onCommand = () => another.close();
+      await expect(another.remove("Player_One", () => undefined)).rejects.toMatchObject({ commandDispatched: true });
+      expect(commands.at(-1)).toBe("whitelist remove Player_One");
+      session.close();
+      await expect(session.list()).rejects.toMatchObject({ commandDispatched: false });
+      const old = await runtime.openWhitelistSession();
+      const child = await waitForChild(); await stopTestChild(child);
+      await expect(old.list()).rejects.toMatchObject({ commandDispatched: false });
+      onCommand = undefined;
+      const restarting = runtime.start(operation()); await waitForChild();
+      await appendFile(join(root, "logs", "latest.log"), "[Server thread/INFO]: Done (whitelist restart)!\n"); await restarting;
+      const fresh = await runtime.openWhitelistSession();
+      expect(fresh.runtimeId).not.toBe(old.runtimeId);
+      await expect(old.add("Player_Two", () => undefined)).rejects.toMatchObject({ commandDispatched: false });
+      fresh.close(); old.close();
+    } finally { await runtime.closeObserver(); }
+  });
+
+  it("does not fall back to stdin when a whitelist session has no RCON", async () => {
+    const root = await fixtureRoot(); const base = plan(root, childScript());
+    const runtime = new LocalMinecraftRuntime({ ...base, serverInfo: { ...base.serverInfo, minecraftVersion: "26.3" } }, {
+      spawnProcess: trackedSpawn(), statusProbe: async () => children.size ? "running" : "stopped", readinessPollMs: 5
+    });
+    await runtime.initialize();
+    try {
+      const starting = runtime.start(operation()); const child = await waitForChild();
+      await appendFile(join(root, "logs", "latest.log"), "[Server thread/INFO]: Done (whitelist)!\n"); await starting;
+      const write = vi.spyOn(child.stdin, "write");
+      await expect(runtime.openWhitelistSession()).rejects.toMatchObject({ code: "RCON_CONNECTION_FAILED", commandDispatched: false });
+      expect(write).not.toHaveBeenCalled();
+    } finally { await runtime.closeObserver(); }
+  });
+
   it("coalesces resource reads and preserves cache timestamps across stop/restart", async () => {
     const root = await fixtureRoot(); let nowMs = 10000; let startMs = 10000; let monotonic = 0;
     const reader = vi.fn(async (pid: number): Promise<ProcessCounters> => ({ pid,

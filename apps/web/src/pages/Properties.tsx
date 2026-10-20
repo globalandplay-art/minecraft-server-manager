@@ -1,31 +1,40 @@
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import type { Operation, PropertiesResponse, PropertiesWriteRequest, ServersResponse } from '@mcsm/contracts';
-import { useEffect, useRef, useState } from 'react';
+import type { Operation, PropertiesResponse, ServersResponse } from '@mcsm/contracts';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { api, ApiClientError, errorMessage } from '../api';
 import { PropertiesFields } from '../components/PropertiesFields';
 import { EmptyState, ErrorState, PageHeading } from '../components/Ui';
+import { usePropertyReceipt, type PropertyReceipt as Receipt } from '../propertyReceipt';
+import { authState } from '../authState';
 
 type Snapshot = PropertiesResponse['data'];
-type Receipt = { body: PropertiesWriteRequest; revision: string; key: string; operationId?: string };
-const valuesOf = (snapshot: Snapshot) => Object.fromEntries(Object.entries(snapshot.fields).map(([key, value]) => [key, value === null ? '' : String(value)]));
+const valuesOf = (snapshot: Snapshot) => snapshot.discovery ? Object.fromEntries(snapshot.discovery.items.map(item => [item.key, item.rawValue])) : Object.fromEntries(Object.entries(snapshot.fields).map(([key, value]) => [key, value === null ? '' : String(value)]));
 
 export function PropertiesPage({ server }: { server?: ServersResponse['data']['items'][number] | undefined }) {
+  const { generation } = useSyncExternalStore(authState.subscribe, authState.snapshot);
+  return <PropertiesEditor key={`${server?.server.id ?? 'none'}:${generation}`} server={server} />;
+}
+
+function PropertiesEditor({ server }: { server?: ServersResponse['data']['items'][number] | undefined }) {
   const id = server?.server.id;
+  const { receipt, update: setReceipt, current: receiptScopeCurrent } = usePropertyReceipt(id);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [baseline, setBaseline] = useState<Snapshot>();
-  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [edits, setEdits] = useState<Record<string, string>>(() => Object.fromEntries(
+    Object.entries(receipt?.body.changes ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string')));
   const [confirm, setConfirm] = useState(false);
   const [offline, setOffline] = useState(false);
-  const [receipt, setReceipt] = useState<Receipt>();
   const [sending, setSending] = useState(false);
-  const [unknown, setUnknown] = useState(false);
+  const dispatching = useRef(false);
+  const [unknown, setUnknown] = useState(Boolean(receipt && !receipt.operationId));
   const [needsRefresh, setNeedsRefresh] = useState(false);
   const [message, setMessage] = useState('');
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   const query = useQuery({ queryKey: ['properties', id], queryFn: ({ signal }) => api.properties(id!, signal),
-    enabled: Boolean(id && server?.capabilities.properties), retry: false, refetchOnWindowFocus: false });
+    enabled: Boolean(id && server?.capabilities.properties), retry: false, refetchOnWindowFocus: true, refetchOnMount: 'always', refetchInterval: () => document.hidden ? false : 30_000 });
   useEffect(() => { if (query.data && !baseline) setBaseline(query.data.data); }, [query.data, baseline]);
   const op = useQuery({ queryKey: ['properties-operation', id, receipt?.operationId],
     queryFn: ({ signal }) => api.operation(receipt!.operationId!, signal), enabled: Boolean(receipt?.operationId), retry: false,
@@ -38,64 +47,81 @@ export function PropertiesPage({ server }: { server?: ServersResponse['data']['i
     handled.current = result.id;
     if (result.state === 'succeeded' && !result.error && result.result?.resourceId) {
       setMessage('配置已保存。需要重启服务器才能生效；请到 Servers 显式启动或重启。');
-      setEdits({}); setConfirm(false); setOffline(false); setReceipt(undefined);
+      setEdits({}); setConfirm(false); setOffline(false); setReceipt(undefined, receipt);
       void query.refetch().then((fresh) => { if (mounted.current && fresh.data && !fresh.isError) setBaseline(fresh.data.data); });
     } else {
       const blocked = result.state !== 'failed' || result.error?.code === 'RECOVERY_REQUIRED';
       setMessage(blocked ? '配置操作未安全确认，保留恢复门控。请核对操作记录，不能再次保存。' : '配置保存失败；草稿保留，请刷新并重新确认。');
       setUnknown(blocked);
       if (result.error?.code === 'PROPERTIES_REVISION_CONFLICT') setNeedsRefresh(true);
-      if (!blocked) setReceipt(undefined);
+      if (!blocked) setReceipt(undefined, receipt);
       setConfirm(false);
     }
   }, [op.data, receipt, id, query]);
+  const disk = query.data?.data;
+  const externalConflict = Boolean(baseline && disk && (disk.revision !== baseline.revision || (baseline.discovery && disk.discovery && baseline.discovery.fileIdentity !== disk.discovery.fileIdentity)));
+  const fileReplaced = Boolean(baseline?.discovery && disk?.discovery && baseline.discovery.fileIdentity !== disk.discovery.fileIdentity);
+  const changedKeys = baseline && disk ? [...new Set([...Object.keys(valuesOf(baseline)), ...Object.keys(valuesOf(disk))])].filter(key => valuesOf(baseline)[key] !== valuesOf(disk)[key]) : [];
+  const blockedDraft = Object.entries(edits).filter(([key]) => baseline?.discovery && !baseline.discovery.items.some(item => item.key === key && item.editable));
   const frozen = sending || Boolean(receipt);
   const observedAge = server ? now - Date.parse(server.status.observedAt) : Infinity;
   const ready = server?.status.state === 'stopped' && server.status.ownership === 'none' &&
     !server.status.recoveryRequired && !server.status.activeOperationId && observedAge >= 0 && observedAge <= 15_000 &&
-    !needsRefresh && !query.isError && !query.isFetching;
+    !needsRefresh && !externalConflict && blockedDraft.length === 0 && !query.isError && !query.isFetching;
   const baseValues = baseline ? valuesOf(baseline) : {};
   const values = { ...baseValues, ...edits };
-  const changes = Object.fromEntries(Object.entries(edits).filter(([key, value]) => baseline?.fieldRules[key]?.editable && value !== baseValues[key]));
+  const changes = Object.fromEntries(Object.entries(edits).filter(([key, value]) => baseline?.fieldRules[key]?.editable && (!baseline.discovery || baseline.discovery.items.some(item => item.key === key && item.editable)) && value !== baseValues[key]));
   async function refresh() {
     setConfirm(false); setOffline(false);
     const fresh = await query.refetch();
     if (mounted.current && fresh.data && !fresh.isError) {
-      setEdits((old) => Object.fromEntries(Object.entries(old).filter(([key, value]) =>
-        baseline?.fieldRules[key]?.editable && value !== baseValues[key] && fresh.data.data.fieldRules[key]?.editable)));
+      if (baseline && (fresh.data.data.revision !== baseline.revision || (baseline.discovery && fresh.data.data.discovery && baseline.discovery.fileIdentity !== fresh.data.data.discovery.fileIdentity))) { setConfirm(false); return; }
+      // A refresh observes disk; only an explicit edit/discard or success removes a draft.
       setBaseline(fresh.data.data); setNeedsRefresh(false); setConfirm(false); setOffline(false);
     }
   }
   async function submit(existing?: Receipt) {
-    if (!id || !baseline || sending || (!existing && (!ready || !confirm || !Object.keys(changes).length))) return;
-    const next = existing ?? { body: { changes, confirmOfflineIdentity: offline }, revision: baseline.revision, key: crypto.randomUUID() };
-    setReceipt(next); setSending(true); setMessage('正在提交；尚未确认配置已保存。'); setUnknown(false);
+    if (!id || !baseline || dispatching.current || sending || (!existing && (receipt || !ready || !confirm || !Object.keys(changes).length))) return;
+    const next = existing ? { ...existing, attempt: (existing.attempt ?? 0) + 1 } : { body: { changes, confirmOfflineIdentity: offline }, revision: baseline.revision, key: crypto.randomUUID() };
+    if (!setReceipt(next, existing)) return;
+    dispatching.current = true; setSending(true); setMessage('正在提交；尚未确认配置已保存。'); setUnknown(false);
     try {
       const response = await api.saveProperties(id, next.body, next.revision, next.key);
-      if (!mounted.current) return;
       if (response.data.operation.serverId !== id || response.data.operation.kind !== 'properties-write') throw new Error('配置操作响应不匹配');
-      setReceipt({ ...next, operationId: response.data.operation.id }); setMessage('请求已受理，正在核验配置写入…');
+      setReceipt({ ...next, operationId: response.data.operation.id }, next);
+      if (!mounted.current || !receiptScopeCurrent()) return;
+      setMessage('请求已受理，正在核验配置写入…');
     } catch (error) {
-      if (!mounted.current) return;
       const definite = error instanceof ApiClientError && error.kind === 'http' && error.status !== undefined && error.status >= 400 && error.status < 500;
-      setUnknown(!definite); setMessage(definite ? `${errorMessage(error)}。草稿保留，请刷新配置并重新确认。` : '响应不确定，不能认定成功或失败。禁止新请求；可明确使用原请求和原幂等键核对。');
-      if (definite && error.code === 'RECOVERY_REQUIRED') {
+      if (!existing && definite && error.code !== 'RECOVERY_REQUIRED') setReceipt(undefined, next);
+      if (!mounted.current || !receiptScopeCurrent()) return;
+      setUnknown(!definite || Boolean(existing)); setMessage(definite ? `${errorMessage(error)}。草稿保留，请刷新配置并重新确认。` : '响应不确定，不能认定成功或失败。禁止新请求；可明确使用原请求和原幂等键核对。');
+      if (existing) {
+        setMessage('原请求结果仍未确认。此次核对失败不能证明原请求未执行；保留原幂等键，禁止新请求。');
+      } else if (definite && error.code === 'RECOVERY_REQUIRED') {
         setMessage('配置需要人工恢复核验。保留请求与草稿，禁止再次保存。');
       } else if (definite) {
-        setReceipt(undefined); setConfirm(false);
+        setConfirm(false);
         if (error.code === 'PROPERTIES_REVISION_CONFLICT') setNeedsRefresh(true);
       }
-    } finally { if (mounted.current) setSending(false); }
+    } finally { dispatching.current = false; if (mounted.current && receiptScopeCurrent()) setSending(false); }
   }
   return <div className="page-stack properties-page">
     <PageHeading eyebrow="SERVER CONFIGURATION" title="Server Properties" description="只编辑允许字段；保存前保护备份，保存后由你明确启动或重启。" />
     <p>配置仅在已确认停止时保存；本页不会自动停止、启动或重启服务器。未验证的字段保持只读。</p>
-    {id ? <a className="button button--secondary" href={`/whitelist?server=${encodeURIComponent(id)}`}>查看白名单成员</a> : null}
+    {id ? <Link className="button button--secondary" to={`/whitelist?server=${encodeURIComponent(id)}`}>查看白名单成员</Link> : null}
     {!server ? <EmptyState title="请选择服务器" description="选择实例后查看配置。" /> : !server.capabilities.properties ?
       <EmptyState title="此实例未开放配置管理" description="由后端能力决定可用功能。" /> : query.isPending && !baseline ? <p role="status">正在读取配置…</p> :
       !baseline ? <ErrorState description={errorMessage(query.error)} retry={() => void refresh()} /> : <>
         {!ready ? <p role="status">需要已确认停止、无其他操作且没有恢复锁的实例才能保存。请在 Servers 操作后刷新状态。</p> : null}
-        <PropertiesFields values={values} currentValues={baseValues} rules={baseline.fieldRules} disabled={frozen} onChange={(key, value) => {
+        {disk && baseline && externalConflict ? <section role="alert"><h2>磁盘配置发生变化</h2>
+          <p>{fileReplaced ? '配置文件身份已变化。' : ''}草稿已保留，不会自动保存。请比较新增、修改或移除的字段后明确确认。</p>
+          <ul>{changedKeys.map(key => <li key={key}>{key}: {valuesOf(baseline)[key] ?? '(新增)'} → {valuesOf(disk)[key] ?? '(移除)'}</li>)}</ul>
+          <button className="button" disabled={frozen} onClick={() => { setBaseline(disk); setNeedsRefresh(false); setConfirm(false); setOffline(false); }}>确认比较结果，保留草稿并使用新版本</button>
+        </section> : null}
+        <p>最后读取：{query.data?.meta.generatedAt ?? 'N/A'} · 变化字段：{changedKeys.length} · 待保存：{Object.keys(changes).length}</p>
+        {blockedDraft.length ? <section role="alert"><h2>草稿需要核对</h2><ul>{blockedDraft.map(([key,value]) => <li key={key}>{key}: {value} <button disabled={frozen} onClick={() => setEdits(old => Object.fromEntries(Object.entries(old).filter(([name]) => name !== key)))}>放弃 {key} 草稿</button></li>)}</ul><p>已移除或只读字段不能提交；无效草稿在明确放弃前阻止保存。</p></section> : null}
+        <PropertiesFields discovery={baseline.discovery} values={values} currentValues={baseValues} rules={baseline.fieldRules} disabled={frozen} onChange={(key, value) => {
           setEdits((old) => {
             const next = { ...old };
             if (value === baseValues[key]) delete next[key]; else next[key] = value;
@@ -110,7 +136,8 @@ export function PropertiesPage({ server }: { server?: ServersResponse['data']['i
         <button className="button button--secondary" disabled={frozen || query.isFetching} onClick={() => void refresh()}>刷新当前配置，保留草稿</button>
         <button className="button" disabled={!ready || frozen || !confirm || !Object.keys(changes).length || (changes['online-mode'] === 'false' && !offline)} onClick={() => void submit()}>备份并保存配置</button>
         {unknown && receipt && !receipt.operationId ? <button className="button button--secondary" disabled={sending} onClick={() => void submit(receipt)}>使用原请求核对结果</button> : null}
-        {receipt?.operationId ? <p>操作 ID：{receipt.operationId}。离开页面前请等待结果；不确定时先查操作记录，不要重复保存。</p> : null}
+        {receipt ? <p>待确认请求在本次登录会话内跨页面保留；不会自动重发。刷新整个浏览器或重新登录后，请先核对操作记录。</p> : null}
+        {receipt?.operationId ? <p>操作 ID：{receipt.operationId}。不确定时先查操作记录，不要重复保存。</p> : null}
         {op.isError ? <ErrorState description="暂时无法读取操作结果；配置保存状态未确认。" retry={() => void op.refetch()} /> : null}
         {query.isError && baseline ? <p role="alert">配置刷新失败；保留草稿，尚未取得新的确认依据。</p> : null}
         {message ? <p role="status">{message}</p> : null}

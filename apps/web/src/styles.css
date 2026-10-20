@@ -408,6 +408,15 @@ h1, h2, h3, p { margin-top: 0; }
 }
 
 .properties-page { overflow-wrap: anywhere; }
+.performance-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.performance-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.performance-controls select { max-width: 100%; min-height: 40px; }
+.performance-controls p { width: 100%; margin: 0; }
+.performance-trends { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.performance-trend { min-width: 0; padding: 16px; overflow-wrap: anywhere; }
+.performance-trend svg { display: block; width: 100%; height: auto; color: var(--accent, #62d6b4); }
+.performance-trend__scale { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+@media (max-width: 700px) { .performance-trends { grid-template-columns: minmax(0, 1fr); } }
 .settings-panel.properties-fields > div { grid-template-columns: minmax(100px, 0.3fr) minmax(0, 1fr); }
 @media (max-width: 700px) { .settings-panel.properties-fields > div { display: block; } .properties-fields label { display: block; margin-bottom: 8px; } }
 

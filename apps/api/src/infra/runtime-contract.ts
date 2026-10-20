@@ -58,6 +58,16 @@ export interface RuntimeCommandResult {
   readonly output: string | null;
 }
 
+/** Internal RCON-only transport. Not an HTTP capability or proof of persistence.
+ * Caller holds the shared instance operation lock and supplies durable intent. */
+export interface WhitelistRconSession {
+  readonly runtimeId: string;
+  list(): Promise<string>;
+  add(name: string, authorize: () => undefined): Promise<string>;
+  remove(name: string, authorize: () => undefined): Promise<string>;
+  close(): void;
+}
+
 export interface RuntimeLogPage {
   readonly items: LogEntry[];
   readonly nextCursor: string;
@@ -89,6 +99,7 @@ export interface RuntimeStreamReplay {
 }
 
 export interface MinecraftRuntime {
+  openWhitelistSession?(): Promise<WhitelistRconSession>;
   getProcessResources?(): Promise<Pick<Metrics, "cpu" | "ram">>;
   snapshot(): Promise<RuntimeSnapshot>;
   start(context: RuntimeOperationContext): Promise<void>;

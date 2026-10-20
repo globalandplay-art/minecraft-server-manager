@@ -11,7 +11,7 @@ import { WhitelistCommandStore } from "../../src/services/whitelist-command-stor
 import { WhitelistGuardStore } from "../../src/services/whitelist-guard-store.js";
 import { SyntheticWhitelistCoordinator } from "../../src/services/whitelist-synthetic-coordinator.js";
 import { whitelistCommandHash, whitelistCommandRequestHash } from "../../src/services/whitelist-command-record.js";
-import { whitelistMemberRevision } from "../../src/services/whitelist-member-policy.js";
+import { parseWhitelistMemberIntent, whitelistMemberRevision } from "../../src/services/whitelist-member-policy.js";
 import { SyntheticRuntime } from "../whitelist-synthetic-fixture.js";
 
 // Test-only IPC. No raw errors, private bytes, paths or ACL snapshots leave this process.
@@ -19,7 +19,7 @@ const [root, mode, key] = process.argv.slice(2);
 if (!root || !["guard", "dispatch", "read", "roundtrip"].includes(mode ?? "") || !key || !process.send) process.exit(2);
 const runtime = new SyntheticRuntime();
 runtime.runtimeId = "12345678-1234-4234-8234-123456789abc";
-const request = { action: "add" as const, name: "Player_Two", confirm: true as const, revision: whitelistMemberRevision(runtime.snapshot()) };
+const request = parseWhitelistMemberIntent({ action: "add", name: "Player_Two", confirm: true, revision: whitelistMemberRevision(runtime.snapshot()) });
 const clock = { now: () => new Date(mode === "read" ? "2030-01-01T00:00:00.000Z" : "2026-10-14T00:00:00.000Z") };
 let owner: ManagerLifetimeLock | undefined;
 let stage = "owner-acquire";
@@ -27,7 +27,7 @@ const started = performance.now();
 let marks = 0;
 const timing = new NativeTiming();
 function emitObservation(row: object) {
-  if (marks++ >= 16) return;
+  if (marks++ >= 32) return;
   try { if (process.connected) process.send!(row, () => undefined); }
   catch { /* Observation loss cannot alter native ACL/publication results. */ }
 }
@@ -56,8 +56,15 @@ try {
   mark("owner-acquire");
   owner = await ManagerLifetimeLock.acquire(root!);
   mark("stores-open");
-  const operations = new OperationService(new JsonOperationStore(root!), clock); await operations.initialize();
-  const guards = await WhitelistGuardStore.open(root!, owner, acl, publication), commands = await WhitelistCommandStore.open(root!, owner, acl, publication);
+  const operations = new OperationService(new JsonOperationStore(root!), clock); await operations.initialize(); mark("operations-ready");
+  // Exercise the real default GuardStore composition, not a test-injected ACL.
+  const guards = await WhitelistGuardStore.open(root!, owner); mark("guard-opened");
+  // Dispatch recovery must exercise the production default ACL scope. Other
+  // probe modes keep the timing-injected collaborators for stage diagnostics.
+  const commands = mode === "dispatch"
+    ? await WhitelistCommandStore.open(root!, owner, undefined, undefined, undefined, event => mark(`command-${event}`))
+    : await WhitelistCommandStore.open(root!, owner, acl, publication);
+  mark("commands-opened");
   mark("stores-opened");
   if (mode === "roundtrip") {
     const captured = await runtime.capture("test"), operationId = randomUUID();
@@ -68,7 +75,7 @@ try {
       const exactBytes = (await readFile(join(root!, "whitelist-guards", operationId, "00.bin"))).equals(captured.bytes);
       mark("owner-release"); await owner.release(); mark("owner-reacquire"); owner = await ManagerLifetimeLock.acquire(root!);
       mark("guard-reopen");
-      const reopened = await WhitelistGuardStore.open(root!, owner, acl, publication);
+      const reopened = await WhitelistGuardStore.open(root!, owner);
       mark("guard-verify"); const equalReceipt = JSON.stringify(await reopened.verify(operationId)) === JSON.stringify(receipt);
       mark("owner-final-release");
       await owner.release(); owner = undefined;
@@ -78,10 +85,10 @@ try {
   } else if (mode === "read") {
     mark("restart-reconcile");
     const service = new SyntheticWhitelistCoordinator(operations, commands, guards, runtime, clock, owner);
-    await service.initialize();
+    await service.initialize(); mark("reconciled");
     const stored = (await operations.storedOutcomes())[0];
     if (!stored) throw new Error("probe-missing-operation");
-    const replay = await service.submit("test", request, key!, () => undefined);
+    const replay = await service.submit("test", request, key!, () => undefined); mark("replayed");
     let recoveryCode = "NO_ERROR";
     try { await service.recover("test", replay.id, () => undefined); }
     catch (error) { recoveryCode = error && typeof error === "object" && "code" in error && error.code === "RECOVERY_REQUIRED" ? "RECOVERY_REQUIRED" : "UNEXPECTED"; }

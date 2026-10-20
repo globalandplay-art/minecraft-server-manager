@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, rename, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -75,4 +75,16 @@ describe("properties descriptor identity and private revision core", () => {
     else await writeFile(f.file, kind === "over-limit" ? Buffer.alloc(1024 ** 2 + 1) : kind === "bad-utf8" ? Buffer.from([255]) : kind === "bad-unicode" ? "motd=\\uZZZZ" : "motd=\0secret");
     await expect(new PropertiesReader().read("test", f.root)).rejects.toMatchObject({ code: "PROPERTIES_READ_UNSAFE", safeMessage: "配置无法安全读取，请检查实例文件状态" });
   });
+});
+
+it('changes revision on same-content atomic replacement and suppresses new conventional credential aliases', async () => {
+  const f = await fixture('pvp=true\napi-key=PRIVATE_SENTINEL\nmotd=PRIVATE_SENTINEL\n');
+  const reader = new PropertiesReader();
+  const first = await reader.read('test',f.root);
+  expect(first.fields.motd).toBeNull();
+  await writeFile(f.file+'.replacement',f.text);
+  await rename(f.file,f.file+'.old'); await rename(f.file+'.replacement',f.file);
+  const second = await reader.read('test',f.root);
+  expect(second.revision).not.toBe(first.revision);
+  expect(JSON.stringify(second)).not.toContain('PRIVATE_SENTINEL');
 });

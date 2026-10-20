@@ -22,7 +22,7 @@ async function nativeCase(mode: "normal" | "parent" | "guard" | "scope" | "rotat
   if (stopped || inFlight) throw new Error("PRIOR_NATIVE_FAILURE_STOP");
   inFlight = true;
   const parent = await mkdtemp(join(tmpdir(), "mcsm-acl-prototype-")), root = join(parent, "manager"); await mkdir(root);
-  let child: ChildProcess | undefined, closed = false, drained = false, readyToKill = false, helperPid: number | undefined, primary: unknown;
+  let child: ChildProcess | undefined, closed = false, drained = false, readyToKill = false, helperPid: number | undefined, bridgePid: number | undefined, primary: unknown;
   let cleanupEnd: number | undefined;
   const workEnd = performance.now() + 50_000;
   let contender: ChildProcess | undefined, contenderClosed = false, contenderDrained = false;
@@ -114,6 +114,10 @@ async function nativeCase(mode: "normal" | "parent" | "guard" | "scope" | "rotat
         expect(row).toMatchObject({ pending: true, marker: true, detachedTest: mode === "retained-parent" });
         expect(Number.isSafeInteger(row.helperPid)).toBe(true); expect(Number(row.helperPid)).toBeGreaterThan(0);
         helperPid = Number(row.helperPid); readyToKill = true;
+        if (mode === 'retained-parent') {
+          expect(Number.isSafeInteger(row.bridgePid)).toBe(true); bridgePid=Number(row.bridgePid);
+          expect(bridgePid).toBeGreaterThan(0); expect(bridgePid).not.toBe(helperPid);
+        }
         expect(child.kill()).toBe(true);
         if (!closed) await withinWork(() => once(child!, "close"));
         if (mode === "retained-parent") {
@@ -126,6 +130,7 @@ async function nativeCase(mode: "normal" | "parent" | "guard" | "scope" | "rotat
         }
         // Default spawn must disappear BEFORE any contender acquisition starts.
         await withinWork(() => absent(helperPid!, Math.min(workEnd, performance.now() + 5000))); drained = true;
+        if (bridgePid !== undefined) await withinWork(() => absent(bridgePid!, Math.min(workEnd, performance.now()+5000)));
         expect(await compete()).toBe("ACQUIRED");
         console.info("LC2_ACL_RETAINED_PARENT", mode === "retained-parent" ? "new-owner-busy-until-owned-helper-exit" : "default-child-absent-before-new-owner");
       } else if (mode !== "parent") {
@@ -146,8 +151,23 @@ async function nativeCase(mode: "normal" | "parent" | "guard" | "scope" | "rotat
           expect(counts.length).toBeGreaterThanOrEqual(3); expect(counts.length).toBeLessThanOrEqual(35);
           expect(row.actualChildren).toBe(counts.length);
         }
-        else expect(row).toMatchObject({ exactBytes: true, equalReceipt: true, calls: 0, closed: true,
-          statistics: { queries: 23, targets: 63, sessions: 2, creates: 2, writes: 2, publishes: 2 } });
+        else {
+          // Two publication readbacks per file retain their before/after triples.
+          // Each of three final verifications brackets both files with a common
+          // four-target before/after pair (same checks, fewer process queries).
+          const triple = (name: string) => ['namespace','guard',name];
+          const pair = ['namespace','guard','manifest.json','00.bin'];
+          const created: string[][] = [];
+          for (const name of ['00.bin','manifest.json']) created.push([`${name}.stage`],
+            triple(`${name}.stage`),triple(`${name}.stage`),triple(name),triple(name));
+          expect(row.queryTrace).toEqual([
+            ...[...created,pair,pair].map(targets => ({phase:'create',targets})),
+            ...[['namespace'],pair,pair].map(targets => ({phase:'reopen',targets})),
+            ...[pair,pair].map(targets => ({phase:'verify',targets})),
+          ]);
+          expect(row).toMatchObject({ exactBytes: true, equalReceipt: true, calls: 0, closed: true,
+            statistics: { queries: 17, targets: 51, sessions: 2, creates: 2, writes: 2, publishes: 2 } });
+        }
         await waitClosed(); expect(child.exitCode).toBe(0); expect(child.signalCode).toBeNull();
       } else {
         expect(row.aclConsistent).toBe(true);
@@ -170,6 +190,7 @@ async function nativeCase(mode: "normal" | "parent" | "guard" | "scope" | "rotat
             });
           }
           if (helperPid && !drained && closed) { await absent(helperPid, cleanupDeadline()); drained = true; }
+          if (bridgePid !== undefined && closed) await absent(bridgePid,cleanupDeadline());
           if (!closed || !drained) throw new Error("CLEANUP_BLOCKED");
         }
         if (contender && (!contenderClosed || !contenderDrained)) throw new Error("CLEANUP_BLOCKED");

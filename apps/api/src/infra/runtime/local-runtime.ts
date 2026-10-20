@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { randomUUID } from "node:crypto";
 
 import type { MetricSource, Metrics, ServerStatus } from "@mcsm/contracts";
 
@@ -18,10 +19,11 @@ import type {
   RuntimeEvent,
   ValidatedLaunchPlan
 } from "../runtime-contract.js";
+import type { WhitelistRconSession } from "../runtime-contract.js";
 import { validateMinecraftCommand } from "./command-validation.js";
 import { RuntimeEventStream } from "./event-stream.js";
 import { BoundedLogTailer } from "./log-tailer.js";
-import { RconClient, RconError } from "./rcon-client.js";
+import { RconClient, RconError, assertSynchronousRconAdmission } from "./rcon-client.js";
 import { createRedactor, type Redactor } from "./redactor.js";
 import {
   probeMinecraftStatus,
@@ -145,6 +147,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
   private readonly tailer: BoundedLogTailer;
   private readonly redactor: Redactor;
   private child: ChildProcessWithoutNullStreams | null = null;
+  private readonly whitelistGenerations = new WeakMap<ChildProcessWithoutNullStreams, string>();
   private childOperationId: string | null = null;
   private childExit: Promise<void> | null = null;
   private rcon: RconClient | null = null;
@@ -378,6 +381,59 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       if (error instanceof RuntimeError) throw error;
       throw new RuntimeError("COMMAND_TRANSPORT_UNAVAILABLE", "无法向 Minecraft 发送安全停止命令。" );
     }
+  }
+
+  /** Dedicated transport only. Production member writes remain gated by the
+   * controller's version rules, endpoint binding and durable evidence checks. */
+  async openWhitelistSession(): Promise<WhitelistRconSession> {
+    const child = this.child, launch = this.childOperationId;
+    let revoked = false, busy = false, mutationSent = false;
+    const assert = (dispatched = false) => {
+      if (revoked || this.closed || !child || !launch || this.child !== child || this.childOperationId !== launch ||
+        child.exitCode !== null || child.signalCode !== null || this.status.state !== "running" ||
+        this.status.ownership !== "managed" || this.status.recoveryRequired) {
+        throw new RconError("RCON_DISCONNECTED", "Whitelist runtime generation is unavailable.", dispatched);
+      }
+    };
+    assert();
+    if (this.plan.serverInfo.type !== "vanilla" || this.plan.serverInfo.minecraftVersion !== "26.3") {
+      throw new RuntimeError("ACTION_UNAVAILABLE", "白名单在线操作仅支持 Vanilla 26.3。");
+    }
+    const connection = await this.readRconConnection(); assert();
+    if (!connection) throw new RconError("RCON_CONNECTION_FAILED", "Whitelist requires RCON.");
+    const client = this.rconClient(connection);
+    await client.connect(); assert();
+    if (!this.whitelistGenerations.has(child!)) this.whitelistGenerations.set(child!, randomUUID());
+    const execute = async (action: "list" | "add" | "remove", name?: string, authorize?: () => undefined) => {
+      assert();
+      if (busy || (action !== "list" && mutationSent)) throw new RuntimeError("OPERATION_CONFLICT", "白名单会话已有命令或已使用写入机会。");
+      if (action !== "list" && (typeof name !== "string" || !/^[A-Za-z0-9_]{3,16}$/u.test(name))) {
+        throw new RuntimeError("ACTION_UNAVAILABLE", "白名单玩家名称无效。");
+      }
+      busy = true;
+      try {
+        const current = await this.readRconConnection(); assert();
+        if (!current || current.port !== connection.port || current.password !== connection.password || this.rcon !== client) {
+          throw new RconError("RCON_DISCONNECTED", "Whitelist RCON binding changed.");
+        }
+        const output = await client.executeGuarded(action === "list" ? "whitelist list" : `whitelist ${action} ${name}`, () => {
+          assert();
+          if (this.rcon !== client) throw new RconError("RCON_DISCONNECTED", "Whitelist RCON binding changed.");
+          if (action !== "list") {
+            if (!authorize) throw new RconError("RCON_PROTOCOL_ERROR", "Whitelist admission is invalid.");
+            assertSynchronousRconAdmission(authorize);
+            assert();
+            mutationSent = true;
+          }
+          return undefined;
+        });
+        assert(true);
+        return output;
+      } finally { busy = false; }
+    };
+    return Object.freeze({ runtimeId: this.whitelistGenerations.get(child!)!,
+      list: () => execute("list"), add: (name: string, authorize: () => undefined) => execute("add", name, authorize),
+      remove: (name: string, authorize: () => undefined) => execute("remove", name, authorize), close: () => { revoked = true; } });
   }
 
   async command(validatedLine: string): Promise<RuntimeCommandResult> {

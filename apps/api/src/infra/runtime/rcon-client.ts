@@ -26,6 +26,16 @@ export class RconError extends Error {
   }
 }
 
+/** Reject asynchronous permits without awaiting them or leaving an unhandled
+ * rejection behind. This callback is trusted construction-only, never input. */
+export function assertSynchronousRconAdmission(authorize: () => undefined): void {
+  const result: unknown = authorize();
+  if (result !== undefined) {
+    void Promise.resolve(result).catch(() => undefined);
+    throw new RconError("RCON_PROTOCOL_ERROR", "RCON authorization must be synchronous.");
+  }
+}
+
 export interface RconClientOptions {
   readonly host: "127.0.0.1";
   readonly port: number;
@@ -110,6 +120,13 @@ export class RconClient {
   }
 
   async execute(command: string): Promise<string> {
+    return this.executeGuarded(command, () => undefined);
+  }
+
+  /** Internal dispatch boundary. The caller must persist intent BEFORE entering this
+   * method. Authorization is synchronous and runs after authentication, before any
+   * command write; it is not a durable journal or endpoint-ownership proof. */
+  async executeGuarded(command: string, authorize: () => undefined): Promise<string> {
     const validated = validateMinecraftCommand(command);
     await this.connect();
     const requestId = this.allocateRequestId();
@@ -119,7 +136,8 @@ export class RconClient {
       COMMAND_PACKET_TYPE,
       validated,
       "barrier",
-      barrierRequestId
+      barrierRequestId,
+      authorize
     );
     return this.redact(output);
   }
@@ -200,7 +218,8 @@ export class RconClient {
     type: number,
     body: string,
     mode: PendingRequest["mode"],
-    barrierRequestId: number | null = null
+    barrierRequestId: number | null = null,
+    authorize?: () => undefined
   ): Promise<string> {
     const socket = this.socket;
     if (!socket || socket.destroyed) {
@@ -209,6 +228,11 @@ export class RconClient {
     const encoded = encodeRconPacket(requestId, type, body);
     if (encoded.length - 4 > this.maxPacketLength) {
       return Promise.reject(new RconError("RCON_PROTOCOL_ERROR", "RCON packet length is invalid."));
+    }
+    // No pending request/timer exists if admission fails. Never await a permit.
+    if (authorize) assertSynchronousRconAdmission(authorize);
+    if (this.socket !== socket || socket.destroyed || (type === COMMAND_PACKET_TYPE && !this.authenticated)) {
+      return Promise.reject(new RconError("RCON_DISCONNECTED", "RCON connection changed before dispatch."));
     }
     return new Promise<string>((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -235,7 +259,12 @@ export class RconClient {
         expectedResponseType: type === AUTH_PACKET_TYPE ? 2 : 0,
         responseBytes: 0
       });
-      socket.write(encoded);
+      try { socket.write(encoded); }
+      catch {
+        // A write attempt may have reached the transport. Do not retry it.
+        const error = new RconError("RCON_DISCONNECTED", "RCON write outcome is uncertain.", type === COMMAND_PACKET_TYPE);
+        this.failConnection(error);
+      }
     });
   }
 

@@ -642,7 +642,23 @@ export type LifecycleActionResponse = Static<typeof lifecycleActionResponseSchem
 
 const safePropertyKeys = ["max-players", "difficulty", "gamemode", "pvp", "online-mode", "view-distance", "simulation-distance", "motd"] as const;
 const observedWhitelistKeys = ["white-list", "enforce-whitelist"] as const;
+export const configurationDiscoverySchema = strictObject({
+  files: Type.Array(strictObject({ id: Type.Literal('server-properties'), source: Type.Literal('server.properties'), format: Type.Literal('properties'), editable: Type.Boolean() }), { maxItems: 1 }),
+  serverType: Type.String({ maxLength: 32 }), minecraftVersion: Type.String({ maxLength: 128 }),
+  fileIdentity: Type.String({ minLength: 64, maxLength: 64 }), omittedCount: Type.Integer({ minimum: 0 }),
+  items: Type.Array(strictObject({
+    key: Type.String({ maxLength: 128 }), label: Type.String({ maxLength: 128 }), group: Type.String({ maxLength: 64 }),
+    category: Type.Union([Type.Literal('core'), Type.Literal('known'), Type.Literal('unknown')]),
+    rawValue: Type.String({ maxLength: 1024 }), value: Type.Union([Type.String({ maxLength: 1024 }), Type.Number(), Type.Boolean()]),
+    inferredType: Type.Union([Type.Literal('boolean'), Type.Literal('number'), Type.Literal('string')]),
+    source: Type.Literal('server.properties'), fileId: Type.Literal('server-properties'),
+    ruleStatus: Type.Union([Type.Literal('verified'), Type.Literal('unverified')]), editable: Type.Boolean(), sensitive: Type.Boolean(), duplicate: Type.Boolean(),
+    restartRequired: Type.Union([Type.Boolean(), Type.Null()]), reason: Type.Union([Type.String({ maxLength: 64 }), Type.Null()]), description: Type.String({ maxLength: 256 })
+  }), { maxItems: 512 })
+});
+export type ConfigurationDiscovery = Static<typeof configurationDiscoverySchema>;
 export const propertiesResponseSchema = strictObject({ data: strictObject({
+  discovery: Type.Optional(configurationDiscoverySchema),
   fields: strictObject(Object.fromEntries([...safePropertyKeys.map((key) => [key, Type.Union([Type.String(), Type.Number(), Type.Boolean(), Type.Null()])]),
     ...observedWhitelistKeys.map((key) => [key, Type.Optional(Type.Union([Type.Boolean(), Type.Null()]))])])),
   revision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
@@ -663,17 +679,26 @@ export const propertiesWriteResponseSchema = strictObject({ data: strictObject({
 }), meta: responseMetaSchema });
 export type PropertiesResponse = Static<typeof propertiesResponseSchema>;
 export type PropertiesWriteResponse = Static<typeof propertiesWriteResponseSchema>;
-export const whitelistResponseSchema = strictObject({ data: strictObject({
+const whitelistReadFields = {
   availability: Type.Union([Type.Literal("available"), Type.Literal("unavailable")]),
   reason: Type.Union([Type.String({ maxLength: 64 }), Type.Null()]),
   configuredEnabled: Type.Union([Type.Boolean(), Type.Null()]), configuredEnforced: Type.Union([Type.Boolean(), Type.Null()]),
   effectiveEnabled: Type.Null(),
   items: Type.Array(strictObject({ name: Type.String({ pattern: "^[A-Za-z0-9_]{3,16}$" }),
     uuid: Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }) }), { maxItems: 1000 }),
-  source: Type.Union([Type.Literal("whitelist-json"), Type.Null()]), sampledAt: timestampSchema,
-  membershipWritable: Type.Literal(false), writeReason: Type.Literal("MEMBER_RULE_UNAVAILABLE")
-}), meta: responseMetaSchema });
+  source: Type.Union([Type.Literal("whitelist-json"), Type.Null()]), sampledAt: timestampSchema
+};
+export const whitelistResponseSchema = strictObject({ data: Type.Union([
+  strictObject({ ...whitelistReadFields, membershipWritable: Type.Literal(false), writeReason: Type.Literal("MEMBER_RULE_UNAVAILABLE") }),
+  strictObject({ ...whitelistReadFields, membershipWritable: Type.Literal(true), writeReason: Type.Null(),
+    revision: Type.String({ pattern: "^[a-f0-9]{64}$" }) })
+]), meta: responseMetaSchema });
 export type WhitelistResponse = Static<typeof whitelistResponseSchema>;
+export const whitelistMemberRequestSchema = strictObject({ action: Type.Union([Type.Literal("add"), Type.Literal("remove")]),
+  name: Type.String({ pattern: "^[A-Za-z0-9_]{3,16}$" }), revision: Type.String({ pattern: "^[a-f0-9]{64}$" }), confirm: Type.Literal(true) });
+export type WhitelistMemberRequest = Static<typeof whitelistMemberRequestSchema>;
+export const whitelistRecoveryRequestSchema = strictObject({ operationId: Type.String({ pattern: "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$" }), confirm: Type.Literal(true) });
+export type WhitelistRecoveryRequest = Static<typeof whitelistRecoveryRequestSchema>;
 
 export const operationResponseSchema = strictObject({
   data: operationSchema,

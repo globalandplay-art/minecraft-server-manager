@@ -1,0 +1,138 @@
+# Technical debt register
+
+Current checkpoint: 2026-10-20. Historical validation documents remain unchanged snapshots. This register and PROGRESS distinguish current blockers from deferred features and platform limits. A source review PASS does not resolve a failed runtime Gate.
+
+## Current local-first decision (2026-10-20; authoritative for future work)
+
+- Product scope: local, single-user-first server management. Phase 7 remote work is **STOPPED / OUT OF CURRENT SCOPE**, not PASS. Preserve existing remote code and evidence; do not activate or continue it without explicit renewed authorization.
+- LC1 / Settings: reuse the existing configuration editor and its instance-bound safe save path. LC2 CommandStore, GuardStore and RCON are not Settings dependencies.
+- LC2 old native CommandStore: **DEFERRED**. Preserve timeout, `CLEANUP_BLOCKED`, and historical regression records; do not routinely rerun the old interruption stress test. Whitelist read remains separate from online mutation.
+- LC2 future local MVP direction: evaluate a bounded RCON add/remove path without a generic exactly-once transaction framework. Keep local request/origin checks, registered-instance and runtime checks, input validation, shared operation exclusion, no stdin fallback, and no automatic resend after uncertain response. Report `UNKNOWN` and allow manual refresh. Offline JSON editing is separate and requires trusted UUID data, confirmed stopped state, and protected saving. Neither write path is currently claimed delivered.
+- Validation policy: run focused checks for small changes, affected-module checks at integration, and full regression/lint/typecheck/build at stage delivery. Preserve failures; never change assertions or timeouts to manufacture PASS.
+- Current server-management work: existing registry supports the current registered-instance selection and Phase 5 Paper/Fabric integrations are historical deliverables. Forge/NeoForge launch targets and first-class registration UI are not implemented. Detection alone never authorizes launch.
+- M1 read-only increment (2026-10-20): exact Forge 26.3 `ForgeBootstrap` marker is displayed as a medium-confidence detected type; lifecycle remains unavailable and NeoForge remains unrecognized. This does not close the M1 registration/launch debt.
+
+## Historical LC2 native-gate snapshot (retained; superseded as current roadmap status below)
+
+| ID | Work | State recorded at that historical checkpoint |
+| --- | --- | --- |
+| 1 | CommandStore dispatch-intent persistence and interruption | BLOCKED. The fresh dispatch selection reached command intent publication at 28.485s; by 32.057s directory creation had taken 2.421s and ACL-many was active. It hit the unchanged 50s deadline before a durable dispatch checkpoint. Exact inner await remains UNKNOWN. The fixture reported `NATIVE_OBSERVATION_DEADLINE` and correctly retained its scene with `CLEANUP_BLOCKED`; no command dispatch or recovery-reader failure was proven. |
+| 2 | GuardStore crash/restart | Direct isolated selection now PASS (1 test, 41.82s; original 50s and zero-resend/recovery assertions retained). This closes only the guard checkpoint scenario, not CommandStore dispatch interruption. |
+| 3 | Production RCON endpoint/managed-child binding | Candidate dedicated transport exists; concrete production observation/binding remains open. |
+| 4 | Vanilla 26.3 whitelist response/save rules | Real command-response and durable-file behavior NOT VERIFIED. Fake results are insufficient. |
+| 5 | Production member-write composition | Main supplies no member factory; mutations remain unavailable until dependencies pass. |
+| 6 | Final integrated durability/security Gate | PENDING; independent source reviews do not substitute for runtime evidence. |
+| 7 | Real isolated LC2 acceptance | NOT RUN; requires separate authorization. |
+| 8 | Fresh green project baseline | BLOCKED. The LC1.1 full run remains historical at Contracts 18 PASS / API 2510 PASS + 12 FAIL / Web 207 PASS. Later focused repairs and passes do not replace that run; a fresh full regression is still required after the remaining LC2 blocker is addressed. |
+
+## 2026-10-20 formal CommandStore stop-loss decision (historical checkpoint)
+
+| Area | Current status | Meaning |
+| --- | --- | --- |
+| Saved-whitelist read | **ENGINEERING PASS** | Keep the verified read-only API and UI. This is not a claim that online member mutation works. |
+| Online add/remove | **BLOCKED** | Do not expose production member mutations; LC2 overall is not PASS. |
+| Existing native CommandStore route | **DEFERRED** | Stop repeated ACL/helper/native-writer/capacity optimization and the old interruption test loop. Preserve implementation, failed records, and the retained `CLEANUP_BLOCKED` fixture. |
+| Replacement online-operation design | **NOT IMPLEMENTED** | No safe replacement has been selected or proven. Do not silently substitute ordinary file writes or assume SQLite is safe. |
+| CommandStore failure | **Unresolved; exact inner point UNKNOWN** | `NATIVE_OBSERVATION_DEADLINE` and `CLEANUP_BLOCKED` remain factual historical outcomes. Namespace receipt was published; command receipt remained staged; no evidence proves RCON dispatch occurred. |
+
+### Dependency boundary
+
+The unresolved CommandStore route blocks only the current, unshipped LC2 online-write candidate. It is not a prerequisite for M1 server-type discovery/registration/switching, M2 controlled modded-server lifecycle, existing Phase 5 Mods / Plugins delivery, LC1.1's independent isolated acceptance, LM1 monitoring acceptance, or LM2 trusted-metric work. Settings uses its existing Properties API / `PropertiesGuardStore` / transaction journal path; that is distinct from LC2 `WhitelistGuardStore` / CommandStore and RCON, so no LC2 transaction subsystem is introduced into normal Settings editing. Do not gate those independent slices on CommandStore. A whole-project final gate still needs an honest treatment of the retained full-regression failures; independence does not turn those failures into PASS.
+
+### Earlier LC2 reopening gate (superseded by current local-first decision above)
+
+If online writes are reconsidered, first perform one bounded feasibility evaluation of a deliberately selected persistence design. Before any production wiring it must demonstrate: authenticated and validated request; registered instance and runtime-generation binding; shared lifecycle exclusion; durable pre-send intent; exactly-once dispatch behavior with no automatic resend after uncertainty; restart recognition of unfinished work; trustworthy outcome evidence; and UNKNOWN/recovery-required when evidence cannot prove the result. Assess Windows identity, permissions, crash consistency, and publication guarantees for any candidate such as SQLite. If these properties cannot be shown within the limited feasibility slice, stop and retain read-only behavior. This decision does not authorize that future implementation or real Minecraft acceptance.
+
+### Next local-server roadmap
+
+1. **M1 — Modded server discovery and registration:** inspect the current registry/adapter boundaries; implement controlled add, detect, register, and switch for Fabric / Forge / NeoForge one type at a time; define supported versions and capability flags; test invalid roots, identity changes, unsupported versions, and isolation between registered instances.
+2. **M2 — Modded server lifecycle:** only for types whose M1 identity/runtime contract is verified, reuse the existing process supervisor, operation lock, startup/recovery gates, and stop handling; test launch identity, readiness, stop, premature exit, and restart reconciliation without changing user worlds.
+3. **Mods / Plugins integration:** Phase 5 add-on management already has a historical Phase 5 Final PASS. Do not repeat it; run only compatibility checks needed for newly supported M1/M2 server types.
+4. **LC1.1 independent acceptance:** verify the Vanilla configuration path in an isolated fixture; keep unknown fields read-only and preserve existing safe write rules. This is not gated by LC2.
+5. **LM1 monitoring acceptance:** verify sources, freshness, and bounded history behavior for the implemented performance UI. Do not infer TPS/MSPT.
+6. **LM2 trusted metrics:** continue source-specific TPS/MSPT and alert evaluation; leave unsupported metrics N/A.
+7. **LC2 feasibility:** revisit only after the independent local-server work or on explicit reprioritization; old CommandStore remains deferred meanwhile.
+
+The roadmap is ordered work, not a claim that M1/M2 have started or passed. The current Phase 7 status is STOPPED / OUT OF CURRENT SCOPE as stated at the top of this register. No Git publication, real-server operation, world mutation, or cleanup of retained evidence is authorized here.
+
+## Deferred native and capacity research
+
+| ID | Work | Current state / trigger |
+| --- | --- | --- |
+| 9 | Detached helper executes no script | The test-only detached bridge now passes its owned-parent-survival selection; this does not establish a production-equivalent helper-survival mechanism. |
+| 10 | Helper survives parent termination | Requires execution identity and owned-child proof before any production use. |
+| 11 | Default-parent/idle-handoff combination | Unverified current combination; not a substitute for ordinary native Gate. |
+| 12 | Maximum 10000 command records | A later complete physical-capacity selection passed all 3 tests under the existing per-case limits. The earlier Attempt2 timeout remains historical; this narrow pass is not a fresh whole-project baseline. |
+| 13 | Maximum root entries | Later physical-capacity selection passed all 3 cases; earlier dependent-stop evidence remains historical. |
+| 14 | Native guard maximum-history cold open | Original deadline failure retained; research deferred outside MVP unless actually required by its path. |
+| 15 | Combined maximum history/chunks/interruption | Not proven by separate successful small tests. |
+| 16 | Compiled ACL D3 returned-index/WVT Gate | Deferred; required before selecting compiled path. |
+| 17 | Compiled artifact provenance/native integration | Deferred with compiled path; no unreviewed binary substitution. |
+
+## Configuration and whitelist scope
+
+| ID | Work | Current state / closure requirement |
+| --- | --- | --- |
+| 18 | whitelist/enforce-whitelist configuration writes | Read-only until version-specific behavior and protected save are verified. |
+| 19 | view/simulation distance writes | Read-only support boundary; no assumption all versions/loaders match. |
+| 20 | Other versions/Paper/Fabric property writes | Unsupported rules remain unavailable. |
+| 21 | Offline whitelist.json writes | Deferred outside online MVP; requires UUID identity, backup/publication/recovery evidence. |
+| 22 | Batch/Paper/Fabric whitelist mutations | Outside MVP; independent future scope. |
+| 23 | Configuration guard download/explicit rollback UI | Not implemented; no automatic rollback advertised. |
+| 24 | Pending property receipt across navigation | Implemented session-cache receipt, same-key replay, attempt-aware rejection CAS, monotonic acceptance and Router Link. Final validation recorded in PROGRESS; full reload remains explicitly outside memory-cache retention. |
+
+## Monitoring and world/addon scope
+
+| ID | Work | Current state / closure requirement |
+| --- | --- | --- |
+| 25 | Live players in performance history | N/A until bounded trusted source integrated; separate Players API is not historical evidence. |
+| 26 | Trusted TPS/MSPT | N/A; requires actual loader/version-specific verified source, never inferred from CPU. |
+| 27 | Thresholds/notifications | Observation notices implemented, configurable threshold/notification policy not implemented. |
+| 28 | Persistent monitoring history | Session-only bounded history; durable bounded retention not implemented. |
+| 29 | Latest configuration/monitor real acceptance | NOT RUN; separate isolated authorization required. |
+| 30 | Archived world reactivation/restore | Absent; archive data/guard retained. |
+| 31 | Unsupported world layouts/loaders | Explicit support boundary; do not silently broaden Vanilla transactions. |
+| 32 | Permanent addon deletion/automatic trash cleanup | Deliberately absent; restoration/evidence retention remain available. |
+
+## Remote, tooling and platform boundaries
+
+| ID | Work | Current state / closure requirement |
+| --- | --- | --- |
+| 33 | Tailscale remote | PAUSED, default off; real network changes not authorized. |
+| 34 | Cloudflare remote | PAUSED, default off; domain/deployment and separate security Gate required. |
+| 35 | Windows Playwright webServer teardown | Workaround: directly owned Vite process and explicit close; shell-tree root cause remains open. |
+| 36 | Main frontend chunk over 500kB | Route-level lazy loading and error boundary implemented; final build size recorded in PROGRESS. |
+| 37 | jsdom navigation/environment notices | Low-priority tooling debt; distinguish from product/browser failures. |
+| 38 | Historical/current documentation ambiguity | This register + latest PROGRESS are current index; old FAIL/BLOCKED reports are preserved, never rewritten as PASS. |
+| 39 | Windows directory fsync/arbitrary power loss | Platform limitation; no absolute durability guarantee claimed. |
+| 40 | Hostile same-OS-user filesystem writer | Threat-model limitation; local evidence cannot prove deletion of all evidence never occurred. |
+| 41 | Unknown binary/unstructured secret detection | Bounded capability, not a guarantee every arbitrary secret can be detected. |
+| 42 | npm optional Vitest peer resolver | Existing legacy-peer-deps installation workaround; resolver root cause not fixed by application changes. |
+
+## 2026-10-20 native evidence update
+
+Capacity Attempt2 expanded independent full read-chain batching from two to eight while preserving ACL/identity/hash/chain validation, drain-before-release, order and original deadline. Focused command/receipt/coordinator: 42 PASS. Physical file: 1 PASS / 2 FAIL, exit1; command stages prepare2ms, open6540ms, admit19326ms, replay44310ms, then original 50s deadline. Dependent root-entry body stopped. Evidence: ignored `test-results/debt-closure-2026-10-20/capacity-attempt2.{log,json}`. Two repairs exhausted; no success claim or third blind repair.
+
+Separate isolated owner observation: acquire4086ms, release2069ms, reacquire3916ms, release2056ms, exit0. This disproves a universally stuck release, not the failing cumulative test. Evidence: ignored `test-results/lc2-api-repair-2026-10-20/owner-release-timing.json`. It is diagnostic, not another repair.
+
+No real Minecraft/world/remote/system modifications, Git publication, historical evidence deletion or green full-project claim is authorized by this register.
+
+## 2026-10-20 reviewed native debt path update
+
+Three direct gates now PASS without extending their deadlines: detached retained-parent survival 1 PASS (27.78s total); default scoped GuardStore roundtrip 1 PASS (39.75s test / 40.09s total); complete physical-capacity file 3 PASS (60.54s file total, original per-case limits unchanged). These supersede the corresponding unresolved direct checks, not historical failures or whole-project results.
+
+Implementation: test-only detached Node bridge preserves the actual PowerShell PID/protocol and real survival/exit assertions; default GuardStore reuses the existing bounded ACL scope with quiescence before private publication; CommandStore read batches retain full physical namespace gates before and after drained batches plus every per-file identity/ACL/hash check. Independent scoped source review P1/P2/P3=0. Affected deterministic suite 67 PASS; API typecheck and changed-file lint PASS. Historical repair counters retained; new ordinary/capacity path is recorded as total historical repair 3, not a reset.
+
+Affected crash validation remains BLOCKED: guard writer reached its durable checkpoint around 40s; a new reader reached stores-open at 6844ms, then the shared original 50s observation deadline expired. Raw error NATIVE_OBSERVATION_DEADLINE at apps/api/test/whitelist-native.test.ts:104. Cleanup refused deletion with CLEANUP_BLOCKED at line47 because the reader had not produced its terminal ownership/closure proof. Dispatch body was not executed (PRIOR_NATIVE_FAILURE_STOP); its reported failure is a dependent stop, not a distinct observed product fault. No claim that background helpers are all closed; fixture evidence retained. No further native run or destructive cleanup after this safety stop.
+
+Evidence (ignored/local): test-results/lc2-debt-path-2026-10-20/{detached-survivor,native-scoped-roundtrip,capacity-batch-gate,native-scoped-crash}.log and corresponding result JSON. Original full regression 2510 PASS /12 FAIL remains historical; no new full-project PASS. Remaining work is cumulative crash/restart storage-path cost and safe reader closure evidence; exact internal bottleneck UNKNOWN. LC2 production and LC1.1 final Gate remain BLOCKED, remote PAUSED, real Minecraft NOT RUN; no commit/push/PR.
+
+2026-10-20 cumulative crash timing investigation completed without rerun: writer checkpoint >40.066s; reader owner acquisition6844ms, stores-opened not observed before shared50s. Exact internal call and eventual owned reader/helper closure UNKNOWN; CLEANUP_BLOCKED retained. No proof recovery algorithm failed or dispatch ran. See LC2_CRASH_TIMING_2026-10-20.md. Next prerequisite is identity-bound prior closure evidence, then bounded stage observation; no speculative native repair or unsafe cleanup.
+
+2026-10-20 new checkpoint: guard crash/restart now1PASS41.82s after formal request normalization fixture fix Attempt1; independent SolHigh0findings. Newly exercised dispatch path still50sFAIL before confirmed boundary, CLEANUP_BLOCKED retains fixture. Inner command publication step UNKNOWN, no unsafe shortcut/rerun. See LC2_CRASH_TIMING_2026-10-20.md. Whole debt NOT CLOSED.
+
+## 2026-10-20 stop-loss classification (historical checkpoint; superseded by current local-first decision above)
+Current production whitelist is readonly; candidate online CommandStore remains a real write dependency, not offline-only. MUST_FIX before enablement: durable intent/dispatch evidence, restart-safe idempotency, no resend, verified outcomes, production endpoint/rules/acceptance. DEFERRED outside readonly/monitoring delivery: current native dispatch50s optimization, offline writer/D3/unselected native modes and extreme combinations. SUPERSEDED: no unresolved storage path, because no safe replacement exists. Tests/evidence retained and no whole-projectPASS. Readonly API16PASS/Web8PASS. Details [decision](LC2_COMMANDSTORE_DECISION_2026-10-20.md); this classification supersedes blanket LC2 prerequisite statements above, not historical failures.
+
+## 2026-10-20 dispatch default-scope validation
+The dispatch fixture now opens `WhitelistCommandStore` with its production default collaborators; the previous run had injected timing wrappers and therefore did not exercise the scoped default. API typecheck and CommandStore unit tests pass (29/29). The one native dispatch test still fails at its unchanged 50s observation deadline: it entered `intent-publish` at 29.467s and did not emit the durable checkpoint. Error `NATIVE_OBSERVATION_DEADLINE` at `apps/api/test/whitelist-native.test.ts:104`; fixture cleanup reports `CLEANUP_BLOCKED` at `:47`. The exact child PID 8760 was absent on the subsequent exact-PID query. The test-owned temporary root remains preserved; read-only inspection found the namespace receipt and a staged command receipt, but no published command receipt. This narrows the unfinished work to `commands.admit()` / private publication, but does not prove which awaited call stalled or that a command was sent. No ACL compliance defect is established. The new default-scoped CommandStore candidate is not validated for native crash/restart; LC2 writes remain unwired and blocked. No repeat run, process termination, or evidence cleanup was performed. `git diff --check` passed; full regression and build were not run.

@@ -73,6 +73,56 @@ afterEach(async () => {
 });
 
 describe("RconClient", () => {
+  it("runs guarded admission after auth and sends zero commands on rejection or async admission", async () => {
+    const commands: string[] = []; let authenticated = false;
+    const server = await createTestServer((socket, packet) => {
+      if (packet.type === 3) { authenticated = true; socket.write(encodeRconPacket(packet.requestId, 2, "")); }
+      else if (packet.type === 2) { commands.push(packet.body); socket.write(encodeRconPacket(packet.requestId, 0, "ok")); }
+      else socket.write(encodeRconPacket(packet.requestId, 0, ""));
+    });
+    const client = new RconClient({ host: "127.0.0.1", port: server.port, getPassword: async () => "secret" });
+    try {
+      await expect(client.executeGuarded("whitelist add Player_One", () => {
+        expect(authenticated).toBe(true); throw new Error("admission-rejected");
+      })).rejects.toThrow("admission-rejected");
+      await expect(client.executeGuarded("whitelist add Player_One", (() => Promise.resolve()) as unknown as () => undefined))
+        .rejects.toMatchObject({ code: "RCON_PROTOCOL_ERROR", commandDispatched: false });
+      await expect(client.executeGuarded("whitelist add Player_One", (() => Promise.reject(new Error("invalid-async-permit"))) as unknown as () => undefined))
+        .rejects.toMatchObject({ code: "RCON_PROTOCOL_ERROR", commandDispatched: false });
+      expect(commands).toEqual([]);
+      await expect(client.executeGuarded("whitelist list", () => undefined)).resolves.toBe("ok");
+      expect(commands).toEqual(["whitelist list"]);
+    } finally { client.close(); }
+  });
+
+  it("does not write after admission replaces the connection", async () => {
+    let commands = 0;
+    const server = await createTestServer((socket, packet) => {
+      if (packet.type === 3) socket.write(encodeRconPacket(packet.requestId, 2, ""));
+      else if (packet.type === 2) commands++;
+    });
+    const client = new RconClient({ host: "127.0.0.1", port: server.port, getPassword: async () => "secret" });
+    try {
+      await expect(client.executeGuarded("whitelist add Player_One", () => { client.close(); return undefined; }))
+        .rejects.toMatchObject({ code: "RCON_DISCONNECTED", commandDispatched: false });
+      expect(commands).toBe(0);
+    } finally { client.close(); }
+  });
+
+  it("preserves dispatch uncertainty without automatically resending a guarded command", async () => {
+    let commands = 0, admissions = 0;
+    const server = await createTestServer((socket, packet) => {
+      if (packet.type === 3) socket.write(encodeRconPacket(packet.requestId, 2, ""));
+      else if (packet.type === 2) { commands++; socket.destroy(); }
+    });
+    const client = new RconClient({ host: "127.0.0.1", port: server.port, getPassword: async () => "secret" });
+    try {
+      await expect(client.executeGuarded("whitelist remove Player_One", () => { admissions++; return undefined; }))
+        .rejects.toMatchObject({ code: "RCON_DISCONNECTED", commandDispatched: true });
+      expect(commands).toBe(1); expect(admissions).toBe(1);
+    } finally { client.close(); }
+  });
+
   it("can reconnect immediately after a timed-out command", async () => {
     let commands = 0;
     const server = await createTestServer((socket, packet) => {

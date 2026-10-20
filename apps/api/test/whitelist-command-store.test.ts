@@ -17,9 +17,9 @@ afterEach(async () => {
   }
 });
 class FakeAcl extends WindowsPrivateAclVerifier {
-  denied = false; during: () => Promise<void> = async () => {};
+  denied = false; during: (files: readonly string[]) => Promise<void> = async () => {};
   override async verifyMany(files: readonly string[]): Promise<string[]> {
-    await this.during(); if (this.denied) throw new Error("PRIVATE_TEST_SENTINEL"); return files.map(() => "fake-acl");
+    await this.during(files); if (this.denied) throw new Error("PRIVATE_TEST_SENTINEL"); return files.map(() => "fake-acl");
   }
 }
 const now = "2026-10-14T00:00:00.000Z";
@@ -49,6 +49,45 @@ async function fixture() {
 it("construction/scan never creates storage, commands or configuration", async () => {
   const f = await fixture(), store = await f.open();
   expect(await store.scan()).toEqual([]); expect(await readdir(f.root)).toEqual([]); expect(f.writes()).toBe(0);
+});
+it('rejects a namespace identity replacement during a read batch without publishing or accepting the batch', async () => {
+  const f = await fixture(), store = await f.open(); await store.admit(f.input());
+  const retained = path.join(f.root,'retained-commands');
+  let replaced = false;
+  const writes = f.writes();
+  f.acl.during = async files => {
+    if (!replaced && files.some(file => file.startsWith(f.directory + path.sep))) {
+      replaced = true;
+      await rename(f.directory,retained); await mkdir(f.directory);
+      for (const name of await readdir(retained)) await rename(path.join(retained,name),path.join(f.directory,name));
+    }
+  };
+  await expect(store.scan()).rejects.toMatchObject({code:'WHITELIST_COMMAND_STORAGE_UNSAFE'});
+  expect(replaced).toBe(true); expect(f.writes()).toBe(writes);
+  await expect(store.scan()).rejects.toMatchObject({code:'WHITELIST_COMMAND_STORAGE_UNSAFE'});
+});
+it("drains eight bounded read chains under the owner lease after failure and never schedules the ninth", async () => {
+  const f = await fixture(), store = await f.open();
+  for (let index = 0; index < 9; index++) await store.admit(f.input());
+  const anchors = (await readdir(f.root)).filter(name => /^whitelist-command-.*\.receipt\.json$/u.test(name)).sort();
+  let release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  let thirdRead = false, settled = false;
+  f.acl.during = async files => {
+    if (files.includes(path.join(f.root, anchors[0]!))) throw new Error('PRIVATE_TEST_SENTINEL');
+    if (files.includes(path.join(f.root, anchors[7]!))) { entered(); await blocked; }
+    if (files.includes(path.join(f.root, anchors[8]!))) thirdRead = true;
+  };
+  const outcome = store.scan().then(() => null, (error: unknown) => error).finally(() => { settled = true; });
+  try {
+    await started;
+    expect(settled).toBe(false);
+    expect(() => f.owner.beginOfflineMutation(f.root)).toThrow('AUTH_BUSY');
+  } finally { release(); }
+  expect(await outcome).toMatchObject({ code: 'WHITELIST_COMMAND_STORAGE_UNSAFE' });
+  expect(thirdRead).toBe(false);
+  f.owner.beginOfflineMutation(f.root)();
 });
 it("preserves append-only intent/dispatch/response/recovery across a new store without executing anything", async () => {
   const f = await fixture(), store = await f.open(), request = f.input();

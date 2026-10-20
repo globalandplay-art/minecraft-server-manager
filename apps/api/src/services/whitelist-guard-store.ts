@@ -1,4 +1,6 @@
+import { WhitelistAclScope, WhitelistAclScopeError } from './whitelist-acl-scope.js';
 import { lstat, open, readdir, realpath } from "node:fs/promises";
+import type { BigIntStats } from "node:fs";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 import type { ManagerLifetimeLock } from "../auth/manager-lifetime-lock.js";
@@ -13,7 +15,7 @@ import type { WhitelistCommandPublication } from "./whitelist-command-store.js";
 import { WhitelistEnvelopeAclAction } from "./whitelist-envelope-acl.js";
 import type { WhitelistOwnedGuardAccess, WhitelistOwnedWideGuardAccess } from "./whitelist-owned-publication.js";
 
-type Owner = Pick<ManagerLifetimeLock, "assertHeld" | "rootIdentity" | "beginOfflineMutation">;
+type Owner = Pick<ManagerLifetimeLock, "assertHeld" | "rootIdentity" | "beginOfflineMutation"> & Partial<Pick<ManagerLifetimeLock, "nativeAclChildWrapper">>;
 type Acl = Pick<WindowsPrivateAclVerifier, "verifyMany">;
 type Source = Omit<WhitelistMemberSnapshot, "members">;
 type OwnedExecutor = ReturnType<typeof WhitelistEnvelopeAclAction.guardStoreExecutor>;
@@ -24,6 +26,9 @@ const id = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}
 const digest = /^[a-f0-9]{64}$/u;
 const normalized = (value: string) => process.platform === "win32" ? value.toLowerCase() : value;
 const unsafe = () => new DomainError(503, "WHITELIST_GUARD_UNSAFE", "白名单保护数据不可安全确认", "whitelist-guard-unsafe", true);
+const sameGuardFile = (before: BigIntStats, info: BigIntStats) => info.isFile() && !info.isSymbolicLink() && info.nlink === 1n &&
+  info.dev === before.dev && info.ino === before.ino && info.birthtimeNs === before.birthtimeNs && info.size === before.size &&
+  info.mtimeNs === before.mtimeNs && info.ctimeNs === before.ctimeNs;
 async function identity(directory: string): Promise<string> {
   const info = await lstat(directory, { bigint: true });
   if (!info.isDirectory() || info.isSymbolicLink() || normalized(await realpath(directory)) !== normalized(directory)) throw unsafe();
@@ -56,7 +61,7 @@ export class WhitelistGuardStore {
   readonly #known = new Map<string, string>();
   private constructor(readonly root: string, readonly owner: Owner, readonly acl: Acl,
     readonly publication: WhitelistCommandPublication, readonly rootIdentity: string,
-    private readonly owned?: OwnedExecutor, wide = false) { this.#directory = path.join(root, "whitelist-guards"); this.#wide = wide; }
+    private readonly owned?: OwnedExecutor, wide = false, private readonly scope?: WhitelistAclScope) { this.#directory = path.join(root, "whitelist-guards"); this.#wide = wide; }
   get ownedDiagnostic() { return this.owned?.diagnostic ?? null; }
   /** UNWIRED alternative. Test dependencies are trusted construction, never HTTP/config. */
   static async openOwned(root: string, owner: ManagerLifetimeLock, testDependencies?: OwnedDependencies) {
@@ -81,12 +86,14 @@ export class WhitelistGuardStore {
       });
     } catch { throw unsafe(); }
   }
-  static async open(root: string, owner: Owner, acl = new WindowsPrivateAclVerifier(), publication?: WhitelistCommandPublication) {
+  static async open(root: string, owner: Owner, acl?: WindowsPrivateAclVerifier, publication?: WhitelistCommandPublication) {
     try {
       if (!path.isAbsolute(root) || root !== path.resolve(root) || root.startsWith("\\\\") || root.startsWith("//")) throw unsafe();
       owner.assertHeld(root);
-      const store = new WhitelistGuardStore(root, owner, acl, publication ?? { createDirectory: (file) => createPrivateEntry(file, true, acl),
-        writeNew: (file, bytes) => writePrivateNew(file, bytes, acl), publishNew: publishPrivateStageNew }, await identity(root));
+      const verifier = acl ?? new WindowsPrivateAclVerifier();
+      const scope = !acl && !publication && owner.nativeAclChildWrapper ? new WhitelistAclScope(owner,root) : undefined;
+      const store = new WhitelistGuardStore(root, owner, verifier, publication ?? { createDirectory: (file) => createPrivateEntry(file, true, verifier),
+        writeNew: (file, bytes) => writePrivateNew(file, bytes, verifier), publishNew: publishPrivateStageNew }, await identity(root),undefined,false,scope);
       try { store.#namespace = await identity(store.#directory); } catch (error) {
         if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
       }
@@ -135,9 +142,29 @@ export class WhitelistGuardStore {
     } finally { this.#busy = false; }
     if (outcome.expected) throw outcome.expected; return outcome.value as T;
   }
-  async #exclusive<T>(action: (access?: WhitelistOwnedGuardAccess) => Promise<T>): Promise<T> {
+  async #exclusive<T>(action: (access?: WhitelistOwnedGuardAccess, acl?: Acl, publication?: WhitelistCommandPublication) => Promise<T>): Promise<T> {
     if (this.#busy) throw new DomainError(409, "WHITELIST_GUARD_BUSY", "保护数据正在使用");
     if (this.owned) return this.#ownedExclusive(action);
+    if (this.scope) {
+      this.#busy = true;
+      try {
+        return await this.scope.run(async acl => {
+          await this.#gate();
+          const publication: WhitelistCommandPublication = {
+            createDirectory: async file => { await acl.quiesce(); await createPrivateEntry(file,true,acl); },
+            writeNew: async (file,bytes) => { await acl.quiesce(); await writePrivateNew(file,bytes,acl); },
+            publishNew: async (stage,target) => { await acl.quiesce(); await publishPrivateStageNew(stage,target); },
+          };
+          const result = await action(undefined,acl,publication); await this.#gate(); return result;
+        });
+      } catch (error) {
+        if (error instanceof WhitelistAclScopeError && error.code === 'WHITELIST_ACL_SCOPE_BUSY') {
+          throw new DomainError(409,'WHITELIST_GUARD_BUSY','保护数据正在使用');
+        }
+        if (error instanceof DomainError && ['WHITELIST_GUARD_CAPACITY','WHITELIST_GUARD_CONFLICT'].includes(error.code)) throw error;
+        this.#poisoned=true; throw unsafe();
+      } finally { this.#busy=false; }
+    }
     let release: () => void;
     try { release = this.owner.beginOfflineMutation(this.root); } catch (error) {
       if (error instanceof AuthCoreError && error.code === "AUTH_BUSY") throw new DomainError(409, "WHITELIST_GUARD_BUSY", "保护数据正在使用");
@@ -150,7 +177,7 @@ export class WhitelistGuardStore {
     }
     finally { this.#busy = false; try { release(); } catch { this.#poisoned = true; throw unsafe(); } }
   }
-  async #read(file: string, directory: string, access?: WhitelistOwnedGuardAccess): Promise<Buffer> {
+  async #read(file: string, directory: string, access?: WhitelistOwnedGuardAccess, acl: Acl = this.acl): Promise<Buffer> {
     if (access) {
       const record = await access.readFile(this.#relative(file));
       try {
@@ -158,7 +185,7 @@ export class WhitelistGuardStore {
         await this.#gate(access); this.#known.set(file, record.fingerprint); return record.bytes;
       } catch (error) { record.bytes.fill(0); throw error; }
     }
-    const parent = await identity(directory), beforeAcl = await this.acl.verifyMany([this.#directory, directory, file]);
+    const parent = await identity(directory), beforeAcl = await acl.verifyMany([this.#directory, directory, file]);
     const before = await lstat(file, { bigint: true });
     if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n || before.size < 1n || before.size > 4096n || normalized(await realpath(file)) !== normalized(file)) throw unsafe();
     const same = (info: typeof before) => info.isFile() && !info.isSymbolicLink() && info.nlink === 1n && info.dev === before.dev && info.ino === before.ino &&
@@ -167,7 +194,7 @@ export class WhitelistGuardStore {
     try {
       if (!same(await handle.stat({ bigint: true }))) throw unsafe(); let offset = 0;
       while (offset < bytes.length) { const result = await handle.read(bytes, offset, bytes.length - offset, offset); if (!result.bytesRead) throw unsafe(); offset += result.bytesRead; }
-      const afterAcl = await this.acl.verifyMany([this.#directory, directory, file]);
+      const afterAcl = await acl.verifyMany([this.#directory, directory, file]);
       if (beforeAcl.length !== 3 || afterAcl.length !== 3 || afterAcl.some((value, i) => value !== beforeAcl[i]) ||
         !same(await handle.stat({ bigint: true })) || !same(await lstat(file, { bigint: true })) || await identity(directory) !== parent) throw unsafe();
       await this.#gate();
@@ -201,9 +228,51 @@ export class WhitelistGuardStore {
       throw error;
     }
   }
-  async #verify(operationId: string, access?: WhitelistOwnedGuardAccess): Promise<{ receiptHash: string; snapshot: WhitelistMemberSnapshot }> {
+  /** Fixed manifest+first-chunk pair. All four ACL targets bracket BOTH reads. */
+  async #readFirstPair(directory: string, acl: Acl = this.acl): Promise<[Buffer, Buffer]> {
+    const files = [path.join(directory, "manifest.json"), path.join(directory, "00.bin")];
+    const targets = [this.#directory, directory, ...files], parent = await identity(directory);
+    const beforeAcl = await acl.verifyMany(targets);
+    const rows: { file: string; handle: Awaited<ReturnType<typeof open>>; bytes: Buffer;
+      before: BigIntStats; fingerprint?: string }[] = [];
+    let failed = false;
+    try {
+      for (const file of files) {
+        // Use bigint metadata exactly as the single-file reader does.
+        const before = await lstat(file, { bigint: true });
+        if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n || before.size < 1n || before.size > 4096n ||
+          normalized(await realpath(file)) !== normalized(file)) throw unsafe();
+        const handle = await open(file, "r"), bytes = Buffer.alloc(Number(before.size));
+        const row = { file, handle, bytes, before }; rows.push(row);
+        const opened = await handle.stat({ bigint: true });
+        if (!sameGuardFile(before, opened)) throw unsafe();
+        let offset = 0;
+        while (offset < bytes.length) { const read = await handle.read(bytes, offset, bytes.length - offset, offset);
+          if (!read.bytesRead) throw unsafe(); offset += read.bytesRead; }
+      }
+      const afterAcl = await acl.verifyMany(targets);
+      if (beforeAcl.length !== 4 || afterAcl.length !== 4 || afterAcl.some((value, index) => value !== beforeAcl[index])) throw unsafe();
+      for (const row of rows) {
+        const before = row.before;
+        if (!sameGuardFile(before, await row.handle.stat({ bigint: true })) || !sameGuardFile(before, await lstat(row.file, { bigint: true }))) throw unsafe();
+        row.fingerprint = whitelistCommandHash(`${before.dev}\0${before.ino}\0${before.birthtimeNs}\0${whitelistCommandHash(row.bytes)}`);
+        if (this.#known.has(row.file) && this.#known.get(row.file) !== row.fingerprint) throw unsafe();
+      }
+      if (await identity(directory) !== parent) throw unsafe(); await this.#gate();
+    } catch { failed = true; }
+    // Drain every exact opened handle, including on read/stat/close failure.
+    const closed = await Promise.allSettled(rows.map(row => row.handle.close()));
+    if (closed.some(result => result.status === "rejected")) failed = true;
+    try {
+      if (failed || rows.length !== 2) throw unsafe();
+      for (const row of rows) this.#known.set(row.file, row.fingerprint!);
+      return [Buffer.from(rows[0]!.bytes), Buffer.from(rows[1]!.bytes)];
+    } finally { for (const row of rows) row.bytes.fill(0); }
+  }
+  async #verify(operationId: string, access?: WhitelistOwnedGuardAccess, acl: Acl = this.acl): Promise<{ receiptHash: string; snapshot: WhitelistMemberSnapshot }> {
     if (!id.test(operationId) || !this.#namespace) throw unsafe(); const directory = path.join(this.#directory, operationId);
-    const bytes = await this.#read(path.join(directory, "manifest.json"), directory, access); let all: Buffer | undefined;
+    const pair = access ? null : await this.#readFirstPair(directory,acl);
+    const bytes = pair ? pair[0] : await this.#read(path.join(directory, "manifest.json"), directory, access,acl); let all: Buffer | undefined;
     try {
       const value: unknown = JSON.parse(bytes.toString("utf8"));
       if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join(",") !==
@@ -223,46 +292,46 @@ export class WhitelistGuardStore {
           finally { for (const chunk of chunks) chunk.fill(0); }
         }
       } else {
-        for (let i = 0; i < manifest.chunks; i++) { const chunk = await this.#read(path.join(directory, `${String(i).padStart(2, "0")}.bin`), directory, access);
+        for (let i = 0; i < manifest.chunks; i++) { const chunk = i === 0 && pair ? Buffer.from(pair[1]) : await this.#read(path.join(directory, `${String(i).padStart(2, "0")}.bin`), directory, access,acl);
           try { if (chunk.length !== Math.min(4096, all.length - i * 4096)) throw unsafe(); chunk.copy(all, i * 4096); } finally { chunk.fill(0); } }
       }
       const snapshot = parsed(all, manifest.source);
       if (whitelistMemberRevision(snapshot) !== manifest.revision || (await this.#list(directory, access)).sort().join("|") !== expected.sort().join("|")) throw unsafe();
       await this.#gate(access); return { receiptHash: whitelistCommandHash(bytes), snapshot };
-    } finally { bytes.fill(0); all?.fill(0); }
+    } finally { bytes.fill(0); pair?.[1].fill(0); all?.fill(0); }
   }
-  async #scan(access?: WhitelistOwnedGuardAccess) {
+  async #scan(access?: WhitelistOwnedGuardAccess, acl: Acl = this.acl) {
     if (!this.#namespace) return [];
-    if (!access) await this.acl.verifyMany([this.#directory]);
+    if (!access) await acl.verifyMany([this.#directory]);
     const names = await this.#list(this.#directory, access); if (names.length > 1000 || names.some((name) => !id.test(name))) throw unsafe();
     const result = [];
-    for (const name of names) result.push({ operationId: name, ...await this.#verify(name, access) });
+    for (const name of names) result.push({ operationId: name, ...await this.#verify(name, access,acl) });
     // Same exact containment predicate; derive the bounded prefixes once per scan.
     const prefixes = names.map((name) => path.join(this.#directory, name) + path.sep);
     if ([...this.#known.keys()].some((file) => !prefixes.some((prefix) => file.startsWith(prefix)))) throw unsafe();
     if ((await this.#list(this.#directory, access)).sort().join("|") !== names.sort().join("|")) throw unsafe(); return result;
   }
-  scan() { return this.#exclusive((access) => this.#scan(access)); }
-  verify(operationId: string) { return this.#exclusive((access) => this.#verify(operationId, access)); }
+  scan() { return this.#exclusive((access,acl) => this.#scan(access,acl)); }
+  verify(operationId: string) { return this.#exclusive((access,acl) => this.#verify(operationId, access,acl)); }
   create(operationId: string, before: WhitelistMemberSnapshot, original: Buffer) {
     // Copy synchronously: later caller mutation cannot alter the captured source.
     const bytes = Buffer.from(original);
     const captured = structuredClone(before);
-    return this.#exclusive(async (access) => {
+    return this.#exclusive(async (access, acl = this.acl, publication = this.publication) => {
       try {
         if (!id.test(operationId) || bytes.length > WHITELIST_BYTES) throw unsafe();
         const revision = whitelistMemberRevision(captured), source: Source = { serverId: captured.serverId, rootIdentity: captured.rootIdentity,
           configRevision: captured.configRevision, fileIdentity: captured.fileIdentity, fileSha256: captured.fileSha256, runtimeId: captured.runtimeId };
         if (whitelistMemberRevision(parsed(bytes, source)) !== revision) throw unsafe();
-        const previous = await this.#scan(access);
+        const previous = await this.#scan(access,acl);
         if (previous.length >= 1000) throw new DomainError(409, "WHITELIST_GUARD_CAPACITY", "保护记录达到保留上限");
         if (previous.some((row) => row.operationId === operationId)) throw new DomainError(409, "WHITELIST_GUARD_CONFLICT", "保护记录已存在");
         if (!this.#namespace) {
-          if (access) await access.createDirectory("whitelist-guards"); else await this.publication.createDirectory(this.#directory);
+          if (access) await access.createDirectory("whitelist-guards"); else await publication.createDirectory(this.#directory);
           this.#namespace = await this.#identity(this.#directory, access);
         }
         const directory = path.join(this.#directory, operationId);
-        if (access) await access.createDirectory(this.#relative(directory)); else await this.publication.createDirectory(directory);
+        if (access) await access.createDirectory(this.#relative(directory)); else await publication.createDirectory(directory);
         const publish = async (name: string, value: Buffer) => {
           const target = path.join(directory, name), stage = target + ".stage"; await this.#gate(access);
           if (access) {
@@ -270,9 +339,9 @@ export class WhitelistGuardStore {
             const actual = await this.#read(target, directory, access);
             try { if (!actual.equals(value)) throw unsafe(); } finally { actual.fill(0); } return;
           }
-          await this.publication.writeNew(stage, value); const staged = await this.#read(stage, directory);
+          await publication.writeNew(stage, value); const staged = await this.#read(stage, directory,undefined,acl);
           try { if (!staged.equals(value)) throw unsafe(); } finally { staged.fill(0); }
-          await this.publication.publishNew(stage, target); const actual = await this.#read(target, directory);
+          await publication.publishNew(stage, target); const actual = await this.#read(target, directory,undefined,acl);
           try { if (!actual.equals(value)) throw unsafe(); } finally { actual.fill(0); } this.#known.delete(stage);
         };
         const chunks = Math.ceil(bytes.length / 4096);
@@ -299,7 +368,7 @@ export class WhitelistGuardStore {
         }
         const manifest: Manifest = { schemaVersion: 1, operationId, managerRootIdentity: this.owner.rootIdentity(), namespaceIdentity: this.#namespace,
           directoryIdentity: await this.#identity(directory, access), source, revision, byteLength: bytes.length, chunks, pinned: true };
-        await publish("manifest.json", Buffer.from(JSON.stringify(manifest))); return await this.#verify(operationId, access);
+        await publish("manifest.json", Buffer.from(JSON.stringify(manifest))); return await this.#verify(operationId, access,acl);
       } finally { bytes.fill(0); }
     }).finally(() => bytes.fill(0));
   }

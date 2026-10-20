@@ -6,10 +6,15 @@ import type { OperationService } from "./operation-service.js";
 import { PropertiesReader } from "./properties-reader.js";
 import { readStoredWhitelist } from "./whitelist-reader.js";
 import { backupDirectoryIdentity } from "./backup-identity.js";
+import type { WhitelistRconCoordinator } from "./whitelist-rcon-coordinator.js";
+import { whitelistMemberRevision } from "./whitelist-member-policy.js";
 
 export class WhitelistService {
   private readonly properties = new PropertiesReader();
-  constructor(private readonly registry: AdapterRegistry, private readonly operations: OperationService, private readonly clock: Clock) {}
+  constructor(private readonly registry: AdapterRegistry, private readonly operations: OperationService, private readonly clock: Clock,
+    readonly members?: WhitelistRconCoordinator) {
+    if (members && members.operations !== operations) throw new Error("Whitelist must share instance operation exclusion");
+  }
   async read(serverId: string): Promise<WhitelistResponse["data"]> {
     const unavailable = (reason: string): WhitelistResponse["data"] => ({ availability: "unavailable", reason,
       configuredEnabled: null, configuredEnforced: null, effectiveEnabled: null, items: [], source: null,
@@ -42,6 +47,16 @@ export class WhitelistService {
         }
         if ((await this.properties.read(serverId, adapter.plan.rootPath)).revision !== config.revision) return unavailable("snapshot-changed");
         await assertRoot();
+        if (this.members && status.state === "running" && status.ownership === "managed") {
+          try {
+            const prepared = await this.members.prepare(serverId);
+            if (prepared.rootIdentity === registeredRoot && prepared.configRevision === config.revision &&
+              JSON.stringify(prepared.members) === JSON.stringify(items)) {
+              return { availability: "available", reason: null, ...flags, effectiveEnabled: null, items, source: "whitelist-json",
+                sampledAt: this.clock.now().toISOString(), membershipWritable: true, writeReason: null, revision: whitelistMemberRevision(prepared) };
+            }
+          } catch { /* Saved list remains readable; missing live proof never enables writes. */ }
+        }
         return { availability: "available", reason: null, ...flags, effectiveEnabled: null, items, source: "whitelist-json",
           sampledAt: this.clock.now().toISOString(), membershipWritable: false, writeReason: "MEMBER_RULE_UNAVAILABLE" };
       });

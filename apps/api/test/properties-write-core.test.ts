@@ -22,7 +22,7 @@ async function fixture(inject?: (point: string) => Promise<void>) {
   const server = path.join(root, "server"), manager = path.join(root, "manager");
   await mkdir(server); await mkdir(manager); await mkdir(path.join(server, "world"));
   await writeFile(path.join(server, "world", "level.dat"), "isolated world revision");
-  const original = "# retained\r\nlevel-name=world\npvp=true\rrcon.password=isolated-private-password\n";
+  const original = "# retained\r\nlevel-name=world\nonline-mode=true\npvp=true\rrcon.password=isolated-private-password\n";
   await writeFile(path.join(server, "server.properties"), original);
   const journal = new TransactionJournalStore(manager); await journal.initialize();
   const id = "test-server";
@@ -202,7 +202,7 @@ it("app startup physically reconciles properties before OperationService reconst
     expect(read.statusCode).toBe(200);
     expect(read.headers["cache-control"]).toBe("no-store");
     expect(read.body).not.toContain("isolated-private-password");
-    expect(Object.keys(read.json().data)).toEqual(["fields", "revision", "fieldRules"]);
+    expect(Object.keys(read.json().data)).toEqual(["fields", "revision", "fieldRules", "discovery"]);
     expect(read.json().data.fieldRules["view-distance"].editable).toBe(false);
     const headers = { host: "localhost:8080", origin: "http://localhost:3000", "x-manager-intent": "local-ui",
       "content-type": "application/json", "if-match": String(read.headers.etag), "idempotency-key": randomUUID() };
@@ -271,4 +271,26 @@ it("keeps unverified Minecraft versions read-only at both field rules and write 
   expect(Object.values(f.service.fieldRules(f.id)).every((rule) => !rule.editable)).toBe(true);
   await expect(f.service.save(f.id, f.request, randomUUID())).rejects.toMatchObject({ code: "VERSION_RULE_UNAVAILABLE" });
   expect((await f.journal.scan()).records).toHaveLength(0);
+});
+
+it.each(['missing', 'duplicate'])('refuses a %s target without inserting removed properties or creating intent', async (kind) => {
+  const f = await fixture();
+  const text = kind === 'missing' ? f.original.replace('pvp=true', 'new-flag=true') : f.original + '\npvp=false\n';
+  await writeFile(path.join(f.server, 'server.properties'), text);
+  const revision = (await f.service.reader.read(f.id,f.server)).revision;
+  await expect(f.service.save(f.id,{ ...f.request,revision },randomUUID())).rejects.toMatchObject({code:'PROPERTIES_REVISION_CONFLICT'});
+  expect((await f.journal.scan()).records).toHaveLength(0);
+  expect(await readFile(path.join(f.server,'server.properties'),'utf8')).toBe(text);
+});
+it('discovery follows safe disk changes and keeps public snapshots free of source bytes and secrets', async () => {
+  const f = await fixture();
+  // Fixture deliberately supplies the operation lock; production uses OperationService.
+  f.service.operations.runExclusive = async (_id, action) => action();
+  const first = await f.service.read(f.id);
+  await writeFile(path.join(f.server,'server.properties'),f.original+'new-performance-option=12\n');
+  const second = await f.service.read(f.id);
+  expect(second.revision).not.toBe(first.revision);
+  expect(second.discovery.items.find(item => item.key === 'new-performance-option')).toMatchObject({value:12,editable:false});
+  expect(JSON.stringify(second)).not.toContain('isolated-private-password');
+  expect(Object.keys(second)).toEqual(['fields','revision','discovery']);
 });

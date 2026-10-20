@@ -1,5 +1,13 @@
 # Codex Operating Goal and Model Routing
 
+## Current product direction (2026-10-20; effective for new work)
+
+The product is local, single-user-first. Phase 7 remote access is **STOPPED / OUT OF CURRENT SCOPE**, not PASS; preserve its implementation and historical evidence, keep remote access closed, and require explicit renewed user authorization before resuming it. Current priorities are local server registration/loader support, server lifecycle, configuration, worlds/backups, add-ons, whitelist and trustworthy monitoring. Do not make remote-access architecture a prerequisite for local features.
+
+Apply tiered validation: focused tests and relevant static checks during small changes; affected-module integration at feature integration; full regression, lint, typecheck, build and applicable review at stage delivery. Preserve every failure record. Do not repeatedly run unrelated legacy failures or weaken timeouts/assertions to obtain green results. Ordinary local configuration editing must reuse its existing safe save path; the deferred LC2 native CommandStore is not a Settings dependency. For a future local whitelist MVP, retain local request/instance/input protections and no automatic resend when an RCON result is uncertain, but do not require a generic exactly-once framework by default.
+
+This current direction supersedes conflicting future-scope language below; historical model choices, reviews and phase evidence remain unchanged.
+
 生效日期：2026-10-01。本次 Model Routing Policy Migration 替代冲突的 ACTIVE FUTURE INSTRUCTION；HISTORICAL RECORD 不改写。本文是项目执行策略，不是账户配置、模型切换器或 Review 签核。
 
 ## 1. 执行目标与边界

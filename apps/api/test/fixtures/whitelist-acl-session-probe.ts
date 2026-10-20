@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { ManagerLifetimeLock } from "../../src/auth/manager-lifetime-lock.js";
@@ -10,7 +10,7 @@ import { SyntheticRuntime } from "../whitelist-synthetic-fixture.js";
 import { WhitelistAclScope } from "../../src/services/whitelist-acl-scope.js";
 import { nativePathData } from "../../src/auth/windows-native.js";
 import { setTimeout as delay } from "node:timers/promises";
-import { spawn } from "node:child_process";
+import { detachedAclFactory } from './whitelist-detached-factory.js';
 
 const [root, mode] = process.argv.slice(2);
 if (!root || !["normal", "parent", "guard", "scope", "rotation", "retention", "retained-parent", "retained-parent-auto", "retained-handoff"].includes(mode ?? "") || !process.send) process.exit(2);
@@ -19,6 +19,7 @@ const ownedSessions: PrototypeAclSession[] = [];
 const acl = new WindowsPrivateAclVerifier();
 let owner: ManagerLifetimeLock | undefined, release: (() => void) | undefined;
 let ownershipUncertain = false;
+let bridgePid: number | undefined;
 let stage: "owner-acquire" | "fixture-directory" | "fixture-file" | "legacy-baseline" | "active-query" | "active-checkpoint" | "normal-query" | "normal-close" | "owner-release" | "other" = "owner-acquire";
 const activeState: { settled: boolean; marked: boolean; queryFault: string | null } = { settled: false, marked: false, queryFault: null };
 async function acquireOwner() {
@@ -69,6 +70,17 @@ try {
       actualChildren: ownedSessions.filter((item) => Number.isSafeInteger(item.pid) && Number(item.pid) > 0).length }); process.disconnect();
   } else if (mode === "guard") {
     const statistics = { queries: 0, targets: 0, sessions: 0, aclElapsedMs: 0, creates: 0, writes: 0, publishes: 0 };
+    let phase = 'open';
+    const queryTrace: { phase: string; targets: string[] }[] = [];
+    const role = (file: string): string => {
+      const parts = relative(root!, file).split(sep);
+      if (parts[0] !== 'whitelist-guards') throw new Error('prototype-unexpected-acl-target');
+      if (parts.length === 1) return 'namespace';
+      if (!/^[a-f0-9-]{36}$/u.test(parts[1]!)) throw new Error('prototype-unexpected-acl-target');
+      if (parts.length === 2) return 'guard';
+      if (parts.length === 3 && ['00.bin.stage','00.bin','manifest.json.stage','manifest.json'].includes(parts[2]!)) return parts[2]!;
+      throw new Error('prototype-unexpected-acl-target');
+    };
     const started = performance.now();
     // Test-only injection: actual ACL queries and all inherited snapshot checks remain.
     class ScopedAcl extends WindowsPrivateAclVerifier {
@@ -77,7 +89,12 @@ try {
         statistics.queries++; statistics.targets += files.length;
         if (session.pid === undefined) statistics.sessions++;
         const begin = performance.now();
-        try { return (await session.query(files)).map((snapshot) => this.verifyNativeSnapshot(snapshot)); }
+        try {
+          const targets = files.map(role);
+          const result = (await session.query(files)).map((snapshot) => this.verifyNativeSnapshot(snapshot));
+          if (queryTrace.length >= 32) throw new Error('prototype-acl-trace-overflow');
+          queryTrace.push({ phase, targets }); return result;
+        }
         finally { statistics.aclElapsedMs += performance.now() - begin; }
       }
     }
@@ -90,18 +107,21 @@ try {
     const runtime = new SyntheticRuntime(), captured = await runtime.capture("test"), operationId = randomUUID();
     try {
       const guards = await WhitelistGuardStore.open(root!, owner!, scoped, publication);
+      phase = 'create';
       const receipt = await guards.create(operationId, captured.snapshot, captured.bytes);
       const exactBytes = (await readFile(join(root!, "whitelist-guards", operationId, "00.bin"))).equals(captured.bytes);
       await session.close(); if (!session.closedConfirmed) throw new Error("prototype-unclosed");
       release(); release = undefined; await closeOwner();
       await acquireOwner(); release = owner!.beginActivity(root!);
       session = new PrototypeAclSession();
+      phase = 'reopen';
       const reopened = await WhitelistGuardStore.open(root!, owner!, scoped, publication);
+      phase = 'verify';
       const equalReceipt = JSON.stringify(await reopened.verify(operationId)) === JSON.stringify(receipt);
       await session.close(); if (!session.closedConfirmed) throw new Error("prototype-unclosed");
       release(); release = undefined; await closeOwner();
       process.send!({ phase: "guard", exactBytes, equalReceipt, calls: runtime.calls, closed: true,
-        statistics: { ...statistics, aclElapsedMs: Math.floor(statistics.aclElapsedMs), elapsedMs: Math.floor(performance.now() - started) } }); process.disconnect();
+        queryTrace, statistics: { ...statistics, aclElapsedMs: Math.floor(statistics.aclElapsedMs), elapsedMs: Math.floor(performance.now() - started) } }); process.disconnect();
     } finally { captured.bytes.fill(0); }
   } else {
   release = owner!.beginOfflineMutation(root!);
@@ -119,10 +139,7 @@ try {
     // Explicit fixture-only orphan injection skips libuv's ordinary child job.
     // It does not alter production spawn or request flags, create a Job, request
     // breakaway, or guarantee escape from an independently imposed outer Job.
-    const factory = mode === "retained-parent" ? (script: string) => spawn(
-      join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-      ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-      { windowsHide: true, detached: true, stdio: ["pipe", "pipe", "pipe"] }) : undefined;
+    const factory = mode === "retained-parent" ? (script: string) => detachedAclFactory(script,pid => { bridgePid = pid; }) : undefined;
     session = new PrototypeAclSession(factory, undefined, (script) => {
       const needle = "  $rows=@(foreach($target in $targets) { Read-AuthPrivateAcl $target })";
       if (script.split(needle).length !== 2) throw new Error("prototype-instrumentation-shape");
@@ -148,7 +165,7 @@ try {
     }
     if (!marked || activeState.settled || activeState.queryFault || !session.pid) throw new Error("prototype-active-checkpoint-unavailable");
     process.channel?.ref(); process.send!({ phase: mode, helperPid: session.pid, pending: true, marker: true,
-      detachedTest: mode === "retained-parent" });
+      detachedTest: mode === "retained-parent", ...(bridgePid === undefined ? {} : {bridgePid}) });
     await new Promise<void>(() => {});
   }
   let pid: number | undefined; const batches = mode === "normal" || mode === "retention" ? 3 : 1;

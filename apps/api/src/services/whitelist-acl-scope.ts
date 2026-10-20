@@ -15,8 +15,8 @@ export class WhitelistAclScopeError extends Error {
 }
 const unsafe = () => new WhitelistAclScopeError("WHITELIST_ACL_SCOPE_UNSAFE");
 
-/** UNWIRED healthy-rotation candidate; default store/auth wiring remains gated.
- * No retry or replacement of failed children. Active-parent-death proof remains pending.
+/** Dedicated healthy-rotation capability; default GuardStore uses it for real owners.
+ * No retry or replacement of failed children. Default auth verifier remains unchanged.
  * Factory is trusted constructor injection only; never from a request or environment switch. */
 export class WhitelistAclScope {
   readonly #verifier = new WindowsPrivateAclVerifier();

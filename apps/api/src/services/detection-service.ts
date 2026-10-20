@@ -149,6 +149,11 @@ function detectType(metadata: JarMetadata): ServerType {
   ) {
     return "paper";
   }
+  // This identifies a Forge launcher artifact for display only. Forge launch
+  // configuration is not trusted by the current lifecycle adapter.
+  if (mainClass === "net.minecraftforge.bootstrap.ForgeBootstrap") {
+    return "forge";
+  }
   if (
     metadata.entries.has("version.json") &&
     (mainClass === "net.minecraft.bundler.Main" || mainClass === "net.minecraft.server.Main")
@@ -235,6 +240,9 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
   if (type === "paper" && (mainClass === "io.papermc.paperclip.Main" || mainClass === "com.destroystokyo.paperclip.Paperclip")) {
     evidence.push("paperclip-main-class");
   }
+  if (type === "forge" && mainClass === "net.minecraftforge.bootstrap.ForgeBootstrap") {
+    evidence.push("forge-bootstrap-main-class");
+  }
   if (type === "fabric" && (mainClass === "net.fabricmc.installer.ServerLauncher" || mainClass === "net.fabricmc.loader.impl.launch.knot.KnotServer")) {
     evidence.push("fabric-launcher-main-class");
     if (input.rootPath !== undefined) {
@@ -256,6 +264,9 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
   if (version.minecraftVersion === null) {
     warnings.push("JAR metadata 未提供可靠的 Minecraft 版本");
   }
+  if (type === "forge") {
+    warnings.push("已识别 Forge 启动器标识；启动配置尚未受支持，当前仅提供只读信息");
+  }
 
   const info: ServerInfo = {
     id: input.id,
@@ -264,7 +275,7 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
     minecraftVersion: version.minecraftVersion,
     java: { runtimeVersion, requiredMajor: version.requiredMajor },
     detection: {
-      confidence: type === "unknown" ? "low" : version.minecraftVersion === null ? "medium" : "high",
+      confidence: type === "unknown" ? "low" : type === "forge" || version.minecraftVersion === null ? "medium" : "high",
       evidence,
       warnings
     }
