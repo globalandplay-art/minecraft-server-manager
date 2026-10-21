@@ -1,5 +1,9 @@
 # Codex Operating Goal and Model Routing
 
+## Standing real-test authorization (2026-10-21)
+
+The user has granted full local operation of the currently registered Vanilla 26.3 **test** instance `vanilla-26-3`, including files/worlds/configuration/RCON/Console/owned-process lifecycle and repeated actual functional tests. Do not request per-operation approval within that verified boundary. Prefer existing LT interfaces and backups when practical; direct test-instance diagnosis is allowed. AGENTS.md and [the authorization record](./TEST_INSTANCE_AUTHORIZATION_2026-10-21.md) define the target and retained boundaries. Earlier general real-server approval language does not override this grant. Product safety checks, truthful acceptance, protection of other instances, stopped P7 remote work and separate Git/system/network authorization remain in force.
+
 ## Current product direction (2026-10-20; effective for new work)
 
 The product is local, single-user-first. Phase 7 remote access is **STOPPED / OUT OF CURRENT SCOPE**, not PASS; preserve its implementation and historical evidence, keep remote access closed, and require explicit renewed user authorization before resuming it. Current priorities are local server registration/loader support, server lifecycle, configuration, worlds/backups, add-ons, whitelist and trustworthy monitoring. Do not make remote-access architecture a prerequisite for local features.

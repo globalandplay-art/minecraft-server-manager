@@ -1,4 +1,6 @@
 import {
+  registrationCatalogResponseSchema, registrationPreviewResponseSchema, registrationSaveResponseSchema,
+  type RegistrationCatalogResponse, type RegistrationPreviewResponse, type RegistrationSaveResponse, type RegistrationDraft,
   tailscaleStatusResponseSchema, type TailscaleStatusResponse,
   tailscaleControlResponseSchema, type TailscaleControlResponse,
   accessOperationResponseSchema, type AccessOperationResponse, type AccessMutationRequest,
@@ -11,6 +13,7 @@ import {
   type PropertiesResponse, type PropertiesWriteRequest, type PropertiesWriteResponse,
   playersResponseSchema, type PlayersResponse,
   whitelistResponseSchema, type WhitelistResponse, type WhitelistMemberRequest,
+  whitelistMutationResponseSchema, type WhitelistMutationResponse, whitelistCandidatesResponseSchema, type WhitelistCandidatesResponse,
   backupScheduleResponseSchema, type BackupScheduleResponse, type BackupScheduleUpdate,
   backupRetentionResponseSchema, type BackupRetentionResponse, type BackupRetentionUpdate,
   worldImportUploadResponseSchema,
@@ -199,6 +202,11 @@ async function requestJson<T>(path: string, schema: unknown, options: RequestOpt
 }
 
 export const api = {
+  registrationCatalog: (signal?: AbortSignal) => requestJson<RegistrationCatalogResponse>('/server-registrations', registrationCatalogResponseSchema, { signal }),
+  registrationPreview: (body: RegistrationDraft) => requestJson<RegistrationPreviewResponse>('/server-registrations/preflight', registrationPreviewResponseSchema,
+    { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, timeoutMs: 30_000 }),
+  registrationSave: (token: string) => requestJson<RegistrationSaveResponse>('/server-registrations', registrationSaveResponseSchema,
+    { method: 'POST', body: { token, confirm: true }, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 201, timeoutMs: 30_000 }),
   tailscaleStatus: (signal?: AbortSignal) => requestJson<TailscaleStatusResponse>('/access/tailscale', tailscaleStatusResponseSchema, { signal }),
   tailscalePreflight: () => requestJson<TailscaleStatusResponse>('/access/tailscale/preflight', tailscaleStatusResponseSchema, { method: 'POST', body: {}, headers: { 'X-Manager-Intent': 'local-ui' }, timeoutMs: 120_000 }),
   tailscaleControl: (signal?: AbortSignal) => requestJson<TailscaleControlResponse>('/access/tailscale/control', tailscaleControlResponseSchema, { signal }),
@@ -230,6 +238,11 @@ export const api = {
     getJson<PlayersResponse>(`/servers/${encodeURIComponent(serverId)}/players`, playersResponseSchema, signal),
   whitelist: (serverId: string, signal?: AbortSignal) =>
     getJson<WhitelistResponse>(`/servers/${encodeURIComponent(serverId)}/whitelist`, whitelistResponseSchema, signal),
+  whitelistCandidates: (serverId: string, signal?: AbortSignal) =>
+    getJson<WhitelistCandidatesResponse>(`/servers/${encodeURIComponent(serverId)}/whitelist/candidates`, whitelistCandidatesResponseSchema, signal),
+  mutateWhitelistMember: (serverId: string, body: WhitelistMemberRequest, key: string) =>
+    requestJson<WhitelistMutationResponse>(`/servers/${encodeURIComponent(serverId)}/whitelist/members`, whitelistMutationResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 200, timeoutMs: 30_000 }),
   changeWhitelistMember: (serverId: string, body: WhitelistMemberRequest, key: string) =>
     requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/whitelist/members`, lifecycleActionResponseSchema,
       { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202 }),

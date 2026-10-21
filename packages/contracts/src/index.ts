@@ -338,6 +338,36 @@ export const serversResponseSchema = strictObject({
 });
 export type ServersResponse = Static<typeof serversResponseSchema>;
 
+// Local registration only: Java is selected from a trusted existing profile.
+// Neither arbitrary executable paths nor launch arguments are accepted.
+export const registrationDraftSchema = strictObject({
+  id: Type.String({ pattern: '^[a-z0-9](?:[a-z0-9-]{0,62})$' }),
+  name: Type.String({ minLength: 1, maxLength: 128 }),
+  root: Type.String({ minLength: 3, maxLength: 4096 }),
+  jarFile: Type.String({ minLength: 5, maxLength: 128 }),
+  javaProfileId: Type.String({ minLength: 1, maxLength: 63 })
+});
+export type RegistrationDraft = Static<typeof registrationDraftSchema>;
+export const registrationCatalogResponseSchema = strictObject({
+  data: strictObject({
+    profiles: Type.Array(strictObject({ id: Type.String(), name: Type.String() }), { maxItems: 1000 }),
+    pending: Type.Array(strictObject({ id: Type.String(), name: Type.String() }), { maxItems: 1000 })
+  }), meta: responseMetaSchema
+});
+export type RegistrationCatalogResponse = Static<typeof registrationCatalogResponseSchema>;
+export const registrationPreviewResponseSchema = strictObject({
+  data: strictObject({ token: Type.String({ format: 'uuid' }), server: serverInfoSchema,
+    eulaAccepted: Type.Boolean(), lifecycleSupported: Type.Boolean(), restartRequired: Type.Literal(true) }),
+  meta: responseMetaSchema
+});
+export type RegistrationPreviewResponse = Static<typeof registrationPreviewResponseSchema>;
+export const registrationSaveRequestSchema = strictObject({ token: Type.String({ format: 'uuid' }), confirm: Type.Literal(true) });
+export type RegistrationSaveRequest = Static<typeof registrationSaveRequestSchema>;
+export const registrationSaveResponseSchema = strictObject({
+  data: strictObject({ id: Type.String(), name: Type.String(), restartRequired: Type.Literal(true) }), meta: responseMetaSchema
+});
+export type RegistrationSaveResponse = Static<typeof registrationSaveResponseSchema>;
+
 export const serverResponseSchema = strictObject({
   data: serverSummarySchema,
   meta: responseMetaSchema
@@ -680,6 +710,10 @@ export const propertiesWriteResponseSchema = strictObject({ data: strictObject({
 export type PropertiesResponse = Static<typeof propertiesResponseSchema>;
 export type PropertiesWriteResponse = Static<typeof propertiesWriteResponseSchema>;
 const whitelistReadFields = {
+  executionMode: Type.Optional(Type.Literal("direct-rcon")),
+  writeUnavailableReason: Type.Optional(Type.String({ maxLength: 64 })),
+  runtime: Type.Optional(strictObject({ available: Type.Boolean(), reason: Type.Union([Type.String({ maxLength: 64 }), Type.Null()]),
+    names: Type.Array(Type.String({ pattern: "^[A-Za-z0-9_]{3,16}$" }), { maxItems: 1000 }), consistent: Type.Union([Type.Boolean(), Type.Null()]) })),
   availability: Type.Union([Type.Literal("available"), Type.Literal("unavailable")]),
   reason: Type.Union([Type.String({ maxLength: 64 }), Type.Null()]),
   configuredEnabled: Type.Union([Type.Boolean(), Type.Null()]), configuredEnforced: Type.Union([Type.Boolean(), Type.Null()]),
@@ -697,6 +731,22 @@ export type WhitelistResponse = Static<typeof whitelistResponseSchema>;
 export const whitelistMemberRequestSchema = strictObject({ action: Type.Union([Type.Literal("add"), Type.Literal("remove")]),
   name: Type.String({ pattern: "^[A-Za-z0-9_]{3,16}$" }), revision: Type.String({ pattern: "^[a-f0-9]{64}$" }), confirm: Type.Literal(true) });
 export type WhitelistMemberRequest = Static<typeof whitelistMemberRequestSchema>;
+export const whitelistMutationResponseSchema = strictObject({ data: strictObject({
+  serverId: Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }), action: Type.Union([Type.Literal("add"), Type.Literal("remove")]),
+  name: Type.String({ pattern: "^[A-Za-z0-9_]{3,16}$" }),
+  outcome: Type.Union([Type.Literal("succeeded"), Type.Literal("failed"), Type.Literal("unknown")]),
+  code: Type.String({ maxLength: 64 }), message: Type.String({ maxLength: 256 }),
+  relatedErrorObserved: Type.Union([Type.Boolean(), Type.Null()])
+}), meta: responseMetaSchema });
+export type WhitelistMutationResponse = Static<typeof whitelistMutationResponseSchema>;
+export const whitelistCandidatesResponseSchema = strictObject({ data: strictObject({
+  availability: Type.Union([Type.Literal("available"), Type.Literal("unavailable")]),
+  reason: Type.Union([Type.String({ maxLength: 64 }), Type.Null()]), sampledAt: timestampSchema,
+  items: Type.Array(strictObject({ name: Type.String({ pattern: "^[A-Za-z0-9_]{3,16}$" }),
+    uuid: Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }),
+    source: Type.Literal("usercache"), identityVerified: Type.Literal(false) }), { maxItems: 1000 })
+}), meta: responseMetaSchema });
+export type WhitelistCandidatesResponse = Static<typeof whitelistCandidatesResponseSchema>;
 export const whitelistRecoveryRequestSchema = strictObject({ operationId: Type.String({ pattern: "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$" }), confirm: Type.Literal(true) });
 export type WhitelistRecoveryRequest = Static<typeof whitelistRecoveryRequestSchema>;
 

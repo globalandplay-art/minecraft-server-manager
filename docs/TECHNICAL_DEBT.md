@@ -1,8 +1,37 @@
 # Technical debt register
 
-Current checkpoint: 2026-10-20. Historical validation documents remain unchanged snapshots. This register and PROGRESS distinguish current blockers from deferred features and platform limits. A source review PASS does not resolve a failed runtime Gate.
+## 2026-10-21 当前 Perflib 与 M1 分类
 
-## Current local-first decision (2026-10-20; authoritative for future work)
+- `LC12-REAL-HOST-PERFLIB-001`：**ENVIRONMENT / DEFERRED**，非致命OSHI初始化异常；Minecraft Done/RCON/业务及正常exit0/null已证实。严格harness历史BLOCKED保持原样；此环境问题不再阻塞LC1/LC2业务或独立M1。修Windows次数0，指标可用性不作无证据推断。见 [专项调查](./PERFLIB_INVESTIGATION_2026-10-21.md)。
+- M1现有目录多实例登记已实现及受影响验证通过，完整Web220PASS；后续Forge/NeoForge启动描述、首次Java配置向导和运行中热加载为独立未实现范围，不宣称M2完成。见 [M1记录](./M1_REGISTRATION_2026-10-21.md)。
+- 下方旧“宿主阻塞M1”是此前顺序决定，现已由用户明确解除依赖；历史 full API失败、原生技术债和真实严格诊断失败不删除、不改写PASS。
+
+## 2026-10-21 LC1/LC2 actual functionality vs host acceptance
+
+LC1 actual configuration save/restart/effect and LC2 native RCON add/delete/
+duplicate/missing/candidate checks PASS. Complete real acceptance remains
+**BLOCKED — LC12-REAL-HOST-PERFLIB-001**, OSHI/JNA ServerMain Perflib009 ERROR/WARN,
+explicit `0x80070057`; no Windows repair attempted (0). This is a host acceptance
+blocker, not evidence of a failed LC2 mutation. New affected API232PASS;
+independent SolHigh evidence review0 findings. Old native CommandStore remains
+DEFERRED, unused and not retested. M1 not started under this request's sequence.
+See [actual evidence](./LC12_REAL_VALIDATION_2026-10-21.md); all old failures remain.
+
+Current checkpoint: 2026-10-21. Historical validation documents remain unchanged snapshots. This register and PROGRESS distinguish current blockers from deferred features and platform limits. A source review PASS does not resolve a failed runtime Gate.
+
+## Current LC2 simplified contract (2026-10-21; supersedes old write prerequisites)
+
+Standing authorization is now granted for real functional testing of registered Vanilla test instance `vanilla-26-3`, including its files/worlds/configuration/RCON and owned processes. No per-operation approval is needed there; see [scope and target binding](./TEST_INSTANCE_AUTHORIZATION_2026-10-21.md). Earlier approval requirements below describe prior checkpoints or other, ungranted instances. Actual real acceptance remains NOT RUN until performed; this authorization does not turn a test result into PASS.
+
+The user explicitly authorized local single-send RCON add/remove, without the old native CommandStore/GuardStore/ACL chain or cross-crash exactly-once guarantees. The new production API and UI are implemented and scoped-tested, with final independent source review P1/P2/P3=0. See [current implementation and validation](./LC2_LOCAL_MVP_2026-10-21.md). Real Vanilla acceptance remains NOT RUN; full-repository green is not claimed. This does not resolve or remove any old failed test.
+
+- Current local MVP: saved/live lists, selected-instance historical candidates, manual/candidate add, remove, result checks, UNKNOWN/no automatic resend, visible-page refresh and instance isolation. No on/off or denial-log candidate extraction in the final simplified scope.
+- Still necessary: correct registered/owned instance and RCON generation, current local API guards, strict names/fixed commands, instance exclusion, one attempted send, verified response/file/runtime/log evidence, no automatic resend/replay. Configured authentication remains active.
+- Real acceptance: use the already authorized registered Vanilla test instance; do not repeatedly request permission. Fake tests and static artifact text inspection do not prove actual RCON timing or real-server persistence.
+- Old native route: DEFERRED, including its stronger durable receipt/guard/crash/capacity experiments. Earlier `MUST_FIX before any online write release` wording below describes that older contract; it is not a prerequisite for this newly authorized, deliberately weaker single-send contract. Historical NATIVE_OBSERVATION_DEADLINE/CLEANUP_BLOCKED scenes are retained and are not force-cleaned or reclassified PASS.
+- LC1 Settings and LM1/LM2 remain independent. P7 remote remains STOPPED / OUT OF CURRENT SCOPE.
+
+## Earlier local-first decision (2026-10-20; LC2 implementation status superseded above)
 
 - Product scope: local, single-user-first server management. Phase 7 remote work is **STOPPED / OUT OF CURRENT SCOPE**, not PASS. Preserve existing remote code and evidence; do not activate or continue it without explicit renewed authorization.
 - LC1 / Settings: reuse the existing configuration editor and its instance-bound safe save path. LC2 CommandStore, GuardStore and RCON are not Settings dependencies.

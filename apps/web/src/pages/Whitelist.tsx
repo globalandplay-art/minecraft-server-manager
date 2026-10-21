@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { ServersResponse, WhitelistMemberRequest } from '@mcsm/contracts';
 import { api, ApiClientError, errorMessage } from '../api';
 import { EmptyState, ErrorState, PageHeading } from '../components/Ui';
+import { LocalWhitelistPanel } from '../components/LocalWhitelistPanel';
+import type { WhitelistCandidatesResponse } from '@mcsm/contracts';
 const flag = (value: boolean | null) => value === null ? '未提供' : value ? '启用' : '关闭';
 const reasons: Record<string, string> = {
   'version-unsupported': '此服务端类型或版本尚未验证白名单读取规则。',
@@ -26,8 +28,22 @@ function WhitelistPanel({ server }: Props) {
   const [recoverPending, setRecoverPending] = useState(false);
   const dialog = useRef<HTMLElement>(null), refreshed = useRef<string | null>(null), inFlight = useRef(false);
   const pollCount = useRef(0);
-  const query = useQuery({ queryKey: ['whitelist', id], queryFn: ({ signal }) => api.whitelist(id!, signal),
-    enabled: Boolean(id), retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false });
+  const [visible, setVisible] = useState(document.visibilityState !== 'hidden');
+  const lastCandidates = useRef<WhitelistCandidatesResponse | undefined>(undefined);
+  useEffect(() => {
+    const changed = () => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed);
+  }, []);
+  const query = useQuery({ queryKey: ['whitelist', id], queryFn: async ({ signal }) => {
+    const response = await api.whitelist(id!, signal);
+    let candidateReadFailed = false;
+    if (response.data.executionMode === 'direct-rcon') {
+      try { lastCandidates.current = await api.whitelistCandidates(id!, signal); }
+      catch { candidateReadFailed = true; }
+    }
+    return { ...response, candidates: lastCandidates.current, candidateReadFailed };
+  }, enabled: Boolean(id), retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false,
+  refetchInterval: visible ? 5000 : false, refetchIntervalInBackground: false });
   const data = query.data?.data;
   const operation = useQuery({ queryKey: ['whitelist-operation', id, operationId],
     queryFn: async ({ signal }) => {
@@ -88,6 +104,9 @@ function WhitelistPanel({ server }: Props) {
       else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { event.preventDefault(); first.focus(); }
     }
   };
+  if (data?.executionMode === 'direct-rcon' && id) return <LocalWhitelistPanel serverId={id} data={data}
+    candidates={query.data?.candidates?.data} candidatesStale={query.data?.candidateReadFailed === true}
+    stale={query.isError} fetching={query.isFetching} refresh={async () => !(await query.refetch()).isError} />;
   return <div className="page-stack">
     <PageHeading eyebrow="SAVED WHITELIST" title="白名单" description="查看此服务器已保存的配置和成员；配置值不代表运行时已经生效。" />
     {!id ? <EmptyState title="请选择服务器" description="选择一个实例查看白名单。" /> : <>

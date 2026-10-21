@@ -30,6 +30,9 @@ import { errorResponse, installLocalRequestGuard } from "./infra/http.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { registerServerRoutes } from "./routes/servers.js";
+import { registerServerRegistrationRoutes } from "./routes/server-registrations.js";
+import { ServerRegistrationService } from "./services/server-registration-service.js";
+import { isLocalAdapter } from "./adapters/contract.js";
 import { registerWebSocketRoute } from "./routes/websocket.js";
 import { registerWorldRoutes } from "./routes/worlds.js";
 import { registerWorldCreatePlanRoutes } from "./routes/world-create-plans.js";
@@ -38,6 +41,7 @@ import { WorldCreateService } from "./services/world-create-service.js";
 import { registerBackupRoutes } from "./routes/backups.js";
 import { registerWhitelistRoutes } from "./routes/whitelist.js";
 import { WhitelistService } from "./services/whitelist-service.js";
+import { WhitelistOnlineService } from "./services/whitelist-online-service.js";
 import type { WhitelistRconCoordinator } from "./services/whitelist-rcon-coordinator.js";
 import { DomainError } from "./services/domain-errors.js";
 import { EventStreamService } from "./services/event-stream-service.js";
@@ -149,7 +153,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     options.authentication?.observeLocalGuardDenial.bind(options.authentication)));
   options.authentication?.install(app, clock, mode);
   const whitelistMembers = options.whitelistMembers?.(operations);
-  registerWhitelistRoutes(app, new WhitelistService(registry, operations, clock, whitelistMembers), clock, mode, options.authentication);
+  const whitelist = new WhitelistService(registry, operations, clock, whitelistMembers);
+  registerWhitelistRoutes(app, whitelist, clock, mode, options.authentication,
+    mode === "local" && !whitelistMembers ? new WhitelistOnlineService(registry, operations, whitelist, clock) : undefined);
   if (!options.authentication) app.get("/api/v1/auth/status", {
     exposeHeadRoute: false, schema: { response: { 200: authStatusResponseSchema, 400: apiErrorResponseSchema } }
   }, async (request, reply) => {
@@ -200,6 +206,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const addonInventory = new AddonInventory();
   registerAddonRoutes(app, registry, clock, mode, addonInventory, options.transactionJournal !== undefined && options.managerRoot !== undefined);
   registerServerRoutes(app, service, clock, mode);
+  registerServerRegistrationRoutes(app, mode === 'local' && options.managerRoot
+    ? new ServerRegistrationService(options.managerRoot, adapters.filter(isLocalAdapter)) : undefined, clock, mode, options.authentication);
   registerPerformanceRoutes(app, new PerformanceService(registry, clock), clock, mode);
   registerCrashAnalysisRoutes(app, new CrashAnalysisService(registry, clock), clock, mode);
   registerOperationRoutes(app, service, clock, mode, options.authentication);

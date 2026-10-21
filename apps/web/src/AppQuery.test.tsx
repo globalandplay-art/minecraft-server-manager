@@ -60,6 +60,9 @@ afterEach(() => {
 
 describe('服务器列表查询时效', () => {
   it('缓存后的刷新持续 pending 超过 15 秒会降级，成功响应后立即恢复', async () => {
+    // This test controls query freshness, not asynchronous route-file loading.
+    // Load the real route module before freezing time; retain every 15s assertion.
+    await import('./pages/Servers');
     vi.useFakeTimers();
     vi.setSystemTime(new Date(timestamp));
     let serversRequestCount = 0;

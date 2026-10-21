@@ -1,4 +1,24 @@
-## 2026-10-20 本地优先路线更新（当前有效）
+## 2026-10-21 最新：Perflib 已独立归因，M1 添加切片继续交付
+
+LC1/LC2 **真实业务 PASS**。完整日志确认 Perflib/OSHI 异常后 Minecraft 正常 Done、RCON、增删及显式退出0/null；是严格diagnostics断言导致harness exit1，不是开服失败。此项现为独立 **ENVIRONMENT / DEFERRED**，不再阻塞M1；旧BLOCKED及全量失败不改写，Windows未修。见 [环境调查](./PERFLIB_INVESTIGATION_2026-10-21.md)。
+
+M1已实现网页添加已有本地实例、可信Java复用、检测与确认、保护登记保存及待重启加载；无热插入/自动开服。API受影响98PASS、contracts25PASS、新完整Web220PASS、三档browser3PASS、独立SolHigh0findings。范围和后续Forge/NeoForge/M2缺口见 [M1记录](./M1_REGISTRATION_2026-10-21.md)。下方“不进入M1”的记录为此前顺序决定。
+
+## 2026-10-21 当前实际验收检查点
+
+LC1/LC2 实际业务检查通过：动态配置保存及启动生效、真实 RCON 白名单增删及重复/不存在反馈；新增受影响 API232PASS。完整真实验收仍因宿主 Perflib `0x80070057` BLOCKED，未修系统、未放行诊断；测试进程已正常停止且原文件还原。按当前顺序未进入 M1。见 [真实验收记录](./LC12_REAL_VALIDATION_2026-10-21.md)。旧 NOT RUN/只读/未接线记录为历史，不覆盖本次实际结果，也不把旧原生实验重新设为前置条件。
+
+## 2026-10-21 当前测试实例已获完整操作授权
+
+已注册的 `vanilla-26-3` 是用户指定的可自主操作测试实例。LC1/LC2/服务器/世界/备份/Console/监测的真实调试和复测可以直接进行，包括测试目录内配置、RCON、玩家和世界文件修改及启停；无需逐项申请确认。目标私有目录绑定、实际身份和保留边界见 [长期授权记录](./TEST_INSTANCE_AUTHORIZATION_2026-10-21.md)。此授权不恢复 P7、不授权 Git 上传或系统/网络改造，也不把旧原生实验重新变为前置条件。
+
+## 2026-10-21 LC2 当前切片完成（授权更新前的验证结果）
+
+按用户最终极简范围，已完成受管 Vanilla 26.3 的本地单次 RCON 白名单添加/删除、保存/运行时名单区分、usercache 历史候选与手动输入、结果检查和前端 5 秒可见刷新。生产接线复用实例互斥和既有受管 RCON，不使用旧 CommandStore/GuardStore/native ACL，不新增跨崩溃任务体系。工程验证与独立源码 Review 结果见 [LC2 本地 MVP](./LC2_LOCAL_MVP_2026-10-21.md)，真实 Minecraft 验收仍需单独授权。旧原生技术债及历史全量失败保留，不能把本次专项结果算作整个仓库全量 PASS。
+
+LC1.1 继续独立收尾；旧 LC2 原生实验不再是其前置条件。白名单开关、拒绝日志候选及离线成员写入本轮未实现。P7 远程保持 STOPPED / OUT OF CURRENT SCOPE。
+
+## 2026-10-20 本地优先路线更新（后续 LC2 检查点见上）
 
 Phase 7 远程访问状态：**STOPPED / OUT OF CURRENT SCOPE，非 PASS**。停止 Tailscale、Cloudflare、公网入口、Native Client/Serve 竞态及真实远程部署开发；保留全部已有实现与历史证据，远程入口保持关闭。
 

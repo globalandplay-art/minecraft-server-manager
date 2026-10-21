@@ -1,5 +1,7 @@
 # Minecraft Java Server Manager
 
+当前本地功能：LC1配置编辑与LC2白名单最小增删已通过真实业务验证；Windows Perflib是独立待修复环境问题，不代表Minecraft启动失败。Servers页已支持**添加已有本地实例→检查→确认保存→手动重启Manager加载**，支持多个登记；不自动启动Minecraft。使用方法见[多实例指南](docs/USER_GUIDE.md)，范围及验证见[M1记录](docs/M1_REGISTRATION_2026-10-21.md)。仓库完整验收未宣称全绿，历史失败保留，P7远程开发继续停止。
+
 一个本地优先的 Minecraft Java 服务端管理界面。默认的 Mock 模式保留受控示例数据；本机 Vanilla 模式支持启动、停止、重启、Console 日志、RCON 命令，以及已完成验收的 Worlds / Backups 基础流程。自动化测试、真实 Vanilla 生命周期和浏览器 WebSocket 联调均已通过。下面的“使用指南”适合快速开始；详细约束见 [本地使用指南](./docs/USER_GUIDE.md)。
 
 Phase 3 各切片与最新真实验收状态、最终 Review、回归和已知限制统一见 [Phase 3 Final Gate](./docs/PHASE3_FINAL_GATE_2026-10-04.md)。
@@ -173,7 +175,7 @@ Phase 1 的范围仅包括：
 
 真实 Java 进程管理由 Phase 2 本机模式提供；备份 / 世界由 Phase 3 提供。上面的 Mock 与 Phase 1 描述保留其示例模式范围。配置编辑与Addons由Phase4/5提供，Performance和Crash Analysis由Phase6提供；Phase7远程开发已暂停，入口默认关闭，既有本地认证保留。正常启动不会下载 Java 或服务端 JAR、接受 EULA；`prepare:local-test --apply` 会按上述说明备份并配置本机 RCON，新建或导入世界等明确授权操作也可能按各自事务契约更新世界选择设置。
 
-本地配置改进中，Vanilla 26.3 已提供分组配置和保存前差异查看，白名单页面提供已保存成员的只读清单。成员添加/移除及白名单开关写入尚未开放；保存值与实际运行状态分别显示。支持版本和使用边界见[本地使用指南](docs/USER_GUIDE.md)。
+本地配置改进中，Vanilla 26.3 已提供分组配置和保存前差异查看。LT 白名单页面支持查看已保存/运行时名单、从历史缓存选择或手动输入玩家名，并通过受管 RCON 添加和删除；需要当前实例正在运行且已配置可用的 RCON。检查原生命令响应、相关保存错误日志、运行状态和文件结果后返回成功、失败或结果未知；未知时不自动重发。白名单开关仍只读。工程验证与真实 Minecraft 验收分别记录，见[本地使用指南](docs/USER_GUIDE.md)和[LC2 本地 MVP](docs/LC2_LOCAL_MVP_2026-10-21.md)。
 
 
 ### Current technical debt

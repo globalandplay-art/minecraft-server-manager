@@ -3,6 +3,7 @@ import { ArrowRight, Box, Database, Server as ServerIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { EmptyState, MockBanner, PageHeading, StatusBadge } from '../components/Ui';
 import { formatLocalTime, localTimezoneLabel, statusLabels } from '../format';
+import { ServerRegistration } from '../components/ServerRegistration';
 
 type ServerSummary = ServersResponse['data']['items'][number];
 
@@ -21,10 +22,11 @@ export function Servers({ items, mode, stale = false }: { items: ServerSummary[]
     return (
       <div className="page-stack">
         {mode === 'mock' ? <MockBanner /> : null}
-        <PageHeading eyebrow="INSTANCES" title="Servers" description="本页只读取已注册实例，不会扫描或修改本地目录。" />
+        <PageHeading eyebrow="INSTANCES" title="Servers" description="管理多个本地服务端实例。" />
+        {mode === 'local' ? <ServerRegistration /> : null}
         <EmptyState
           title="尚未接入服务器实例"
-          description="Phase 1 不提供实例注册。后续本地接入流程会要求明确选择受控目录并完成安全校验。"
+          description={mode === 'mock' ? 'Phase 1 不提供实例注册。请切换本地模式添加已有服务端。' : '请在上方检查并添加已有服务端目录，随后手动重启 Manager。'}
           icon={<ServerIcon size={25} />}
         />
       </div>
@@ -37,9 +39,10 @@ export function Servers({ items, mode, stale = false }: { items: ServerSummary[]
       <PageHeading
         eyebrow="INSTANCES"
         title="Servers"
-        description={`只读实例目录 · 状态时间按 ${localTimezoneLabel()} 显示`}
+        description={`本地实例目录 · 状态时间按 ${localTimezoneLabel()} 显示`}
         aside={<span className="count-badge">{items.length} 个实例</span>}
       />
+      {mode === 'local' ? <ServerRegistration /> : null}
       {stale ? <div className="stale-banner" role="status">服务器列表超过 15 秒未刷新成功，状态已降级为未知；以下保留上次结果供回看。</div> : null}
       <div className="servers-grid">
         {items.map((item) => (
@@ -64,7 +67,7 @@ export function Servers({ items, mode, stale = false }: { items: ServerSummary[]
           </article>
         ))}
       </div>
-      <div className="read-only-note"><Database size={17} /><span><strong>只读视图</strong>Phase 1 不会启动、停止或写入这些实例。</span></div>
+      <div className="read-only-note"><Database size={17} /><span>添加只保存登记；通过 Dashboard 切换实例，生命周期操作需另行确认。</span></div>
     </div>
   );
 }

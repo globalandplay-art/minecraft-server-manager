@@ -59,7 +59,8 @@ export interface RuntimeCommandResult {
 }
 
 /** Internal RCON-only transport. Not an HTTP capability or proof of persistence.
- * Caller holds the shared instance operation lock and supplies durable intent. */
+ * Caller holds shared instance exclusion and supplies final synchronous admission.
+ * The local single-send MVP does not require the deferred native intent store. */
 export interface WhitelistRconSession {
   readonly runtimeId: string;
   list(): Promise<string>;

@@ -280,7 +280,7 @@ function parsePort(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65_535 ? parsed : fallback;
 }
 
-async function validateRegistration(config: RawServerConfig): Promise<ValidatedRegistration> {
+export async function validateRegistration(config: RawServerConfig): Promise<ValidatedRegistration> {
   assertJavaEnvironment();
   const paths = await validatePaths(config);
   const state = await readServerState(paths.rootPath);

@@ -1,4 +1,44 @@
-## 2026-10-20 本地优先路线更新（当前有效；覆盖更早 PAUSED 用语）
+## 2026-10-21 用户授权上传当前开发检查点
+
+本次上传包含 LC2 本地增删、LC1/LC2 实际业务验收记录、Perflib 独立环境归因、M1 添加现有实例切片及对应使用指南/测试。用户已明确授权 commit/push 到现有 `codex/phase-4-players-properties` 分支；不创建 PR、不合并 main，不改写历史。具体上传结果以 Git 提交与远端核验为准。保留全部历史失败及未完成边界，私密 `.manager`/runtime/test-results 不上传；此前“无 commit/push”均描述各自执行时的状态。该上传不代表整个仓库、完整 M1/M2 或远程功能通过。
+
+## 2026-10-21 Perflib 独立归因完成；M1 多实例添加切片已实现
+
+按用户最新指令，**LC1 REAL BUSINESS PASS、LC2 REAL BUSINESS PASS** 独立记录。完整日志证明 Perflib `0x80070057` 位于 Minecraft `SystemReport.ignoreErrors`/OSHI 初始化链，之后有 Done、RCON、实际增删和正常 Java exit0/null；失败的是严格 diagnostics 的验收断言，不是 Minecraft 启动失败。Windows Perflib 归类 **独立 ENVIRONMENT / DEFERRED**，不再阻塞 M1。两次历史 run 的 BLOCKED/exit1 原样保留；LT CPU/RAM 实际样本可用性尚未验证，不因此伪造指标 PASS。见 [环境调查](./PERFLIB_INVESTIGATION_2026-10-21.md)。未修改 Windows 系统、注册表、计数器或 classifier。
+
+M1 已新增 Servers 网页登记流程：已有目录+JAR、可信现有 Java 配置、检测预览、确认保存、待重启加载列表；原配置备份/原子保存、身份/revision 冲突与最终授权复核。保存不启动 Minecraft、不改世界/配置、不热插运行 registry；正常停服后手动重启 Manager，既有加载器读取多个实例，沿用现有切换。API受影响 **98PASS/5files**，contracts **25PASS**，新完整Web **220PASS/37files**，三档浏览器 **3PASS**，lint/typecheck/build通过，独立SolHigh **P1/P2/P3=0**。首次API未知字段被AJV剥离、UI夹具清理与查询测试异步加载失败均已保留并最小修复，无放宽断言/时限。
+
+这是 **M1 添加现有本地实例切片**，不冒称 Forge/NeoForge 启动/M2/全 M1 完成或仓库全量 PASS；无新的全 API 回归、无旧原生实验复跑。旧 full API2510PASS/12FAIL 与真实严格 diagnostics BLOCKED 仍在。未运行真实Minecraft或改当前注册表，无commit/push/PR，P7继续STOPPED。下一步为M1 loader专用识别/启动描述与后续M2，详情见 [M1交付](./M1_REGISTRATION_2026-10-21.md)。下面“不进入M1”的记录已被本次用户新授权取代，保留为历史。
+
+## 2026-10-21 LC1/LC2 真实业务通过；完整验收仍有宿主诊断阻塞
+
+已按长期授权实际启动注册的 `vanilla-26-3` 测试实例。第二 run `lc12-real-bf9f353d-0c10-40e1-9840-1a0c90420a6c`：LC1 动态发现、保护保存、Manager 重开幂等及难度/模式/人数真实生效 PASS；LC2 真实历史候选添加、重复添加、删除、不存在反馈、运行时与磁盘名单一致 PASS。新增合并 API **232PASS/10files**；harness 语法/lint/diff PASS；独立 SolHigh 最终证据 Review **P1/P2/P3=0**。
+
+**完整真实验收仍 BLOCKED**：两次启动均出现 OSHI/JNA `Perflib 009` ERROR/WARN、`0x80070057`，未忽略或改 classifier，最终 foreground exit1。没有 Windows 系统修复（0次）、没有重跑旧 LC2 原生测试、没有产品源码修改。首次 `lc12-real-447e8e00-b204-471d-b217-6b841a70e3d5` 的部分检查/NOT RUN/BLOCKED 记录原样保留。
+
+两次 Java 显式正常停止、exit0/null、关闭；第二次端口释放、应用关闭，原 server.properties/whitelist.json/usercache.json 精确还原，后续三份 Hash 比对均 true。保留原有 crash report 和所有历史现场。未宣布仓库全量 PASS，按本次顺序 **M1 未开始**；P7 继续 STOPPED，无 commit/push/PR。详情及后续最小动作见 [LC1/LC2 实际验收](./LC12_REAL_VALIDATION_2026-10-21.md)。下方旧“真实 NOT RUN/需授权/只读”是历史快照。
+
+## 2026-10-21 已注册 Vanilla 测试实例完整操作授权（当前权限）
+
+用户已长期授权 Codex 自主操作 LT 当前注册的 **`vanilla-26-3` / Vanilla 26.3 测试实例**，包括本地文件/配置/世界/玩家/白名单/备份的读取修改新增删除、启停重启、明确归属的进程管理、Console/RCON 和反复真实功能验证，无需逐次申请确认。已只读核对当前注册映射、无 reparse-point 的目录路径及 JAR version.json=26.3；具体 canonical root/JAR 观察值记录在忽略的 `.manager/test-instance-authorization.json`。授权边界与使用规则见 [长期测试授权](./TEST_INSTANCE_AUTHORIZATION_2026-10-21.md)。
+
+此前“真实 Minecraft NOT RUN/需另行授权”的记录保留为当时事实；未来在这个已授权实例上不再把重复审批作为阻塞。真实验收仍必须实际运行并按证据报告，不能因授权到位直接标为 PASS。优先通过 LT 接口执行，必要时可直接排查测试目录和已确认归属的进程；可行时优先备份破坏性测试现场。
+
+本次只更新授权规范和记录，未启停 Minecraft、未修改其配置/世界/白名单，也未运行真实验收。下一次 LC1/LC2 验证可直接进入该实例真实测试。P7 继续 STOPPED / OUT OF CURRENT SCOPE；其他服务器/项目/Windows 系统和网络不在授权范围，Git commit/push/PR 规则不变。旧原生 CommandStore 技术债继续延期。
+
+## 2026-10-21 LT LC2 本地极简增删（工程检查点；真实测试授权已在上节补齐）
+
+按用户最新指令，LC2 生产路径已改为当前受管 Vanilla 26.3 的固定 RCON 增删，不使用旧 CommandStore / GuardStore / Windows ACL helper，不承诺跨崩溃 exactly-once，不创建持久后台任务，也不自动重发不确定命令。旧代码、原生失败记录和保留现场继续 DEFERRED；下文旧检查点中“增删未接线/只读”是当时事实，现由本节的新实现状态覆盖，不能据此恢复旧原生优化。
+
+已实现：保存名单与运行时名单分别展示；当前实例 usercache.json 历史候选；手动和候选共用一条添加 API；候选一键添加；删除前确认目标；原生命令响应、相关日志窗口、受管进程健康及磁盘成员变化联合核验；成功/明确失败/UNKNOWN；页面可见时 5 秒顺序刷新、隐藏暂停、切换取消旧请求、失败保留旧数据。RCON 不可用/停止/非受管/版本不支持/锁或恢复冲突时保持只读，不自动开服或开启 RCON。保留现有本地入口保护及已配置认证的 Session/CSRF/重认证。
+
+最终受影响 API **170 PASS（9 files）**；contracts **20 PASS**；Web 全套 **217 PASS（36 files）**；三档 Chrome Fake API **360/768/1440 3 PASS**；项目 lint/typecheck/build/diff 通过。独立 Sol High 最终源代码/delta Review **P1/P2/P3=0**，初始日志观测 P2 与键盘导航 P3 已修复。只读核对已有隔离 Vanilla 26.3 JAR 命令文本，未启动 Java。细节和真实验证范围见 [LC2 本地 MVP](./LC2_LOCAL_MVP_2026-10-21.md)。
+
+真实 Minecraft 增删验收 **NOT RUN，需另行授权**；本轮没有执行旧原生/容量专项或新的仓库全量回归。此前 API 2510 PASS / 12 FAIL 仍为历史全量结果，不能由本次专项自动改写为绿。新局部工程实现可验证，不宣称整个项目 Final PASS。白名单开关、拒绝日志候选、离线成员编辑、Paper/Fabric 写入仍不在本轮范围；运行时开关保持未知。
+
+下一步是用户授权后的新鲜隔离 Vanilla 真实验收；没有真实运行授权时可继续 LC1.1 独立验收，不需要重做已完成的 LC2 页面或旧原生基础设施。LC1.1 和 LM1/LM2 仍按各自证据验收，不依赖旧 LC2 CommandStore。P7 **STOPPED / OUT OF CURRENT SCOPE，非 PASS**；本轮未 commit/push/PR。
+
+## 2026-10-20 本地优先路线更新（历史路线；后续 LC2 状态见顶部）
 
 Phase 7 远程访问状态：**STOPPED / OUT OF CURRENT SCOPE，非 PASS**。停止 Tailscale、Cloudflare、公网入口、Native Client/Serve 竞态及真实远程部署开发；保留代码、测试、文档和历史证据，远程入口保持关闭。只有用户明确重新授权后才可恢复。
 

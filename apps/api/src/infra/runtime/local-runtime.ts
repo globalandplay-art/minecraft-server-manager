@@ -383,8 +383,8 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     }
   }
 
-  /** Dedicated transport only. Production member writes remain gated by the
-   * controller's version rules, endpoint binding and durable evidence checks. */
+  /** Dedicated single-use transport only. The local caller applies instance
+   * exclusion, version/revision checks and response/file/log verification. */
   async openWhitelistSession(): Promise<WhitelistRconSession> {
     const child = this.child, launch = this.childOperationId;
     let revoked = false, busy = false, mutationSent = false;

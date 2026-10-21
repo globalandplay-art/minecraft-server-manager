@@ -423,3 +423,9 @@ h1, h2, h3, p { margin-top: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+.registration-panel { min-width: 0; }
+.registration-panel fieldset { display: grid; gap: 14px; min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; }
+.registration-panel .field-label { display: grid; gap: 6px; min-width: 0; }
+.registration-panel .field-label input, .registration-panel select { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; color: var(--text); background: #0d1622; border: 1px solid var(--border); border-radius: 7px; }
+.registration-panel p, .registration-panel li { overflow-wrap: anywhere; }
+.registration-preview { display: grid; gap: 12px; margin-top: 18px; }

@@ -1,0 +1,6 @@
+import { defineConfig, devices } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
+export default defineConfig({ testDir: '.', testMatch: 'm1-registrations.spec.ts', workers: 1, retries: 0,
+  outputDir: `../../test-results/m1-browser-${randomUUID()}`, reporter: 'list',
+  use: { baseURL: 'http://127.0.0.1:3015', screenshot: 'only-on-failure', trace: 'retain-on-failure' },
+  projects: [{ name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } }] });

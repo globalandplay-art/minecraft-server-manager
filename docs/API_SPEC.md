@@ -1,5 +1,13 @@
 # Minecraft Java Server Manager — API 合约
 
+## M1 本地多实例登记（2026-10-21）
+
+- `GET /api/v1/server-registrations`：当前可信 Java profile 的 id/name，以及已保存待重启加载实例 id/name。
+- `POST /api/v1/server-registrations/preflight`：严格 `{id,name,root,jarFile,javaProfileId}`；只检查，不修改目标服务端，返回短期 token、类型/版本/EULA/启动类型能力。
+- `POST /api/v1/server-registrations`：严格 `{token,confirm:true}`，通过配置及目标身份/revision复核后保存，201 返回 `{id,name,restartRequired:true}`。
+
+浏览器不能传任意Java程序、JVM或服务端参数。沿用本地Host/Origin/intent和已配置认证；不自动启动、不接受EULA。新实例须正常停服后手动重启Manager加载，未热插当前服务器列表。详见 [M1](./M1_REGISTRATION_2026-10-21.md)。
+
 ## P7.2 登录 UI / WebSocket（2026-10-09，工程 Final Gate 进行中）
 
 本节描述当前候选实现，尚待新的冻结完整回归和独立最终证据签核；下方 P7.1b 的 WS 全拒绝是保留的历史检查点。不是 Tailscale Serve，也不授权真实账号或远程入口。
@@ -534,9 +542,21 @@ Current addition (2026-10-13, B Mock Gate): authenticated GET `/api/v1/access/ta
 
 GET /api/v1/access/methods uses accessMethodsResponseSchema and existing global auth/session/audit plus local ingress guards; Cache-Control: no-store. data.local reports authenticationRequired from actual installed authentication. data.tailscale and data.cloudflare independently report implemented=false, desiredEnabled=false, observedState=unknown, managementMode=external, connectionUrl=null, remoteVerifiedAt=null and all preflight/enable/disable capabilities=false. This does not observe host networking. No mutation endpoints or durable remote operations exist in this slice. See P72A_ACCESS_INVENTORY_2026-10-12.md.
 
-### LC2 construction-only Synthetic whitelist integration (2026-10-14)
+### Historical LC2 construction-only Synthetic whitelist integration (2026-10-14)
 
 Operation kind `whitelist-change` is reserved for the UNWIRED Synthetic coordinator tests. No production member enable/add/remove/recovery route or Fake-provider request/environment switch is exposed. The existing whitelist API remains readonly. This kind retains idempotency protection without TTL and projects uncertain prior outcomes through recovery gating; other operation kinds retain their existing expiry behavior. Synthetic causal receipts and archived observations cannot be substituted with ordinary RCON output or a matching current member list. See [limited integration evidence](./LC2_SYNTHETIC_INTEGRATION_2026-10-14.md); production member writes and real-runtime proof remain pending.
+
+### Current LT local whitelist API (2026-10-21)
+
+The user's simplified local contract supersedes the old native candidate as the default production path. No CommandStore, GuardStore, native ACL helper, durable command replay or new Operation kind is introduced. Existing instance exclusion and the owned-generation RCON session are reused. No Minecraft lifecycle or RCON configuration change is performed.
+
+- GET `/api/v1/servers/:serverId/whitelist` retains saved fields/items and optionally adds `executionMode=direct-rcon`, `runtime` (available/reason/names/consistent), and `writeUnavailableReason`. A writable response includes the existing opaque `revision`. Saved `white-list` is not live enabled-state evidence; `effectiveEnabled` remains null.
+- GET `/api/v1/servers/:serverId/whitelist/candidates` returns bounded, unverified historical name/UUID candidates from that instance's fixed `usercache.json`, excluding saved members. Unavailable, missing and conflicting caches are distinct from an empty list. No path, IP, raw log or arbitrary cache fields are returned.
+- POST `/api/v1/servers/:serverId/whitelist/members` retains strict `{action:add|remove,name,revision,confirm:true}` plus UUID `Idempotency-Key` and existing local request guards. Configured authentication also retains Session/CSRF/re-auth. The production direct path returns HTTP 200 `whitelistMutationResponseSchema`: serverId/action/name, `outcome=succeeded|failed|unknown`, fixed safe code/message and relatedErrorObserved. HTTP 200 alone does not mean mutation success. No persisted background operation is created. The old test-injected native coordinator still uses its historical HTTP 202 contract.
+
+Single-send duplicate protection is bounded to 256 process-local request results, scoped by server and key; concurrent same-key/same-body requests share a result, different bodies conflict. This is not cross-restart exactly-once, and completed cache entries may be evicted. UNKNOWN is never automatically retried. Restart creates no scheduled or replayed mutation.
+
+Success requires exact supported Vanilla command response, the same registered root/owned generation, expected file/member change with other members unchanged, live-list agreement, confirmed running status, and a complete bounded latest.log window without the two exact StoredUserList save-failure warnings/errors. Missing/rotated/truncated/oversized/incomplete log windows or unknown response formats do not produce success. Actual real-server acceptance remains NOT RUN.
 
 
 ## LC1.1 configuration discovery (2026-10-20)

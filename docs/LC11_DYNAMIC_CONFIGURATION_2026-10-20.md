@@ -1,5 +1,19 @@
 # LC1.1 dynamic configuration
 
+**Current disposition:** LC1 scoped real business PASS. Perflib is separately
+ENVIRONMENT/DEFERRED and does not negate successful configuration editing or
+block unrelated M1 work. No whole-repository PASS is claimed; see
+[independent Perflib attribution](./PERFLIB_INVESTIGATION_2026-10-21.md).
+
+**Latest validation, 2026-10-21:** registered Vanilla real business checks PASS:
+dynamic discovery, exact protected save, Manager restart replay and actual
+difficulty/gamemode/player-limit effect. Complete real acceptance remains
+BLOCKED by host Perflib `0x80070057`; no whole-project PASS. Original test files
+restored and Java stopped. See [LC1/LC2 actual validation](./LC12_REAL_VALIDATION_2026-10-21.md).
+Older NOT RUN/authorization/full-regression statements below remain historical.
+
+**Current authorization (2026-10-21):** real LC1 testing on registered Vanilla 26.3 test instance `vanilla-26-3` is now covered by the user's [standing full local-operation grant](./TEST_INSTANCE_AUTHORIZATION_2026-10-21.md); no repeated launch/file/configuration approval is required there. The dated validation and NOT RUN evidence below remain historical facts, not an instruction to request authorization again.
+
 ## Scope and current Gate
 
 Vanilla `server.properties` end-to-end candidate implemented and scoped validation passed. Final project Gate remains BLOCKED by the LC2 failures below; ENGINEERING PASS is NOT claimed. LC2 remains independently BLOCKED; LM1/LM2 status is unchanged. Phase 7 remote remains PAUSED. No commit/push/PR or real Minecraft acceptance is authorized.
