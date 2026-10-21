@@ -1,6 +1,8 @@
 # Minecraft Java Server Manager
 
-当前本地功能：LC1配置编辑与LC2白名单最小增删已通过真实业务验证；Windows Perflib是独立待修复环境问题，不代表Minecraft启动失败。Servers页已支持**添加已有本地实例→检查→确认保存→手动重启Manager加载**，支持多个登记；不自动启动Minecraft。使用方法见[多实例指南](docs/USER_GUIDE.md)，范围及验证见[M1记录](docs/M1_REGISTRATION_2026-10-21.md)。仓库完整验收未宣称全绿，历史失败保留，P7远程开发继续停止。
+M2当前支持范围已完成真实生命周期业务验收：Vanilla26.3、Paper26.2、Fabric26.2可按实例受控启停/重启，多个实例的RCON、端口与进程互相隔离；Manager重开后历史操作重放不会再次开服。严格环境诊断及仓库最终Gate仍未通过，Forge/NeoForge启动仍未支持。范围、真实证据和限制见 [M2交付记录](docs/M2_DELIVERY_2026-10-21.md)。
+
+当前本地功能：LC1配置编辑与LC2白名单最小增删已通过真实业务验证；Windows Perflib是独立待修复环境问题，不代表Minecraft启动失败。Servers页已支持**添加已有本地实例→检查→确认保存→即时加载并切换**；不自动启动Minecraft。存在历史状态冲突或加载失败时保留登记并显示待检查，不影响旧实例。使用方法见[多实例指南](docs/USER_GUIDE.md)，验证见[M1即时加载](docs/M1_INSTANT_LOADING_2026-10-21.md)。仓库完整验收未宣称全绿，历史失败保留，P7远程开发继续停止。
 
 一个本地优先的 Minecraft Java 服务端管理界面。默认的 Mock 模式保留受控示例数据；本机 Vanilla 模式支持启动、停止、重启、Console 日志、RCON 命令，以及已完成验收的 Worlds / Backups 基础流程。自动化测试、真实 Vanilla 生命周期和浏览器 WebSocket 联调均已通过。下面的“使用指南”适合快速开始；详细约束见 [本地使用指南](./docs/USER_GUIDE.md)。
 

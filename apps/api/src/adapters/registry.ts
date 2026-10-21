@@ -5,6 +5,7 @@ import {
 } from "./contract.js";
 
 export class AdapterRegistry {
+  #closed = false;
   readonly #adapters: Map<string, MinecraftServerAdapter>;
 
   constructor(adapters: readonly MinecraftServerAdapter[]) {
@@ -28,7 +29,14 @@ export class AdapterRegistry {
     return adapter !== undefined && isLocalAdapter(adapter) ? adapter : undefined;
   }
 
+  /** Publish a prepared adapter synchronously; never replace an existing instance. */
+  add(adapter: MinecraftServerAdapter): void {
+    if (this.#closed || this.#adapters.has(adapter.serverId)) throw new Error('Adapter registry closed or duplicate ID');
+    this.#adapters.set(adapter.serverId, adapter);
+  }
+
   async close(): Promise<void> {
+    this.#closed = true;
     await Promise.all(
       [...this.#adapters.values()]
         .filter(isLocalAdapter)

@@ -32,6 +32,7 @@ export interface ReplayResult {
 }
 
 export class EventStreamService {
+  #closed = false;
   readonly #streams = new Map<string, StreamState>();
   readonly #unsubscribeRuntime: (() => void)[] = [];
   readonly #unsubscribeOperations: () => void;
@@ -41,6 +42,17 @@ export class EventStreamService {
     this.#operations = operations;
     for (const adapter of registry.list()) {
       if (!isLocalAdapter(adapter)) continue;
+      this.add(adapter);
+    }
+    this.#unsubscribeOperations = operations.subscribe((operation) => {
+      const state = this.#streams.get(operation.serverId);
+      if (state !== undefined) this.#publish(state, { type: "operation", operation });
+    });
+  }
+
+  /** Called in the same synchronous publication stack as AdapterRegistry.add. */
+  add(adapter: LocalMinecraftServerAdapter): () => void {
+      if (this.#closed || this.#streams.has(adapter.serverId)) throw new Error('Stream closed or duplicate instance');
       const state: StreamState = {
         streamId: randomUUID(),
         adapter,
@@ -48,21 +60,24 @@ export class EventStreamService {
         events: [],
         latestSequence: 0
       };
-      this.#streams.set(adapter.serverId, state);
-      this.#unsubscribeRuntime.push(
-        adapter.subscribe((event) => {
+      const unsubscribe = adapter.subscribe((event) => {
           if (event.type === "log") this.#publish(state, { type: "log", entry: event.entry });
           else this.#publish(state, {
             type: "status",
             status: this.#operationAwareStatus(state.adapter.serverId, event.status)
           });
-        })
-      );
-    }
-    this.#unsubscribeOperations = operations.subscribe((operation) => {
-      const state = this.#streams.get(operation.serverId);
-      if (state !== undefined) this.#publish(state, { type: "operation", operation });
-    });
+        });
+      let attached = true;
+      const detach = () => {
+        if (!attached) return;
+        attached = false; unsubscribe();
+        if (this.#streams.get(adapter.serverId) === state) this.#streams.delete(adapter.serverId);
+        const index = this.#unsubscribeRuntime.indexOf(detach);
+        if (index >= 0) this.#unsubscribeRuntime.splice(index, 1);
+      };
+      this.#unsubscribeRuntime.push(detach);
+      this.#streams.set(adapter.serverId, state);
+      return detach;
   }
 
   hello(serverId: string): Extract<WsMessage, { type: "hello" }> {
@@ -125,7 +140,8 @@ export class EventStreamService {
   }
 
   close(): void {
-    for (const unsubscribe of this.#unsubscribeRuntime) unsubscribe();
+    this.#closed = true;
+    for (const unsubscribe of [...this.#unsubscribeRuntime]) unsubscribe();
     this.#unsubscribeOperations();
     for (const state of this.#streams.values()) state.listeners.clear();
   }

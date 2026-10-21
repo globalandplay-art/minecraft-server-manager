@@ -15,10 +15,13 @@ import type {
 } from "../../src/infra/runtime-contract.js";
 import {
   LocalMinecraftRuntime,
+  LocalRuntimeFactory,
   RuntimeError,
   type RuntimeSpawn
 } from "../../src/infra/runtime/local-runtime.js";
-import { encodeRconPacket } from "../../src/infra/runtime/rcon-client.js";
+import { encodeRconPacket, RconClient } from "../../src/infra/runtime/rcon-client.js";
+import { RuntimePortReservations } from '../../src/infra/runtime/port-reservations.js';
+import { minecraftStatusProtocol } from '../../src/infra/runtime/status-probe.js';
 import { OperationService } from "../../src/services/operation-service.js";
 import { MemoryOperationStore } from "../../src/services/operation-store.js";
 import type { ProcessCounters } from "../../src/infra/runtime/process-resources.js";
@@ -131,6 +134,7 @@ async function stopTestChild(child: ChildProcessWithoutNullStreams): Promise<voi
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all([...children].map(stopTestChild));
   children.clear();
   for (const socket of sockets) socket.destroy();
@@ -143,6 +147,170 @@ afterEach(async () => {
 });
 
 describe("LocalMinecraftRuntime", () => {
+  async function ready(runtime: Awaited<ReturnType<LocalRuntimeFactory['create']>>, root: string) {
+    const before = new Set(children), starting = runtime.start(operation());
+    await vi.waitFor(() => expect([...children].some(child => !before.has(child))).toBe(true));
+    await appendFile(join(root, 'logs/latest.log'), '[Server thread/INFO]: Done (new child)!\n');
+    await starting;
+    return [...children].find(child => !before.has(child))!;
+  }
+
+  it('shares factory game-port reservations until owned child exit, then permits the next instance', async () => {
+    const firstRoot = await fixtureRoot(), secondRoot = await fixtureRoot();
+    const factory = new LocalRuntimeFactory({ spawnProcess: trackedSpawn(), statusProbe: async () => 'running', readinessPollMs: 5 });
+    const first = await factory.create(plan(firstRoot, childScript({ exitOnStop: true }), { id: 'first' }));
+    const second = await factory.create(plan(secondRoot, childScript({ exitOnStop: true }), { id: 'second' }));
+    try {
+      const child = await ready(first, firstRoot);
+      await expect(second.start(operation())).rejects.toMatchObject({ code: 'INSTANCE_PORT_CONFLICT' });
+      expect([...children]).toEqual([child]);
+      expect((await first.snapshot()).status.state).toBe('running');
+      await first.stop(operation('stop')); await ready(second, secondRoot);
+      await second.stop(operation('stop'));
+    } finally { await first.closeObserver(); await second.closeObserver(); }
+  });
+
+  it('does not free ports when readiness times out or the observer closes with a live child', async () => {
+    const root = await fixtureRoot(), ports = new RuntimePortReservations();
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript()), {
+      portReservations: ports, spawnProcess: trackedSpawn(), statusProbe: async () => 'running', startTimeoutMs: 60, readinessPollMs: 5
+    });
+    await runtime.initialize();
+    await expect(runtime.start(operation())).rejects.toMatchObject({ code: 'OPERATION_TIMEOUT' });
+    const child = await waitForChild(); await runtime.closeObserver();
+    expect(() => ports.acquire(25565, null)).toThrow();
+    await stopTestChild(child); expect(ports.acquire(25565, null).active).toBe(true);
+  });
+
+  it('permits distinct ports concurrently and stopping one child leaves the other running', async () => {
+    const firstRoot = await fixtureRoot(), secondRoot = await fixtureRoot();
+    const factory = new LocalRuntimeFactory({ spawnProcess: trackedSpawn(), statusProbe: async () => 'running', readinessPollMs: 5 });
+    const first = await factory.create(plan(firstRoot, childScript({ exitOnStop: true }), { id: 'first' }));
+    const second = await factory.create(plan(secondRoot, childScript({ exitOnStop: true }), {
+      id: 'second', statusEndpoint: { host: '127.0.0.1', port: 25566 }
+    }));
+    try {
+      const firstChild = await ready(first, firstRoot); await ready(second, secondRoot);
+      expect(children.size).toBe(2); await second.stop(operation('stop'));
+      expect(firstChild.exitCode).toBeNull();
+      expect((await first.snapshot()).status).toMatchObject({ state: 'running', ownership: 'managed' });
+      await first.stop(operation('stop')); expect(children.size).toBe(0);
+    } finally { await first.closeObserver(); await second.closeObserver(); }
+  });
+
+  it('releases reservations after a synchronous spawn failure', async () => {
+    const root = await fixtureRoot(), ports = new RuntimePortReservations();
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript()), {
+      portReservations: ports, spawnProcess: () => { throw new Error('injected spawn failure'); }
+    });
+    await runtime.initialize();
+    try {
+      await expect(runtime.start(operation())).rejects.toMatchObject({ code: 'RUNTIME_START_FAILED' });
+      expect(ports.acquire(25565, null).active).toBe(true);
+    } finally { await runtime.closeObserver(); }
+  });
+
+  it('does not treat a live-child error as proof of exit for releasing ports', async () => {
+    const root = await fixtureRoot(), ports = new RuntimePortReservations();
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript()), {
+      portReservations: ports, spawnProcess: trackedSpawn(), statusProbe: async () => 'running', readinessPollMs: 5
+    });
+    await runtime.initialize();
+    try {
+      const child = await ready(runtime, root);
+      expect(child.pid).toBeGreaterThan(0); child.emit('error', new Error('injected live-child error'));
+      expect(() => ports.acquire(25565, null)).toThrow();
+      await stopTestChild(child); expect(ports.acquire(25565, null).active).toBe(true);
+    } finally { await runtime.closeObserver(); }
+  });
+
+  it.each(['port', 'disabled'] as const)('blocks RCON %s configuration drift without falling back to stdin', async change => {
+    const root = await fixtureRoot(); let port: number | null = 26000;
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript(), {
+      getRconConnection: async () => port === null ? null : ({ host: '127.0.0.1', port, password: 'fixture-only' })
+    }), { spawnProcess: trackedSpawn(), statusProbe: async () => 'running', readinessPollMs: 5 });
+    await runtime.initialize();
+    try {
+      const child = await ready(runtime, root), write = vi.spyOn(child.stdin, 'write'); port = change === 'port' ? 26001 : null;
+      await expect(runtime.command('say scoped')).rejects.toMatchObject({ code: 'COMMAND_TRANSPORT_UNAVAILABLE' });
+      expect(write).not.toHaveBeenCalled();
+    } finally { await runtime.closeObserver(); }
+  });
+
+  it.each(['console', 'stop', 'whitelist'] as const)('rechecks %s at the send boundary after another launch takes the old RCON port', async channel => {
+    const firstRoot = await fixtureRoot(), secondRoot = await fixtureRoot();
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+    const writes: string[] = [];
+    vi.spyOn(RconClient.prototype, 'connect').mockResolvedValue();
+    vi.spyOn(RconClient.prototype, 'executeGuarded').mockImplementation(async (line, authorize) => {
+      enter(); await held; authorize(); writes.push(line); return 'fixture-response';
+    });
+    const factory = new LocalRuntimeFactory({ spawnProcess: trackedSpawn(), statusProbe: async () => 'running', readinessPollMs: 5 });
+    const makePlan = (root: string, id: string, port: number) => {
+      const base = plan(root, childScript(), { id, statusEndpoint: { host: '127.0.0.1', port },
+        getRconConnection: async () => ({ host: '127.0.0.1' as const, port: 26000, password: 'fixture-only' }) });
+      return { ...base, serverInfo: { ...base.serverInfo, minecraftVersion: '26.3' } };
+    };
+    const first = await factory.create(makePlan(firstRoot, 'first', 25565));
+    const second = await factory.create(makePlan(secondRoot, 'second', 25566));
+    let pending: Promise<unknown> | undefined;
+    try {
+      const child = await ready(first, firstRoot);
+      await expect(second.start(operation())).rejects.toMatchObject({ code: 'INSTANCE_PORT_CONFLICT' });
+      const session = channel === 'whitelist' ? await first.openWhitelistSession!() : undefined;
+      pending = (channel === 'console' ? first.command('say stale') : channel === 'stop' ? first.stop(operation('stop')) : session!.add('Player_One', () => undefined));
+      const result = pending.then(() => 'resolved', () => 'rejected');
+      await entered; await stopTestChild(child); await ready(second, secondRoot); release();
+      expect(await result).toBe(channel === 'stop' ? 'resolved' : 'rejected');
+      expect(writes).toEqual([]);
+      expect((await second.snapshot()).status).toMatchObject({ state: 'running', ownership: 'managed' });
+      session?.close();
+    } finally { release(); await pending?.catch(() => {}); await first.closeObserver(); await second.closeObserver(); }
+  });
+
+  it('does not send a password or command to an RCON port owned by the parent instead of the managed child', async () => {
+    let receivedBytes = 0;
+    const server = net.createServer(socket => { sockets.add(socket); socket.on('data', bytes => { receivedBytes += bytes.length; }); });
+    servers.add(server); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('fixture-port-unavailable');
+    const root = await fixtureRoot(), base = plan(root, childScript(), {
+      getRconConnection: async () => ({ host: '127.0.0.1', port: address.port, password: 'same-fixture-password' })
+    });
+    const runtime = new LocalMinecraftRuntime({ ...base, serverInfo: { ...base.serverInfo, minecraftVersion: '26.3' } }, {
+      spawnProcess: trackedSpawn(), statusProbe: async () => 'running', readinessPollMs: 5
+    });
+    await runtime.initialize();
+    try {
+      const child = await ready(runtime, root), write = vi.spyOn(child.stdin, 'write');
+      await expect(runtime.command('say never-sent')).rejects.toMatchObject({ code: 'COMMAND_TRANSPORT_UNAVAILABLE' });
+      await expect(runtime.openWhitelistSession()).rejects.toMatchObject({ code: 'RCON_PEER_UNVERIFIED', commandDispatched: false });
+      expect(receivedBytes).toBe(0); expect(write).not.toHaveBeenCalled();
+      expect(child.exitCode).toBeNull();
+    } finally { await runtime.closeObserver(); }
+  });
+  it('cannot complete readiness using a valid Minecraft status server owned by another process', async () => {
+    let handshakes = 0;
+    const server = net.createServer(socket => {
+      sockets.add(socket); socket.on('data', () => {
+        handshakes++;
+        const json = minecraftStatusProtocol.encodeString(JSON.stringify({ version: { name: 'fixture', protocol: 1 }, players: { online: 0, max: 20 } }));
+        socket.write(minecraftStatusProtocol.frame(Buffer.concat([Buffer.from([0]), json])));
+      });
+    });
+    servers.add(server); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('fixture-port-unavailable');
+    const root = await fixtureRoot(), runtime = new LocalMinecraftRuntime(plan(root, childScript(), {
+      statusEndpoint: { host: '127.0.0.1', port: address.port }
+    }), { spawnProcess: trackedSpawn(), startTimeoutMs: 300, readinessPollMs: 5 });
+    await runtime.initialize();
+    try {
+      const starting = runtime.start(operation()), denied = expect(starting).rejects.toMatchObject({ code: 'OPERATION_TIMEOUT' });
+      await waitForChild(); await appendFile(join(root, 'logs/latest.log'), '[Server thread/INFO]: Done (wrong owner)!\n');
+      await denied; expect(handshakes).toBe(0);
+    } finally { await runtime.closeObserver(); }
+  });
+
   it("offers fixed generation-bound whitelist RCON commands without stdin or mutation replay", async () => {
     const root = await fixtureRoot(); const commands: string[] = [];
     let onCommand: (() => void) | undefined;
@@ -165,6 +333,8 @@ describe("LocalMinecraftRuntime", () => {
     const base = plan(root, childScript({ exitOnStop: true }));
     const runtime = new LocalMinecraftRuntime({ ...base, serverInfo: { ...base.serverInfo, minecraftVersion: "26.3" },
       getRconConnection: async () => ({ host: "127.0.0.1", port: address.port, password: "test-secret" }) }, {
+      // Protocol fixture lives in the parent, not the inert managed child.
+      tcpPeerVerifier: async () => {},
       spawnProcess: trackedSpawn(), statusProbe: async () => children.size ? "running" : "stopped", readinessPollMs: 5
     });
     await runtime.initialize();
@@ -671,6 +841,8 @@ describe("LocalMinecraftRuntime", () => {
         password: "stop-secret"
       })
     }), {
+      // This test exercises stop framing; ownership has its own native tests.
+      tcpPeerVerifier: async () => {},
       spawnProcess: trackedSpawn(),
       statusProbe: async () => [...children].some((child) => child.exitCode === null) ? "running" : "stopped",
       startTimeoutMs: 300,

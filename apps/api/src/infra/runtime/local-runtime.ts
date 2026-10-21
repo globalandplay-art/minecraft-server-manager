@@ -31,6 +31,8 @@ import {
 } from "./status-probe.js";
 import { DomainError } from "../../services/domain-errors.js";
 import { ProcessResourceSampler, type ProcessCounterReader } from "./process-resources.js";
+import { RuntimePortReservations, type RuntimePortLease } from './port-reservations.js';
+import { verifyWindowsTcpPeer, type RconPeerVerifier, type LoopbackPeer } from './tcp-peer-owner.js';
 
 const DONE_PATTERN = /\bDone \([^)]+\)!/;
 const UNSAFE_EXECUTABLE = /\.(?:bat|cmd|ps1|sh)$/i;
@@ -84,13 +86,16 @@ export type RuntimeSpawn = (
 ) => ChildProcessWithoutNullStreams;
 
 export interface LocalRuntimeOptions {
+  readonly tcpPeerVerifier?: RconPeerVerifier;
+  readonly portReservations?: RuntimePortReservations;
   readonly processCounterReader?: ProcessCounterReader;
   readonly resourceMonotonicNow?: () => number;
   readonly spawnProcess?: RuntimeSpawn;
   readonly statusProbe?: (
     endpoint: ValidatedLaunchPlan["statusEndpoint"],
     timeoutMs: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    verifyPeer?: (peer: LoopbackPeer) => Promise<() => undefined>
   ) => Promise<MinecraftStatusProbeResult>;
   readonly startTimeoutMs?: number;
   readonly stopTimeoutMs?: number;
@@ -131,6 +136,9 @@ function safeSpawn(
 }
 
 export class LocalMinecraftRuntime implements MinecraftRuntime {
+  private readonly portReservations: RuntimePortReservations;
+  private portLease: RuntimePortLease | null = null;
+  private readonly verifyTcpPeer: RconPeerVerifier;
   private readonly resourceSampler: ProcessResourceSampler;
   private readonly resourceNow: () => number;
   private resourceEarliest = 0;
@@ -163,6 +171,8 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     private readonly plan: ValidatedLaunchPlan,
     options: LocalRuntimeOptions = {}
   ) {
+    this.portReservations = options.portReservations ?? new RuntimePortReservations();
+    this.verifyTcpPeer = options.tcpPeerVerifier ?? verifyWindowsTcpPeer;
     this.spawnProcess = options.spawnProcess ?? safeSpawn;
     this.resourceNow = options.resourceMonotonicNow ?? (() => performance.now());
     this.resourceSampler = new ProcessResourceSampler(options.processCounterReader, this.resourceNow);
@@ -199,7 +209,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     ) {
       const childAtProbeStart = this.child;
       const statusAtProbeStart = this.status;
-      const probe = await this.statusProbe(this.plan.statusEndpoint, this.probeTimeoutMs);
+      const probe = await this.probeOwnedChild(childAtProbeStart);
       if (
         this.child === childAtProbeStart &&
         childAtProbeStart.exitCode === null &&
@@ -274,6 +284,12 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     // that predates this point can never satisfy the readiness gate.
     await this.tailer.pollNow();
     await context.onStep("spawning-process");
+    const launchConnection = await this.readRconConnection();
+    this.assertOpen();
+    if (context.signal.aborted) throw new RuntimeError('OPERATION_INTERRUPTED', '启动操作已中断。');
+    const lease = this.portReservations.acquire(this.plan.statusEndpoint.port, launchConnection?.port ?? null);
+    this.portLease = lease;
+    let childCreated = false;
     let doneSeen = false;
     const unsubscribe = this.stream.subscribe((event) => {
       if (event.type === "log" && event.entry.source === "latest.log" && DONE_PATTERN.test(event.entry.text)) {
@@ -296,6 +312,8 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
         windowsHide: true,
         detached: true
       });
+      childCreated = true;
+      this.releasePortsOnExit(child, lease);
       this.attachChild(child);
       this.childOperationId = context.operationId;
       await this.waitForSpawn(child, context.signal);
@@ -313,6 +331,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       if (error instanceof RuntimeError) throw error;
       throw new RuntimeError("RUNTIME_START_FAILED", "Minecraft 进程启动失败。" );
     } finally {
+      if (!childCreated) { lease.release(); if (this.portLease === lease) this.portLease = null; }
       unsubscribe();
     }
   }
@@ -346,11 +365,18 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     this.updateStatus("stopping", "managed", context.operationId, false);
     await context.onStep("sending-stop");
     const exitAtStart = this.childExit;
+    const lease = this.portLease;
     try {
       const rcon = await this.readRconConnection();
+      this.assertRconLaunch(child, lease, 'stopping');
       if (rcon) {
         try {
-          await this.rconClient(rcon).execute("stop");
+          const client = this.rconClient(rcon);
+          await client.executeGuarded("stop", () => {
+            this.assertRconLaunch(child, lease, 'stopping');
+            if (this.rcon !== client) throw new RuntimeError('COMMAND_TRANSPORT_UNAVAILABLE', 'RCON 连接已变化。');
+            return undefined;
+          });
         } catch (error) {
           // Minecraft may close RCON before the barrier response while the stop
           // command is already taking effect. Process exit is the authority.
@@ -387,9 +413,10 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
    * exclusion, version/revision checks and response/file/log verification. */
   async openWhitelistSession(): Promise<WhitelistRconSession> {
     const child = this.child, launch = this.childOperationId;
+    const lease = this.portLease;
     let revoked = false, busy = false, mutationSent = false;
     const assert = (dispatched = false) => {
-      if (revoked || this.closed || !child || !launch || this.child !== child || this.childOperationId !== launch ||
+      if (revoked || this.closed || !lease?.active || this.portLease !== lease || !child || !launch || this.child !== child || this.childOperationId !== launch ||
         child.exitCode !== null || child.signalCode !== null || this.status.state !== "running" ||
         this.status.ownership !== "managed" || this.status.recoveryRequired) {
         throw new RconError("RCON_DISCONNECTED", "Whitelist runtime generation is unavailable.", dispatched);
@@ -443,10 +470,18 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     if (!child || child.exitCode !== null || this.status.state !== "running") {
       throw new RuntimeError("ACTION_UNAVAILABLE", "只有管理器拥有且确认运行中的进程可以接收命令。" );
     }
+    const lease = this.portLease;
     const rcon = await this.readRconConnection();
+    this.assertRconLaunch(child, lease, 'running');
     if (rcon) {
       try {
-        const output = await this.rconClient(rcon).execute(line);
+        const client = this.rconClient(rcon);
+        const output = await client.executeGuarded(line, () => {
+          this.assertRconLaunch(child, lease, 'running');
+          if (this.rcon !== client) throw new RuntimeError('COMMAND_TRANSPORT_UNAVAILABLE', 'RCON 连接已变化。');
+          return undefined;
+        });
+        this.assertRconLaunch(child, lease, 'running');
         return { status: "executed", transport: "rcon", output };
       } catch (error) {
         if (error instanceof RconError) {
@@ -509,6 +544,26 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
 
   private detachChildListener: (() => void) | null = null;
 
+  private releasePortsOnExit(child: ChildProcessWithoutNullStreams, lease: RuntimePortLease): void {
+    const release = () => {
+      child.off('exit', release); child.off('error', failedSpawn);
+      lease.release();
+      if (this.portLease === lease) this.portLease = null;
+    };
+    const failedSpawn = () => { if (child.pid === undefined) release(); };
+    // This listener survives closeObserver: detaching UI observers cannot free
+    // ports while the owned process is still alive or its exit is uncertain.
+    child.once('exit', release); child.on('error', failedSpawn);
+  }
+
+  private assertRconLaunch(child: ChildProcessWithoutNullStreams, lease: RuntimePortLease | null, state: 'running' | 'stopping'): void {
+    if (this.closed || this.child !== child || child.exitCode !== null || child.signalCode !== null ||
+      !lease?.active || this.portLease !== lease || this.status.ownership !== 'managed' ||
+      this.status.recoveryRequired || this.status.state !== state) {
+      throw new RuntimeError('COMMAND_TRANSPORT_UNAVAILABLE', '目标实例运行代际或命令通道已变化。');
+    }
+  }
+
   private attachChild(child: ChildProcessWithoutNullStreams): void {
     this.child = child;
     child.stdout.resume();
@@ -567,7 +622,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       }
       if (doneSeen()) {
         const childAtProbeStart = this.child;
-        const probe = await this.statusProbe(this.plan.statusEndpoint, this.probeTimeoutMs, signal);
+        const probe = await this.probeOwnedChild(childAtProbeStart, signal);
         if (
           this.child !== childAtProbeStart ||
           childAtProbeStart === null ||
@@ -581,6 +636,21 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       await delay(this.readinessPollMs, signal);
     }
     throw new RuntimeError("OPERATION_TIMEOUT", "Minecraft 启动超时，进程状态需要人工确认。" );
+  }
+
+  private probeOwnedChild(child: ChildProcessWithoutNullStreams, signal?: AbortSignal): Promise<MinecraftStatusProbeResult> {
+    const lease = this.portLease, pid = child.pid;
+    const assert = () => {
+      if (this.closed || this.child !== child || !pid || child.pid !== pid || child.exitCode !== null || child.signalCode !== null ||
+        !lease?.active || this.portLease !== lease || this.status.recoveryRequired) throw new Error('status-peer-unverified');
+      return undefined;
+    };
+    return this.statusProbe(this.plan.statusEndpoint, this.probeTimeoutMs, signal, async peer => {
+      assert(); await this.verifyTcpPeer(peer, pid!); assert(); return assert;
+    }).then(result => {
+      if (result === 'running') { try { assert(); } catch { return 'unknown'; } }
+      return result;
+    });
   }
 
   private async waitForExit(signal: AbortSignal): Promise<void> {
@@ -620,9 +690,12 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     const child = this.child;
     if (!child || child.exitCode !== null || this.status.state !== "running") return "unavailable";
     try {
+      const lease = this.portLease;
       const rcon = await this.readRconConnection();
+      this.assertRconLaunch(child, lease, 'running');
       if (rcon) {
         await this.rconClient(rcon).connect();
+        this.assertRconLaunch(child, lease, 'running');
         return "rcon";
       }
     } catch {
@@ -632,8 +705,12 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
   }
 
   private async readRconConnection(): Promise<PrivateRconConnection | null> {
+    const lease = this.portLease;
     try {
       const connection = await this.plan.getRconConnection();
+      if (lease && (!lease.active || this.portLease !== lease || (connection?.port ?? null) !== lease.rconPort)) {
+        throw new RuntimeError('COMMAND_TRANSPORT_UNAVAILABLE', 'RCON 配置在启动后发生变化，请停服并重新加载实例。');
+      }
       if (connection?.password && !this.knownRconSecrets.includes(connection.password)) {
         this.knownRconSecrets.push(connection.password);
         if (this.knownRconSecrets.length > 8) this.knownRconSecrets.shift();
@@ -647,12 +724,20 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
   private rconClient(connection: PrivateRconConnection): RconClient {
     const signature = `${connection.host}:${connection.port}:${connection.password}`;
     if (!this.rcon || this.rconSignature !== signature) {
+      const child = this.child, lease = this.portLease;
+      const guard = () => {
+        if (!child?.pid) throw new RuntimeError('COMMAND_TRANSPORT_UNAVAILABLE', '无法验证命令通道进程。');
+        this.assertRconLaunch(child, lease, this.status.state === 'stopping' ? 'stopping' : 'running');
+        return undefined;
+      };
+      guard();
       this.rcon?.close();
       this.rconSignature = signature;
       this.rcon = new RconClient({
         host: connection.host,
         port: connection.port,
         getPassword: async () => connection.password,
+        verifyPeer: async peer => { guard(); await this.verifyTcpPeer(peer, child!.pid!); guard(); return guard; },
         timeoutMs: this.probeTimeoutMs,
         redactor: this.redactor
       });
@@ -729,11 +814,15 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
 }
 
 export class LocalRuntimeFactory implements RuntimeFactory {
-  constructor(private readonly options: LocalRuntimeOptions = {}) {}
+  private readonly options: LocalRuntimeOptions;
+  constructor(options: LocalRuntimeOptions = {}) {
+    this.options = { ...options, portReservations: options.portReservations ?? new RuntimePortReservations() };
+  }
 
   async create(plan: ValidatedLaunchPlan): Promise<MinecraftRuntime> {
     const runtime = new LocalMinecraftRuntime(plan, this.options);
-    await runtime.initialize();
+    try { await runtime.initialize(); }
+    catch (error) { await runtime.closeObserver(); throw error; }
     return runtime;
   }
 }

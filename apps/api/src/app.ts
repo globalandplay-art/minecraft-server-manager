@@ -33,6 +33,8 @@ import { registerServerRoutes } from "./routes/servers.js";
 import { registerServerRegistrationRoutes } from "./routes/server-registrations.js";
 import { ServerRegistrationService } from "./services/server-registration-service.js";
 import { isLocalAdapter } from "./adapters/contract.js";
+import { activateInstance } from "./services/instance-activation.js";
+import type { RuntimeFactory } from "./infra/runtime-contract.js";
 import { registerWebSocketRoute } from "./routes/websocket.js";
 import { registerWorldRoutes } from "./routes/worlds.js";
 import { registerWorldCreatePlanRoutes } from "./routes/world-create-plans.js";
@@ -72,6 +74,8 @@ import { registerBackupRetentionRoutes } from "./routes/backup-retention.js";
 import { AccessOperationService } from "./services/access-operation-service.js";
 
 export interface BuildAppOptions {
+  /** Must be the same factory used for initial local adapters; otherwise hot loading stays disabled. */
+  localRuntimeFactory?: RuntimeFactory;
   /** Trusted construction only. Production main supplies no writer until real
    * version rules/endpoint ownership gates pass; never selected by HTTP/env. */
   whitelistMembers?: (operations: OperationService) => WhitelistRconCoordinator;
@@ -89,7 +93,7 @@ export interface BuildAppOptions {
   managerRoot?: string;
   importAutomaticCleanup?: boolean;
   backupSchedulerTimers?: boolean;
-  activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "snapshot" | "prepareGeneration" | "installImportedWorld" | "archiveCurrentWorld">>;
+  activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "register" | "snapshot" | "prepareGeneration" | "installImportedWorld" | "archiveCurrentWorld">>;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -127,6 +131,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     errorHandler: (_error, socket) => { socket.terminate(); }
   });
   const registry = new AdapterRegistry(adapters);
+  let closing = false;
+  app.addHook('preClose', async () => { closing = true; });
   const operations = new OperationService(
     options.operationStore ?? new MemoryOperationStore(),
     clock,
@@ -207,7 +213,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerAddonRoutes(app, registry, clock, mode, addonInventory, options.transactionJournal !== undefined && options.managerRoot !== undefined);
   registerServerRoutes(app, service, clock, mode);
   registerServerRegistrationRoutes(app, mode === 'local' && options.managerRoot
-    ? new ServerRegistrationService(options.managerRoot, adapters.filter(isLocalAdapter)) : undefined, clock, mode, options.authentication);
+    ? new ServerRegistrationService(options.managerRoot, () => registry.list().filter(isLocalAdapter),
+      options.activeWorldState?.register && options.localRuntimeFactory ? (registration, authorize) => activateInstance(registration, {
+        root: options.managerRoot!, registry, operations, streams, factory: options.localRuntimeFactory!,
+        active: { register: options.activeWorldState!.register!.bind(options.activeWorldState) },
+        ...(options.transactionJournal ? { journal: options.transactionJournal } : {}), closing: () => closing
+      }, authorize) : undefined) : undefined, clock, mode, options.authentication);
   registerPerformanceRoutes(app, new PerformanceService(registry, clock), clock, mode);
   registerCrashAnalysisRoutes(app, new CrashAnalysisService(registry, clock), clock, mode);
   registerOperationRoutes(app, service, clock, mode, options.authentication);

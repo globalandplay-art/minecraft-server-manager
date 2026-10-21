@@ -1,6 +1,6 @@
 import net from "node:net";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   RconClient,
@@ -73,6 +73,74 @@ afterEach(async () => {
 });
 
 describe("RconClient", () => {
+  it('rejects an unverified peer before reading a password or sending any packet', async () => {
+    const packets: number[] = [], password = vi.fn(async () => 'fixture-secret');
+    const server = await createTestServer((_, packet) => packets.push(packet.type));
+    const client = new RconClient({ host: '127.0.0.1', port: server.port, getPassword: password,
+      verifyPeer: async () => { throw new Error('sensitive verifier detail'); } });
+    try {
+      await expect(client.execute('list')).rejects.toMatchObject({ code: 'RCON_PEER_UNVERIFIED', commandDispatched: false, message: 'RCON peer could not be verified.' });
+      expect(password).not.toHaveBeenCalled(); expect(packets).toEqual([]);
+    } finally { client.close(); }
+  });
+  it('rechecks launch admission after waiting for the password and sends zero AUTH', async () => {
+    let release!: () => void, entered!: () => void, valid = true;
+    const waiting = new Promise<void>(resolve => { release = resolve; }), reached = new Promise<void>(resolve => { entered = resolve; });
+    const packets: number[] = [];
+    const server = await createTestServer((_, packet) => packets.push(packet.type));
+    const client = new RconClient({ host: '127.0.0.1', port: server.port,
+      getPassword: async () => { entered(); await waiting; return 'fixture-secret'; },
+      verifyPeer: async () => () => { if (!valid) throw new Error('launch-ended'); return undefined; } });
+    const pending = client.execute('list'); const denied = expect(pending).rejects.toMatchObject({ code: 'RCON_PEER_UNVERIFIED', commandDispatched: false });
+    try { await reached; valid = false; release(); await denied; expect(packets).toEqual([]); }
+    finally { release(); await pending.catch(() => {}); client.close(); }
+  });
+  it('does not authenticate when the connection closes during peer verification', async () => {
+    let release!: () => void, entered!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; }), reached = new Promise<void>(resolve => { entered = resolve; });
+    const packets: number[] = [], password = vi.fn(async () => 'fixture-secret');
+    const server = await createTestServer((_, packet) => packets.push(packet.type));
+    const client = new RconClient({ host: '127.0.0.1', port: server.port, getPassword: password,
+      verifyPeer: async () => { entered(); await waiting; return () => undefined; } });
+    const pending = client.execute('list'), denied = expect(pending).rejects.toMatchObject({ code: 'RCON_PEER_UNVERIFIED' });
+    try { await reached; client.close(); release(); await denied; expect(password).not.toHaveBeenCalled(); expect(packets).toEqual([]); }
+    finally { release(); await pending.catch(() => {}); client.close(); }
+  });
+  it('verifies each reconnect and authenticates only after a positive peer check', async () => {
+    let verified = false; const packets: number[] = [];
+    const server = await createTestServer((socket, packet) => {
+      expect(verified).toBe(true); packets.push(packet.type);
+      socket.write(encodeRconPacket(packet.requestId, packet.type === 3 ? 2 : 0, packet.type === 2 ? 'ok' : ''));
+    });
+    const verifyPeer = vi.fn(async () => { verified = true; return () => undefined; });
+    const client = new RconClient({ host: '127.0.0.1', port: server.port, getPassword: async () => 'fixture-secret', verifyPeer });
+    try {
+      await expect(client.execute('list')).resolves.toBe('ok'); client.close(); verified = false;
+      await expect(client.execute('list')).resolves.toBe('ok');
+      expect(verifyPeer).toHaveBeenCalledTimes(2); expect(packets.filter(type => type === 3)).toHaveLength(2);
+    } finally { client.close(); }
+  });
+  it('bounds an unresponsive peer verifier and keeps password and packet counts at zero', async () => {
+    const packets: number[] = [], password = vi.fn(async () => 'fixture-secret');
+    const server = await createTestServer((_, packet) => packets.push(packet.type));
+    const client = new RconClient({ host: '127.0.0.1', port: server.port, getPassword: password, timeoutMs: 60,
+      verifyPeer: () => new Promise(() => {}) });
+    try {
+      await expect(client.execute('list')).rejects.toMatchObject({ code: 'RCON_PEER_UNVERIFIED', commandDispatched: false });
+      expect(password).not.toHaveBeenCalled(); expect(packets).toEqual([]);
+    } finally { client.close(); }
+  });
+  it('does not send AUTH after the socket closes while its password is being read', async () => {
+    let release!: () => void, entered!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; }), reached = new Promise<void>(resolve => { entered = resolve; });
+    const packets: number[] = [];
+    const server = await createTestServer((_, packet) => packets.push(packet.type));
+    const client = new RconClient({ host: '127.0.0.1', port: server.port,
+      getPassword: async () => { entered(); await waiting; return 'fixture-secret'; }, verifyPeer: async () => () => undefined });
+    const pending = client.execute('list'), denied = expect(pending).rejects.toMatchObject({ code: 'RCON_DISCONNECTED', commandDispatched: false });
+    try { await reached; client.close(); release(); await denied; expect(packets).toEqual([]); }
+    finally { release(); await pending.catch(() => {}); client.close(); }
+  });
   it("runs guarded admission after auth and sends zero commands on rejection or async admission", async () => {
     const commands: string[] = []; let authenticated = false;
     const server = await createTestServer((socket, packet) => {

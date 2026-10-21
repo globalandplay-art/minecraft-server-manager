@@ -357,14 +357,15 @@ export const registrationCatalogResponseSchema = strictObject({
 export type RegistrationCatalogResponse = Static<typeof registrationCatalogResponseSchema>;
 export const registrationPreviewResponseSchema = strictObject({
   data: strictObject({ token: Type.String({ format: 'uuid' }), server: serverInfoSchema,
-    eulaAccepted: Type.Boolean(), lifecycleSupported: Type.Boolean(), restartRequired: Type.Literal(true) }),
+    eulaAccepted: Type.Boolean(), lifecycleSupported: Type.Boolean(), restartRequired: Type.Boolean() }),
   meta: responseMetaSchema
 });
 export type RegistrationPreviewResponse = Static<typeof registrationPreviewResponseSchema>;
 export const registrationSaveRequestSchema = strictObject({ token: Type.String({ format: 'uuid' }), confirm: Type.Literal(true) });
 export type RegistrationSaveRequest = Static<typeof registrationSaveRequestSchema>;
 export const registrationSaveResponseSchema = strictObject({
-  data: strictObject({ id: Type.String(), name: Type.String(), restartRequired: Type.Literal(true) }), meta: responseMetaSchema
+  data: strictObject({ id: Type.String(), name: Type.String(), restartRequired: Type.Boolean(),
+    loaded: Type.Optional(Type.Boolean()), loadErrorCode: Type.Optional(Type.Union([Type.String(), Type.Null()])) }), meta: responseMetaSchema
 });
 export type RegistrationSaveResponse = Static<typeof registrationSaveResponseSchema>;
 

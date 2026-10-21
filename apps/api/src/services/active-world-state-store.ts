@@ -22,13 +22,13 @@ export function worldIdentity(serverId: string, levelName: string): string {
 
 export class ActiveWorldStateStore {
   readonly #directory: string;
-  readonly #adapters: readonly LocalMinecraftServerAdapter[];
+  readonly #adapters: LocalMinecraftServerAdapter[];
   readonly #states = new Map<string, ActiveWorldState>();
   readonly #recovery = new Set<string>();
 
   constructor(managerRoot: string, adapters: readonly LocalMinecraftServerAdapter[]) {
     this.#directory = path.join(path.resolve(managerRoot), "active-worlds");
-    this.#adapters = adapters;
+    this.#adapters = [...adapters];
   }
 
   async initialize(restoreWorlds: ReadonlyMap<string, string> = new Map(), importWorlds: ReadonlyMap<string, readonly string[]> = new Map(), archivedWorlds: ReadonlyMap<string, string> = new Map(), archiveServers: ReadonlySet<string> = new Set()): Promise<ReadonlySet<string>> {
@@ -106,6 +106,37 @@ export class ActiveWorldStateStore {
       }
     }
     return new Set(this.#recovery);
+  }
+
+  /** Fresh instance only. Existing history must use normal startup reconciliation. */
+  async register(adapter: LocalMinecraftServerAdapter): Promise<() => void> {
+    if (this.#adapters.some(row => row.serverId === adapter.serverId)) throw new Error('Duplicate active-world adapter');
+    if (adapter.plan.serverInfo.type === 'vanilla') {
+      const managerRoot = path.dirname(this.#directory);
+      for (const directory of [managerRoot, this.#directory]) {
+        const stat = await lstat(directory);
+        if (!stat.isDirectory() || stat.isSymbolicLink() || path.resolve(await realpath(directory)).toLowerCase() !== path.resolve(directory).toLowerCase()) throw new Error('Unsafe active-world directory');
+      }
+      const file = path.join(this.#directory, `${adapter.serverId}.json`);
+      try { await lstat(file); throw new Error('Existing active-world evidence requires startup reconciliation'); }
+      catch (error) { if (!this.#isMissing(error)) throw error; }
+      const props = parseProperties(await readBoundedRegularFile(path.join(adapter.plan.rootPath, 'server.properties'), SERVER_PROPERTIES_LIMIT, 'server.properties'));
+      const levelName = props.get('level-name') ?? 'world';
+      if (!levelName || levelName.length > 128 || path.basename(levelName) !== levelName || /[\\/:\u0000-\u001f\u007f]/u.test(levelName) ||
+        levelName === '.' || levelName === '..' || /[. ]$/u.test(levelName)) throw new Error('Invalid active world name');
+      const state: ActiveWorldState = { schemaVersion: 1, serverId: adapter.serverId,
+        state: await this.#worldExists(adapter.plan.rootPath, levelName) ? 'active' : 'pending-generation',
+        levelName, worldId: worldIdentity(adapter.serverId, levelName) };
+      await this.#write(file, state);
+      this.#states.set(adapter.serverId, state);
+    }
+    this.#adapters.push(adapter);
+    return () => {
+      const index = this.#adapters.indexOf(adapter);
+      if (index >= 0) this.#adapters.splice(index, 1);
+      this.#states.delete(adapter.serverId);
+      // Keep any newly written physical evidence; only ordinary restart may reconcile it.
+    };
   }
 
   isActive(serverId: string, worldId: string): boolean {

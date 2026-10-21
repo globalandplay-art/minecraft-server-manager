@@ -8,7 +8,7 @@ export interface PerformanceSample {
 /** Manager-session history only; it does not interpolate or refresh metric timestamps. */
 export class PerformanceHistory {
   readonly #samples = new Map<string, PerformanceSample[]>();
-  readonly #serverIds: ReadonlySet<string>;
+  readonly #serverIds: Set<string>;
 
   constructor(serverIds: readonly string[], readonly capacity = 120) {
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > 120) {
@@ -28,6 +28,12 @@ export class PerformanceHistory {
     samples.push(structuredClone(sample));
     if (samples.length > this.capacity) samples.splice(0, samples.length - this.capacity);
     this.#samples.set(serverId, samples);
+  }
+
+  /** Trusted caller must first resolve the ID in the current adapter registry. */
+  register(serverId: string): void {
+    if (!this.#serverIds.has(serverId) && this.#serverIds.size >= 1000) throw new RangeError('Performance server limit reached.');
+    this.#serverIds.add(serverId);
   }
 
   read(serverId: string): PerformanceSample[] {

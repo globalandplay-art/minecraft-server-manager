@@ -1,5 +1,13 @@
 # M1 — add existing local instances
 
+## Current update: instant loading
+
+The save/restart-only behavior below is the earlier delivery snapshot and is
+retained as historical evidence. The current candidate supports immediate loading
+after a verified save, with explicit pending/error fallback and no old-instance
+restart. See [instant loading and isolation validation](./M1_INSTANT_LOADING_2026-10-21.md).
+Historical test counts below refer to the earlier candidate, not this update.
+
 ## Delivered scope
 
 The Servers page now supports adding an existing local server directory through

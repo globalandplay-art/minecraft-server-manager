@@ -41,12 +41,13 @@ async function main(): Promise<void> {
       process.stderr.write("Access initialization blocked: ACCESS_PRIVATE_UNSAFE.\n");
     }
   }
-  adapters =
-    mode === "mock" ? undefined : await createLocalAdapters(managerRoot, new LocalRuntimeFactory());
+  const localRuntimeFactory = new LocalRuntimeFactory();
+  adapters = mode === "mock" ? undefined : await createLocalAdapters(managerRoot, localRuntimeFactory);
   adapterCreationComplete = true;
   const localAdapters = adapters?.filter(isLocalAdapter) ?? [];
   const transactionJournal = mode === "local" ? new TransactionJournalStore(managerRoot) : undefined;
   app = buildApp({
+    localRuntimeFactory,
     accessOperations,
     ...(authentication === undefined ? {} : { authentication }),
     logger: {

@@ -1,4 +1,6 @@
 import net from "node:net";
+import type { LoopbackPeer } from './tcp-peer-owner.js';
+import { assertSynchronousRconAdmission } from './rcon-client.js';
 
 const MAX_STATUS_PACKET_BYTES = 1024 * 1024;
 
@@ -66,7 +68,8 @@ function isMinecraftStatus(value: unknown): boolean {
 export async function probeMinecraftStatus(
   endpoint: MinecraftStatusEndpoint,
   timeoutMs = 2_000,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  verifyPeer?: (peer: LoopbackPeer) => Promise<() => undefined>
 ): Promise<MinecraftStatusProbeResult> {
   if (endpoint.host !== "127.0.0.1") return "unknown";
   const socket = new net.Socket();
@@ -81,6 +84,8 @@ export async function probeMinecraftStatus(
 
   return new Promise<MinecraftStatusProbeResult>((resolve) => {
     let settled = false;
+    let requested = false;
+    let admission: (() => undefined) | undefined;
     let received = Buffer.alloc(0);
     const finish = (result: MinecraftStatusProbeResult) => {
       if (settled) return;
@@ -105,6 +110,7 @@ export async function probeMinecraftStatus(
         const jsonStart = packetId.bytes + jsonLength.bytes;
         if (jsonStart + jsonLength.value !== payload.length) return finish("unknown");
         const decoded: unknown = JSON.parse(payload.subarray(jsonStart).toString("utf8"));
+        if (admission) assertSynchronousRconAdmission(admission);
         finish(isMinecraftStatus(decoded) ? "running" : "unknown");
       } catch {
         finish("unknown");
@@ -113,16 +119,30 @@ export async function probeMinecraftStatus(
     const onAbort = () => finish("unknown");
     const timer = setTimeout(() => finish("unknown"), timeoutMs);
     signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) { finish('unknown'); return; }
     socket.on("error", (error: NodeJS.ErrnoException) => {
       finish(error.code === "ECONNREFUSED" ? "stopped" : "unknown");
     });
     socket.on("close", () => finish("unknown"));
     socket.on("data", (chunk) => {
+      if (!requested) return finish('unknown');
       if (received.length + chunk.length > MAX_STATUS_PACKET_BYTES + 16) return finish("unknown");
       received = Buffer.concat([received, chunk]);
       parse();
     });
-    socket.connect(endpoint.port, endpoint.host, () => socket.write(request));
+    socket.connect(endpoint.port, endpoint.host, () => {
+      void (async () => {
+        if (verifyPeer) {
+          if (socket.localAddress !== '127.0.0.1' || socket.remoteAddress !== '127.0.0.1' || !socket.localPort || socket.remotePort !== endpoint.port)
+            return finish('unknown');
+          admission = await verifyPeer({ serverPort: socket.remotePort, clientPort: socket.localPort });
+          if (typeof admission !== 'function') return finish('unknown');
+        }
+        if (settled || socket.destroyed || signal?.aborted) return finish('unknown');
+        if (admission) assertSynchronousRconAdmission(admission);
+        requested = true; socket.write(request);
+      })().catch(() => finish('unknown'));
+    });
   });
 }
 

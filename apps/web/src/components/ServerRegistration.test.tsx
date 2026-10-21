@@ -41,3 +41,14 @@ it('does not automatically resubmit an uncertain save', async () => {
   await screen.findByText(/不会自动重试/); expect(f.save).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('button', { name: '检查实例' })).toBeDisabled();
 });
+it('notifies the live server list only after confirmed immediate loading', async () => {
+  const loaded = vi.fn(); setup(); cleanup();
+  vi.mocked(api.registrationPreview).mockResolvedValue({ data: { token: '123e4567-e89b-42d3-a456-426614174000',
+    server: { id: 'second', name: 'Second', type: 'vanilla', minecraftVersion: '26.3', java: { runtimeVersion: '25', requiredMajor: 25 },
+      detection: { confidence: 'high', evidence: [], warnings: [] } }, eulaAccepted: true, lifecycleSupported: true, restartRequired: false }, meta });
+  vi.mocked(api.registrationSave).mockResolvedValue({ data: { id: 'second', name: 'Second', loaded: true, restartRequired: false, loadErrorCode: null }, meta });
+  render(<ServerRegistration onLoaded={loaded} />); await fill();
+  fireEvent.click(screen.getByRole('checkbox')); fireEvent.click(screen.getByRole('button', { name: '保存实例' }));
+  await screen.findByText(/已登记并加载 Second/); expect(loaded).toHaveBeenCalledOnce();
+  expect(screen.queryByText('Second（second）')).not.toBeInTheDocument();
+});

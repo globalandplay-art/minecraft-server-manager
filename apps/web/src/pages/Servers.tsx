@@ -17,13 +17,13 @@ function capabilityLabel(server: ServerSummary) {
   return labels.length ? labels.join(' · ') : '无扩展能力';
 }
 
-export function Servers({ items, mode, stale = false }: { items: ServerSummary[]; mode: 'mock' | 'local'; stale?: boolean }) {
+export function Servers({ items, mode, stale = false, onRegistered }: { items: ServerSummary[]; mode: 'mock' | 'local'; stale?: boolean; onRegistered?: () => void }) {
   if (items.length === 0) {
     return (
       <div className="page-stack">
         {mode === 'mock' ? <MockBanner /> : null}
         <PageHeading eyebrow="INSTANCES" title="Servers" description="管理多个本地服务端实例。" />
-        {mode === 'local' ? <ServerRegistration /> : null}
+        {mode === 'local' ? <ServerRegistration {...(onRegistered ? { onLoaded: onRegistered } : {})} /> : null}
         <EmptyState
           title="尚未接入服务器实例"
           description={mode === 'mock' ? 'Phase 1 不提供实例注册。请切换本地模式添加已有服务端。' : '请在上方检查并添加已有服务端目录，随后手动重启 Manager。'}
@@ -42,7 +42,7 @@ export function Servers({ items, mode, stale = false }: { items: ServerSummary[]
         description={`本地实例目录 · 状态时间按 ${localTimezoneLabel()} 显示`}
         aside={<span className="count-badge">{items.length} 个实例</span>}
       />
-      {mode === 'local' ? <ServerRegistration /> : null}
+      {mode === 'local' ? <ServerRegistration {...(onRegistered ? { onLoaded: onRegistered } : {})} /> : null}
       {stale ? <div className="stale-banner" role="status">服务器列表超过 15 秒未刷新成功，状态已降级为未知；以下保留上次结果供回看。</div> : null}
       <div className="servers-grid">
         {items.map((item) => (

@@ -40,7 +40,7 @@ it('checks without writes; saves both instances; a new Manager loads the added r
   const preview = await f.service.preview(f.draft, () => {});
   expect(preview).toMatchObject({ server: { id: 'second', type: 'vanilla', minecraftVersion: '26.3' }, eulaAccepted: false, restartRequired: true });
   expect(await readFile(f.config)).toEqual(before); expect(await readdir(f.second)).toEqual(['eula.txt', 'server.jar', 'server.properties']);
-  expect(await f.service.save(preview.token, () => {})).toEqual({ id: 'second', name: 'Second', restartRequired: true });
+  expect(await f.service.save(preview.token, () => {})).toEqual({ id: 'second', name: 'Second', restartRequired: true, loaded: false, loadErrorCode: null });
   expect(JSON.parse(await readFile(f.config, 'utf8')).servers[0]).toEqual(f.original);
   expect(await f.service.catalog()).toMatchObject({ pending: [{ id: 'second', name: 'Second' }] });
   const reopened = await loadLocalRegistrations(f.manager); expect(reopened.map(row => row.plan.id)).toEqual(['first', 'second']);

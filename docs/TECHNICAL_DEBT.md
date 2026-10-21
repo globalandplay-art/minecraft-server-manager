@@ -1,9 +1,26 @@
 # Technical debt register
 
+## 2026-10-21 M2 已验证类型业务交付更新
+
+Vanilla26.3/Paper26.2/Fabric26.2真实多实例启停、双方各自重启不扰对端、RCON/seed/PID隔离、同键重放及三个新Manager进程重开均业务PASS；现有类型的M2功能可交付。严格诊断与全仓最终Gate仍BLOCKED：Perflib009/0x80070057、OSHI Process系统信息缺失、Paper版本提示/JOML警告保留；未修系统、未修改classifier，不能称无条件M2整体PASS。Forge/NeoForge仍是未完成M1受信启动描述前置，不伪称已支持。旧CommandStore技术债不重启、不阻塞独立功能，历史全API2510PASS/12FAIL不改写。完整范围/已解决脚本P2/真实run/限制见 [M2交付](./M2_DELIVERY_2026-10-21.md)，下方旧“真实多实例未验证”是历史记录。
+
+## 2026-10-21 M2 重启与双协议实例更新
+
+双Node协议实例隔离PASS、授权Vanilla真实start/restart/stop业务PASS，独立源码/证据Review均0 findings；原Perflib009/0x80070057严格诊断BLOCKED未改变。真实多Minecraft、新Paper/Fabric验收、Forge/NeoForge支持及完整阶段Gate仍待完成。新增双freshUUID验收脚本需明确新增实例授权后执行；不扩大原实例授权。见 [双协议](./M2_MULTI_PROTOCOL_2026-10-21.md) 和 [真实重启](./M2_RESTART_REAL_2026-10-21.md)。旧API2510PASS/12FAIL与全部历史原生现场保留，不因此重跑CommandStore。
+
 ## 2026-10-21 当前 Perflib 与 M1 分类
 
+- M2游戏状态连接归属现已补齐，并完成授权Vanilla单实例真实启停/RCON业务PASS；双角色连接均核验到同一实际JavaPID。严格真实Gate仍因既有Perflib009/0x80070057 BLOCKED，未改classifier/系统，不能冒称M2完整PASS。多Minecraft实例、Paper/Fabric新真实验收及Forge/NeoForge仍独立待完成。见 [M2真实回归](./M2_GAME_REAL_2026-10-21.md)；下方“游戏端口未实现”保留为前一切片历史。
+
+- M2已连接RCON socket的Windows进程归属检查已实现：发密码前精确核对服务端连接tuple/PID，实际隔离TCP正负例通过。其余游戏端口归属、跨Manager竞争与真实多实例验收继续待完成；旧“全部OS归属未实现”由此按角色细分，不改写历史证据。见 [RCON归属记录](./M2_RCON_PEER_2026-10-21.md)。
+
+- M2同Manager游戏/RCON端口仲裁及发送代次保护已实现并通过专项/独立Review；原“多实例端口检查待完成”现在分为已完成的进程内互斥与仍待完成的OS监听者归属、外部竞争、真实多实例验收。不能将前者冒称后者。详见 [M2端口隔离](./M2_PORT_ISOLATION_2026-10-21.md)。
+
+- 当前M1即时加载/隔离切片已完成，取代下面历史“热加载未实现”的状态；安全失败保留pending，不自动覆盖历史证据。详见 [M1即时加载](./M1_INSTANT_LOADING_2026-10-21.md)。
+- M2首个Paper/Fabric热加载后启停集成已验证；真实多实例端口/进程/RCON归属、Forge/NeoForge启动描述与新鲜真实验收仍独立待完成，不能由Fake验证替代。见 [M2首片](./M2_LIFECYCLE_INTEGRATION_2026-10-21.md)。旧LC2原生路线不成为这些任务前置条件。
+
 - `LC12-REAL-HOST-PERFLIB-001`：**ENVIRONMENT / DEFERRED**，非致命OSHI初始化异常；Minecraft Done/RCON/业务及正常exit0/null已证实。严格harness历史BLOCKED保持原样；此环境问题不再阻塞LC1/LC2业务或独立M1。修Windows次数0，指标可用性不作无证据推断。见 [专项调查](./PERFLIB_INVESTIGATION_2026-10-21.md)。
-- M1现有目录多实例登记已实现及受影响验证通过，完整Web220PASS；后续Forge/NeoForge启动描述、首次Java配置向导和运行中热加载为独立未实现范围，不宣称M2完成。见 [M1记录](./M1_REGISTRATION_2026-10-21.md)。
+- 历史首次M1登记切片：完整Web220PASS；当时Forge/NeoForge启动描述、首次Java配置向导和热加载尚未实现。热加载已由上面的新切片完成，其他范围仍保留，不宣称M2整体完成。见 [M1历史记录](./M1_REGISTRATION_2026-10-21.md)。
 - 下方旧“宿主阻塞M1”是此前顺序决定，现已由用户明确解除依赖；历史 full API失败、原生技术债和真实严格诊断失败不删除、不改写PASS。
 
 ## 2026-10-21 LC1/LC2 actual functionality vs host acceptance

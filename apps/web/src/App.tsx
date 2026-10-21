@@ -236,7 +236,7 @@ export function App() {
             ? <div className="page-stack"><PageHeading eyebrow="INSTANCES" title="Servers" description="正在读取服务器列表…" /></div>
             : serversQuery.isError && !serversQuery.data
               ? <ErrorState description={errorMessage(serversQuery.error)} retry={() => void serversQuery.refetch()} />
-              : <Servers items={servers} mode={mode ?? 'local'} stale={serversStale} />
+              : <Servers items={servers} mode={mode ?? 'local'} stale={serversStale} onRegistered={() => { void serversQuery.refetch(); }} />
         } />
         <Route path="/players" element={invalidSelection ? <InvalidSelection /> : mode === 'local' && healthQuery.data?.data.features.players.implemented ? <PlayersPage key={selectedId} server={selectedServer} /> : phaseRoute('players')} />
         <Route path="/whitelist" element={invalidSelection ? <InvalidSelection /> : <WhitelistPage key={selectedId} server={selectedServer} />} />

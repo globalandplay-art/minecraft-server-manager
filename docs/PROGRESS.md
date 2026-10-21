@@ -1,3 +1,63 @@
+## 2026-10-21 用户授权上传 M1/M2 开发检查点
+
+用户已明确授权将当前M1即时加载、M2已验证类型生命周期、测试与交付文档commit/push到现有`codex/phase-4-players-properties`，不创建PR、不合并main、不改写历史。上传前fetch确认本地/远端同为`d2dadab`，48项候选文件均为源码/测试/文档，凭证模式与8项私密RCON值比对未发现泄漏；`.manager`/runtime/test-results继续忽略，不上传配置/世界/私密证据。实际commit及push结果以随后Git核验为准。M2业务PASS与严格诊断/全仓Final Gate未通过的状态保持，不因上传而变更。下方“无commit/push”均为各自开发检查点当时事实。
+
+## 2026-10-21 M2 当前已验证类型功能交付；真实多实例业务 PASS
+
+**Vanilla26.3 / Paper26.2 / Fabric26.2 的M2本地生命周期业务范围已完成交付、真实业务PASS。严格diagnostics仍BLOCKED，全仓Final Gate未通过，不声明无条件M2 ENGINEERING/FINAL PASS。** M2按原路线仅接入M1受信启动契约已验证的类型；Forge/NeoForge仍为M1前置待办，不能冒称支持。详见 [M2交付矩阵、证据与问题](./M2_DELIVERY_2026-10-21.md)。
+
+本次三个fresh双实例run：Vanilla `m2-multi-real-17d2b11e-e9fa-4d96-9887-4b9533882925`，Paper自身重启 `m2-loaders-real-9772e155-e348-4057-b1c0-b3f0f0375835`，Fabric自身重启 `m2-loaders-real-536f8da3-c95c-4707-a92a-9f9909345ed6`。各5操作succeeded，均验证并行启动、真实独立seed/RCON/PID端口、目标重启不扰对端、同键重放无多开、正常停服；共9代Java exit0/null、无crash/兜底/清理错误，源JAR/EULA及107/51依赖白名单未变，端口释放。三份新Manager进程重开检查PASS，合计15原操作重放、零Minecraft启动，stopped/none/noactive/recoveryfalse。
+
+独立最终源码/全部真实证据Review P1/P2/P3=0（Sol6.1容量不可用后按规则fallback Sol6High）。脚本执行前的逐代异常漏检、重开路径/操作绑定P2均Attempt1修复复审关闭，未改产品语义/断言/时限。API受影响120PASS及现有Web/contracts/browser有效证据保留，最终lint/typecheck/build及diff见交付报告，不冒称全仓绿。
+
+Perflib009/0x80070057、OSHI进程信息采集失败、Paper旧版提示/JOML警告均原样保留为严格BLOCKED，三个真实runner仍exit1，不改classifier或系统；成功业务结果单独成立。旧全API2510PASS/12FAIL和旧CommandStore现场保留，未重跑旧原生实验。测试场景/世界全部保留，P7 STOPPED，无commit/push/PR。下方“多实例/新loader真实NOT RUN、M2整体IN PROGRESS”是此前检查点，由本节按明确范围更新，不改写原报告。
+
+## 2026-10-21 M2 双协议实例通过；Vanilla 真实重启业务 PASS
+
+已补录双Node协议实例run `m2-multi-protocol-05531041-3c54-4f23-8091-49aa99944b70`：A/B并行、命令不串服、A重启/停止不影响B，同键重放无多开，三代exit0/null，四端口释放。独立Review P1/P2/P3=0；这是NODE_PROTOCOL_FIXTURE，真实多Minecraft NOT RUN。见 [双协议验收](./M2_MULTI_PROTOCOL_2026-10-21.md)。
+
+真实重启run `m2-real-ce266a0a-a487-4033-9008-57955b84c8ee`：start/restart/stop均succeeded，两代fresh Done、正确游戏/RCON PID归属及真实list，同键restart重放无多开；两代正常exit0/null，原配置精确还原、端口/应用关闭，无新crash或stdin兜底。**业务PASS，strict diagnostics BLOCKED，exit1**，仅既有Perflib009/0x80070057。API受影响120PASS/8files，最终lint/typecheck/build PASS。Sol6.1容量不可用后按路由fallback Sol6High，源码/真实证据独立Review P1/P2/P3=0。见 [真实重启](./M2_RESTART_REAL_2026-10-21.md)。
+
+M2整体仍IN PROGRESS：真实多实例、新Paper/Fabric验收、Forge/NeoForge启动支持及适用最终Gate未全部完成。已准备freshUUID双实例脚本，未确认新增实例授权前不运行。历史全API2510PASS/12FAIL及严格BLOCKED保留，旧原生实验未复跑，P7 STOPPED，无commit/push/PR。
+
+## 2026-10-21 M2 游戏连接归属完成；授权 Vanilla 真实业务 PASS
+
+游戏状态连接现复用Windows精确ESTABLISHED tuple/PID核验：有受管child时，握手写前、有效响应接受前、runtime采用running结果前均核对同一child/PID/lease。原探测整体时限、取消及安全门控保持；无法验证返回unknown，验证前数据及迟到结果不能冒充启动成功。无child的普通只读探测仍只能标external/none/unknown。相关 **109PASS/6files**，lint/typecheck/build/diff通过；独立SolHigh源码及真实证据Review **P1/P2/P3=0**。
+
+已按长期授权实际运行仅一个`vanilla-26-3`：run **m2-real-ba29c4d7-0beb-4a27-a1db-380c0556a8c5**。fresh Done、游戏及RCON完整连接PID同属受管Java、真实RCON list、显式正常RCON stop均通过；Java exit0/null、无提前退出、无新crash report、无备用stdin；应用关闭、两测试端口释放、原server.properties精确还原及复核均通过。**M2本次Vanilla业务PASS；严格真实Gate仍BLOCKED**，仅保留的Perflib009/0x80070057环境诊断，不是Minecraft启动/启停失败。未修改classifier或Windows系统，未自动重跑。
+
+真实脚本执行前Review两项P2（停服日志遗漏、清理异常可能中断报告）均在第一次真实执行前修复并复审关闭；只有一次实际启动。所有旧失败、忽略的私密证据及配置备份保留。详见 [游戏归属与真实回归](./M2_GAME_REAL_2026-10-21.md)。
+
+M2整体仍IN PROGRESS：本次不是多Minecraft实例、Paper/Fabric新真实验收或Forge/NeoForge启动支持。下一步为支持范围内多实例集成与新鲜真实验收的边界补齐，不扩大当前Vanilla长期授权到其他服务器。旧CommandStore继续延期，P7 STOPPED，无commit/push/PR。
+
+## 2026-10-21 M2 已连接 RCON socket 进程归属验证完成
+
+在前一端口仲裁切片上，新增Windows只读连接归属核验：RCON TCP连接建立后、发送密码前，固定有界netstat查询服务端完整IPv4 loopback ESTABLISHED tuple，要求唯一PID属于当前受管child。每次重连重验；异步验证后、密码读取后及AUTH/命令实际写入边界复核同一socket/child/lease。失败关闭对应连接，零AUTH/零命令，不回退stdin、不自动重发。未改变系统设置或原有超时时限。
+
+专项 **63PASS/3files**，受影响 **151PASS/8files**，最终RCON **19PASS**（套件重叠）。Windows真实隔离TCP正/负PID查询通过；默认运行时指向父进程而非受管child的反例收到零密码/命令。原两个父进程协议fixture显式注入Fake checker，仅用于其既有协议断言，生产默认核验不能通过HTTP/环境变量关闭。独立SolHigh **P1/P2/P3=0**，最终lint/typecheck/build/diff通过，本RCON小切片ENGINEERING PASS。证据见 [RCON socket归属](./M2_RCON_PEER_2026-10-21.md)。
+
+本切片不包含游戏端口PID归属、跨Manager仲裁、真实Minecraft验收或Forge/NeoForge启动，M2整体继续IN PROGRESS。下一步游戏状态连接归属与已授权Vanilla实例真实回归；不自动将Vanilla长期授权扩展到其他实例。历史全量失败保留，旧原生实验未复跑，P7 STOPPED，本轮无commit/push/PR。
+
+## 2026-10-21 M2 同 Manager 端口仲裁与命令代际保护切片完成
+
+已在现有LocalRuntimeFactory/LocalMinecraftRuntime加入共享的游戏/RCON端口保留，同端口及跨角色冲突在新进程创建前拒绝，错误码`INSTANCE_PORT_CONFLICT`；不同端口可同时运行。保留按每次launch唯一身份管理，只在确认子进程退出或未成功spawn时释放；启动超时、关闭observer、活子进程error均不提前释放。RCON端口/启用状态变化不回退stdin；Console、stop、whitelist在实际发送边界复核child/代次/保留归属，阻止旧请求向后来取得同端口的新实例发送。未新增进程监督器、原生helper或持久化框架。
+
+独立SolHigh发现默认buildApp分支缺失共享factory的P2，已最小修复：无法提供与初始adapters相同的factory时，登记仅保存为pending，不创建独立仲裁器。生产main继续共享初始/新增实例factory。最终delta Review **P1/P2/P3=0**。
+
+相关API **139PASS/8files**；修复factory后的三文件 **61PASS**；最终运行时 **35PASS**（这些套件重叠，不合计为完整回归）。最终lint/typecheck/build/diff通过。测试使用真实隔离Node子进程、Fake状态/RCON发送边界和临时文件；没有启动Minecraft或操作真实服务端，没有旧CommandStore专项复跑。详情及代码/日志见 [M2端口隔离](./M2_PORT_ISOLATION_2026-10-21.md)。
+
+**本切片 ENGINEERING PASS，M2整体仍IN PROGRESS**：同Manager内存仲裁不等于OS监听者PID证明，外部进程/其他Manager的端口竞争与真实多实例Minecraft/RCON验收仍待完成；Forge/NeoForge启动仍未开放。不宣称仓库全量绿，历史API2510PASS/12FAIL及Perflib严格验收BLOCKED保留。P7 STOPPED，当前未commit/push/PR，未覆盖已有M1改动。
+
+## 2026-10-21 M1 即时加载/多实例隔离切片完成；已进入 M2
+
+**M1 即时加载与隔离切片 ENGINEERING PASS**：保存后直接加入当前实例列表和选择器，不重启Manager、不自动启动Minecraft、不重建旧adapter；设置、白名单、日志、事件流/重放、操作互斥/恢复和性能历史均按实例隔离。加载失败/关闭竞态/同名历史证据时保留已保存登记与现场，明确返回pending及脱敏原因，不伪称已加载。新实例性能ID遗漏曾被独立Review检出并修复，旧实例样本不重置。受影响API59PASS、流/应用/HTTP认证64PASS、性能集成19PASS（套件重叠，不作为全量合计）；contracts25PASS、新完整Web221PASS、360/768/1440浏览器3PASS；lint/typecheck/build通过。独立SolHigh最终Review **P1/P2/P3=0**。详细日志、初次失败与限制见 [M1即时加载验收](./M1_INSTANT_LOADING_2026-10-21.md)。
+
+**M2 已实际进入首个集成切片**：复用既有Paper/Fabric可信启动链与OperationService，为新即时加载实例补齐HTTP启停/重启、同键重放、JAR/EULA/Fabric库变更负向验证。受影响67PASS/4files，既有loader配置14PASS；独立SolHigh **P1/P2/P3=0**。首次16PASS/2FAIL为Fabric损坏文件按现有语义返回interrupted/RECOVERY_REQUIRED，而新增测试错期望failed；已改为精确恢复码、后续启动409、旧实例无恢复断言，无修改产品恢复逻辑或时限。见 [M2首片](./M2_LIFECYCLE_INTEGRATION_2026-10-21.md)。
+
+本轮全部采用隔离文件/Fake运行时，没有启动真实Minecraft，没有修改真实注册表或世界；不宣称完整M1/M2或真实多实例/RCON端口归属验收。Forge/NeoForge启动描述仍未实现。历史full API2510PASS/12FAIL和严格诊断BLOCKED保留，无新的仓库全API回归、无旧原生实验复跑。Perflib继续独立ENVIRONMENT/DEFERRED，P7 STOPPED。当前基线HEAD `d2dadab4c144e5031490e0d2da4b34556524d366`，改动未提交，**无commit/push/PR**。下方保存后必须重启的M1说明是历史快照，现由即时加载能力取代。
+
+下一步：M2多实例实际端口/进程及RCON归属验证与支持范围补齐；Forge/NeoForge仅在有已核验启动描述后开放，不凭文件名启用。其他实例真实运行仍须在对应授权边界内。
+
 ## 2026-10-21 用户授权上传当前开发检查点
 
 本次上传包含 LC2 本地增删、LC1/LC2 实际业务验收记录、Perflib 独立环境归因、M1 添加现有实例切片及对应使用指南/测试。用户已明确授权 commit/push 到现有 `codex/phase-4-players-properties` 分支；不创建 PR、不合并 main，不改写历史。具体上传结果以 Git 提交与远端核验为准。保留全部历史失败及未完成边界，私密 `.manager`/runtime/test-results 不上传；此前“无 commit/push”均描述各自执行时的状态。该上传不代表整个仓库、完整 M1/M2 或远程功能通过。

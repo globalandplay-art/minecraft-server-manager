@@ -1,12 +1,22 @@
 # Minecraft Java Server Manager — API 合约
 
+## M2 当前交付状态（2026-10-21）
+
+复用现有`POST /api/v1/servers/:id/actions/start|stop|restart`及Operation查询接口，不新增通用命令/事务API。202仅表示受理，使用原operation ID核验终态；幂等键按实例/动作绑定，Manager重开后已完成请求仍重放原结果，不自动启动Minecraft。Vanilla26.3/Paper26.2/Fabric26.2真实并发、互相隔离的重启与RCON、停服及新Manager重开验证已业务PASS，严格诊断/全仓Final Gate仍BLOCKED。Forge/NeoForge能力未开放。见 [M2交付证据及限制](./M2_DELIVERY_2026-10-21.md)。以下原切片叙述保留各自时间范围。
+
 ## M1 本地多实例登记（2026-10-21）
 
-- `GET /api/v1/server-registrations`：当前可信 Java profile 的 id/name，以及已保存待重启加载实例 id/name。
+- `GET /api/v1/server-registrations`：当前可信 Java profile 的 id/name，以及已保存但尚未加载实例 id/name。
 - `POST /api/v1/server-registrations/preflight`：严格 `{id,name,root,jarFile,javaProfileId}`；只检查，不修改目标服务端，返回短期 token、类型/版本/EULA/启动类型能力。
-- `POST /api/v1/server-registrations`：严格 `{token,confirm:true}`，通过配置及目标身份/revision复核后保存，201 返回 `{id,name,restartRequired:true}`。
+- `POST /api/v1/server-registrations`：严格 `{token,confirm:true}`，通过配置及目标身份/revision复核后保存，201 返回 `{id,name,restartRequired,loaded,loadErrorCode}`。`loaded=true/restartRequired=false` 才表示加入当前运行列表；保存成功但加载失败返回 `loaded=false/restartRequired=true` 和脱敏错误码，保留配置及证据，不自动重试。`loaded`/`loadErrorCode` 在合约中保持可选以兼容旧响应。
 
-浏览器不能传任意Java程序、JVM或服务端参数。沿用本地Host/Origin/intent和已配置认证；不自动启动、不接受EULA。新实例须正常停服后手动重启Manager加载，未热插当前服务器列表。详见 [M1](./M1_REGISTRATION_2026-10-21.md)。
+浏览器不能传任意Java程序、JVM或服务端参数。沿用本地Host/Origin/intent和已配置认证；不自动启动、不接受EULA。正常保存后即时加入当前 registry、事件流和按实例隔离的监测读取；旧实例不重新初始化。加载前核对同名历史 operation/journal/recovery 及受控存储证据；存在不确定状态时保留为 pending。详见 [M1即时加载](./M1_INSTANT_LOADING_2026-10-21.md)。
+
+M2启动执行阶段增加同Manager游戏/RCON端口仲裁。冲突以operation终态`failed`、错误码`INSTANCE_PORT_CONFLICT`报告（202仍只是受理），不创建目标子进程、不停止其他实例。端口保留直到该代次子进程确认退出，超时/observer关闭不释放。运行中RCON端口或启用状态漂移使命令通道不可用，Console/stop/whitelist的实际发送边界复核代次；不自动重发、不转到别的实例。此保护不是OS监听者身份校验。生产初始/新增实例共用一个factory；构造时缺失共享factory的分支仅保存pending登记。见 [M2端口隔离](./M2_PORT_ISOLATION_2026-10-21.md)。
+
+后续M2切片另增加**已连接RCON socket**的Windows进程归属验证，不是监听快照推断。连接建立后发送AUTH前，固定有界只读查询要求服务端tuple唯一且PID匹配受管child；每次重连重验，AUTH和命令写前复核socket/代次。无法验证时内部固定`RCON_PEER_UNVERIFIED`、commandDispatched=false，公共端点继续沿用各业务的安全不可用/失败/未知映射，不返回原始系统输出。不能由此宣称游戏端口归属或完整M2通过。详见 [RCON归属](./M2_RCON_PEER_2026-10-21.md)。
+
+最新M2另补齐游戏状态连接的同类核验：仅有受管child时启用，握手及响应采用前验证实际连接tuple/PID和launch guard；超时/取消/失败返回unknown，原时间限制不变。无child时普通探测仍可能报告external，不接管。授权Vanilla单实例真实业务已通过，严格诊断仍Perflib BLOCKED，不等于M2全阶段通过。见 [游戏归属与真实证据](./M2_GAME_REAL_2026-10-21.md)。
 
 ## P7.2 登录 UI / WebSocket（2026-10-09，工程 Final Gate 进行中）
 

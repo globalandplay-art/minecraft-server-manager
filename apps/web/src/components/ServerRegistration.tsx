@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { RegistrationCatalogResponse, RegistrationDraft, RegistrationPreviewResponse } from '@mcsm/contracts';
 import { api, ApiClientError, errorMessage } from '../api';
 
-export function ServerRegistration() {
+export function ServerRegistration({ onLoaded }: { onLoaded?: () => void } = {}) {
   const [catalog, setCatalog] = useState<RegistrationCatalogResponse['data']>();
   const [draft, setDraft] = useState<RegistrationDraft>({ id: '', name: '', root: '', jarFile: 'server.jar', javaProfileId: '' });
   const [preview, setPreview] = useState<RegistrationPreviewResponse['data']>();
@@ -33,8 +33,15 @@ export function ServerRegistration() {
     try {
       const response = await api.registrationSave(preview.token);
       if (!mounted.current) return;
-      setMessage(`已登记 ${response.data.name}；请手动重启 Manager 加载。不会自动启动 Minecraft。`);
-      setCatalog(current => current ? { ...current, pending: [...current.pending, { id: response.data.id, name: response.data.name }] } : current);
+      const loaded = response.data.loaded === true;
+      setMessage(loaded ? `已登记并加载 ${response.data.name}，现在可以切换。未启动 Minecraft。`
+        : `已登记 ${response.data.name}；暂未加载${response.data.loadErrorCode ? `（${response.data.loadErrorCode}）` : ''}，请检查后手动重启 Manager。不会自动启动 Minecraft。`);
+      if (loaded) onLoaded?.();
+      setCatalog(current => current ? {
+        profiles: loaded ? [...current.profiles.filter(row => row.id !== response.data.id), { id: response.data.id, name: response.data.name }] : current.profiles,
+        pending: loaded ? current.pending.filter(row => row.id !== response.data.id)
+          : [...current.pending.filter(row => row.id !== response.data.id), { id: response.data.id, name: response.data.name }]
+      } : current);
       setPreview(undefined); setConfirmed(false);
     } catch (error) {
       if (mounted.current) {
@@ -46,8 +53,8 @@ export function ServerRegistration() {
   };
   return <section className="settings-panel registration-panel" aria-label="添加服务器实例">
     <h2>添加服务器实例</h2>
-    <p>选择已有服务端目录并检查。保存后需手动重启 Manager 加载；不会启动服务器、修改世界或接受 EULA。</p>
-    <p>重启 Manager 前，请先在 LT 正常停止受管服务器，避免失去当前进程的管理绑定。</p>
+    <p>选择已有服务端目录并检查。安全初始化成功后立即加入实例列表；不会启动服务器、修改世界或接受 EULA。</p>
+    <p>如旧状态需人工检查，登记会保留为待加载；不会自动重试或影响其他实例。</p>
     {catalog?.pending.length ? <div role="status"><h3>待重启 Manager 加载</h3><ul>{catalog.pending.map(row => <li key={row.id}>{row.name}（{row.id}）</li>)}</ul></div> : null}
     {!catalog?.profiles.length ? <p>请先在本地配置中建立一个可信 Java 配置，网页不能指定任意程序作为 Java。</p> : null}
     <form onSubmit={event => { event.preventDefault(); void check(); }}>
@@ -69,7 +76,7 @@ export function ServerRegistration() {
       <p>{preview.lifecycleSupported ? '启动类型受支持；实际启动仍检查实例状态和 EULA。' : '当前仅识别和登记；启动能力尚未支持。'}</p>
       {!preview.eulaAccepted ? <p>EULA 尚未接受，启动将被拒绝；LT 不代为接受。</p> : null}
       {preview.server.detection.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
-      <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />确认添加此目录；重启 Manager 后加载</label>
+      <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />{preview.restartRequired ? '确认添加此目录；重启 Manager 后加载' : '确认添加此目录并立即加载'}</label>
       <button className="button button--primary" disabled={busy || !confirmed || unknown} onClick={() => void save()}>保存实例</button>
     </div> : null}
     {message ? <p role="status">{message}</p> : null}

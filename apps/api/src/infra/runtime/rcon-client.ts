@@ -2,6 +2,7 @@ import net from "node:net";
 
 import { validateMinecraftCommand } from "./command-validation.js";
 import { createRedactor, type Redactor } from "./redactor.js";
+import type { LoopbackPeer } from './tcp-peer-owner.js';
 
 const AUTH_PACKET_TYPE = 3;
 const COMMAND_PACKET_TYPE = 2;
@@ -13,6 +14,7 @@ export type RconErrorCode =
   | "RCON_CONNECTION_FAILED"
   | "RCON_DISCONNECTED"
   | "RCON_PROTOCOL_ERROR"
+  | "RCON_PEER_UNVERIFIED"
   | "RCON_TIMEOUT";
 
 export class RconError extends Error {
@@ -37,6 +39,8 @@ export function assertSynchronousRconAdmission(authorize: () => undefined): void
 }
 
 export interface RconClientOptions {
+  /** Trusted construction only. Returned synchronous guard is bound to this socket/launch. */
+  readonly verifyPeer?: (peer: LoopbackPeer) => Promise<() => undefined>;
   readonly host: "127.0.0.1";
   readonly port: number;
   readonly getPassword: () => Promise<string>;
@@ -88,6 +92,7 @@ export class RconClient {
   private socket: net.Socket | null = null;
   private receiveBuffer = Buffer.alloc(0);
   private authenticated = false;
+  private peerAdmission: { socket: net.Socket; guard: () => undefined } | null = null;
   private connecting: Promise<void> | null = null;
   private nextRequestId = 1;
   private authRequestId: number | null = null;
@@ -189,6 +194,22 @@ export class RconClient {
       throw new RconError("RCON_DISCONNECTED", "RCON connection was replaced.");
     }
 
+    try {
+    if (this.options.verifyPeer) {
+      if (socket.localAddress !== '127.0.0.1' || socket.remoteAddress !== '127.0.0.1' ||
+        !socket.localPort || socket.remotePort !== this.options.port) throw new RconError('RCON_PEER_UNVERIFIED', 'RCON peer could not be verified.');
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        const guard = await Promise.race([
+          this.options.verifyPeer({ serverPort: socket.remotePort, clientPort: socket.localPort }),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('bounded-peer-timeout')), this.timeoutMs); })
+        ]);
+        if (this.socket !== socket || socket.destroyed || typeof guard !== 'function') throw new Error('peer-changed');
+        assertSynchronousRconAdmission(guard);
+        this.peerAdmission = { socket, guard };
+      } catch { throw new RconError('RCON_PEER_UNVERIFIED', 'RCON peer could not be verified.'); }
+      finally { if (timer) clearTimeout(timer); }
+    }
     const password = await this.options.getPassword();
     if (this.socket !== socket || socket.destroyed) {
       throw new RconError("RCON_DISCONNECTED", "RCON connection was replaced.");
@@ -204,6 +225,11 @@ export class RconClient {
       this.authenticated = true;
     } finally {
       this.authRequestId = null;
+    }
+    } catch (error) {
+      const safe = error instanceof RconError ? error : new RconError('RCON_AUTH_FAILED', 'RCON authentication could not be completed.');
+      this.failConnection(safe, true, socket);
+      throw safe;
     }
   }
 
@@ -230,6 +256,14 @@ export class RconClient {
       return Promise.reject(new RconError("RCON_PROTOCOL_ERROR", "RCON packet length is invalid."));
     }
     // No pending request/timer exists if admission fails. Never await a permit.
+    if (this.options.verifyPeer) {
+      if (this.peerAdmission?.socket !== socket) throw new RconError('RCON_PEER_UNVERIFIED', 'RCON peer could not be verified.');
+      try { assertSynchronousRconAdmission(this.peerAdmission.guard); }
+      catch {
+        const error = new RconError('RCON_PEER_UNVERIFIED', 'RCON peer could not be verified.');
+        this.failConnection(error, true, socket); throw error;
+      }
+    }
     if (authorize) assertSynchronousRconAdmission(authorize);
     if (this.socket !== socket || socket.destroyed || (type === COMMAND_PACKET_TYPE && !this.authenticated)) {
       return Promise.reject(new RconError("RCON_DISCONNECTED", "RCON connection changed before dispatch."));
@@ -369,6 +403,7 @@ export class RconClient {
     const socket = this.socket;
     this.socket = null;
     this.authenticated = false;
+    this.peerAdmission = null;
     this.activeSecret = null;
     this.receiveBuffer = Buffer.alloc(0);
     for (const [requestId, pending] of this.pending) {

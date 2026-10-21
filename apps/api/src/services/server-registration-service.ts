@@ -3,7 +3,7 @@ import { open, rename } from 'node:fs/promises';
 import path from 'node:path';
 import type { RegistrationDraft, RegistrationCatalogResponse, RegistrationPreviewResponse, RegistrationSaveResponse } from '@mcsm/contracts';
 import type { LocalMinecraftServerAdapter } from '../adapters/contract.js';
-import { assertSafeRegistrationRoots, parseLocalConfigDocument, validateRegistration, type RawServerConfig } from '../config/local-config.js';
+import { assertSafeRegistrationRoots, parseLocalConfigDocument, validateRegistration, type RawServerConfig, type ValidatedRegistration } from '../config/local-config.js';
 import { backupDirectoryIdentity } from './backup-identity.js';
 import { readPrivatePropertiesFile } from './properties-private-file.js';
 import { DomainError } from './domain-errors.js';
@@ -20,7 +20,9 @@ export class ServerRegistrationService {
   private busy = false;
   private uncertain = false;
   private readonly tickets = new Map<string, Ticket>();
-  constructor(private readonly root: string, private readonly adapters: readonly LocalMinecraftServerAdapter[]) {}
+  constructor(private readonly root: string, private readonly source: readonly LocalMinecraftServerAdapter[] | (() => readonly LocalMinecraftServerAdapter[]),
+    private readonly activate?: (registration: ValidatedRegistration, authorize: () => void) => Promise<void>) {}
+  private get adapters(): readonly LocalMinecraftServerAdapter[] { return typeof this.source === 'function' ? this.source() : this.source; }
 
   async snapshot() {
     const rootIdentity = await backupDirectoryIdentity(this.root);
@@ -81,7 +83,7 @@ export class ServerRegistrationService {
       this.tickets.set(token, { raw, revision: snapshot.file.checksum, identity: snapshot.file.identity,
         binding: validated.binding, expires: Date.now() + 5 * 60_000 });
       return { token, server: validated.registration.plan.serverInfo, eulaAccepted: validated.registration.plan.eulaAccepted,
-        lifecycleSupported: trustedLifecycle(validated.registration.plan.serverInfo), restartRequired: true };
+        lifecycleSupported: trustedLifecycle(validated.registration.plan.serverInfo), restartRequired: !this.activate };
     });
   }
   async save(token: string, authorize: () => void): Promise<RegistrationSaveResponse['data']> {
@@ -113,7 +115,12 @@ export class ServerRegistrationService {
         const after = await this.snapshot();
         if (!after.file.bytes.equals(bytes) || after.rootIdentity !== before.rootIdentity) throw new Error('registration-readback-mismatch');
       } catch { this.uncertain = true; throw fail('REGISTRATION_RESULT_UNKNOWN', '登记结果未知，请检查或重新启动 Manager；不会自动重试，备份已保留'); }
-      return { id: ticket.raw.id, name: ticket.raw.name, restartRequired: true };
+      let loaded = false, loadErrorCode: string | null = null;
+      if (this.activate) {
+        try { await this.activate(validated.registration, authorize); loaded = true; }
+        catch (error) { loadErrorCode = error instanceof DomainError ? error.code : 'REGISTRATION_LOAD_UNAVAILABLE'; }
+      }
+      return { id: ticket.raw.id, name: ticket.raw.name, restartRequired: !loaded, loaded, loadErrorCode };
     });
   }
 }

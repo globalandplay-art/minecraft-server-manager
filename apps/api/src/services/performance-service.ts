@@ -19,6 +19,7 @@ export class PerformanceService {
   async read(serverId: string): Promise<PerformanceResponse["data"]> {
     const adapter = this.registry.get(serverId);
     if (!adapter) throw new ServerNotFoundError();
+    this.#history.register(serverId);
     const pending = this.#pending.get(serverId);
     if (pending) await pending;
     else if (this.monotonicNow() >= (this.#next.get(serverId) ?? -Infinity)) {
