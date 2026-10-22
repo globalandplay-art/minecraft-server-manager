@@ -29,6 +29,15 @@ export class OperationService {
   readonly #recoveryCauses = new Map<string, Set<string>>();
   readonly #listeners = new Set<OperationListener>();
   readonly #exclusiveLocks = new Set<string>();
+  readonly #unregistered = new Set<string>();
+  unregister(serverId: string): void {
+    if (!this.#exclusiveLocks.has(serverId)) throw new Error('Instance removal requires exclusive admission');
+    this.#unregistered.add(serverId);
+  }
+  isUnregistered(serverId: string): boolean { return this.#unregistered.has(serverId); }
+  private assertRegistered(serverId: string): void {
+    if (this.#unregistered.has(serverId)) throw new DomainError(404, 'SERVER_NOT_FOUND', '实例已从 LT 移除');
+  }
   readonly #verifiedTerminalOperations = new Set<string>();
   #mutationTail: Promise<void> = Promise.resolve();
 
@@ -251,8 +260,9 @@ export class OperationService {
     }
   }
 
-  async runExclusive<T>(serverId: string, action: () => Promise<T>): Promise<T> {
+  async runExclusive<T>(serverId: string, action: () => Promise<T>, registrationRemoval = false): Promise<T> {
     await this.#mutate(async () => {
+      if (!registrationRemoval) this.assertRegistered(serverId);
       if (this.#recoveryServers.has(serverId)) {
         throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "recovery-required");
       }
@@ -269,6 +279,7 @@ export class OperationService {
 
   async runReadAdmission<T>(serverId: string, action: () => Promise<T>): Promise<T> {
     await this.#mutate(async () => {
+      this.assertRegistered(serverId);
       if (this.#recoveryServers.has(serverId)) throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "recovery-required");
       if (this.#activeByServer.has(serverId) || this.#exclusiveLocks.has(serverId)) {
         throw new DomainError(409, "OPERATION_CONFLICT", "实例当前已有活动操作", "operation-active");
@@ -301,6 +312,7 @@ export class OperationService {
     const fingerprint = createHash("sha256").update(`${serverId}\n${kind}\n{}`).digest("hex");
     let created = false;
     const operation = await this.#mutate(async () => {
+      this.assertRegistered(serverId);
       admission?.();
       const scope = `${serverId}:${kind}:${idempotencyKey}`;
       const existing = this.#idempotency.get(scope);
@@ -377,6 +389,7 @@ export class OperationService {
     let created = false;
     let releaseOwner: (() => undefined) | undefined;
     const operation = await this.#mutate(async () => {
+      this.assertRegistered(serverId);
       admission?.();
       const scope = `${serverId}:${kind}:${idempotencyKey}`;
       const existing = this.#idempotency.get(scope);

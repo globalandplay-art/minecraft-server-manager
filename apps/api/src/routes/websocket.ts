@@ -78,6 +78,7 @@ export function registerWebSocketRoute(
       const { streamId, afterSequence } = request.query;
       const queued: WsMessage[] = [];
       let unsubscribe = () => {};
+      let unsubscribeRemoved = () => {};
       let heartbeat: NodeJS.Timeout | undefined;
       let pongTimer: NodeJS.Timeout | undefined;
       let stopped = false;
@@ -86,10 +87,12 @@ export function registerWebSocketRoute(
         stopped = true; if (heartbeat) clearInterval(heartbeat);
         heartbeat = undefined;
         if (pongTimer) clearTimeout(pongTimer);
-        unsubscribe(); queued.length = 0;
+        unsubscribe(); unsubscribeRemoved(); queued.length = 0;
       };
       const live = authentication?.attach(request.raw, socket, cleanup) ?? (authentication ? undefined : () => !stopped);
       if (!live) { cleanup(); return; }
+      try { unsubscribeRemoved = streams.onRemoved(serverId, () => { socket.close(1001, 'instance-removed'); cleanup(); }); }
+      catch { socket.close(1001, 'instance-removed'); cleanup(); return; }
       const admitted = () => !stopped && live();
       socket.on("error", () => {});
       socket.on("message", () => socket.close(1008, "read-only-stream"));

@@ -24,7 +24,9 @@ describe('Servers 只读页面', () => {
     render(<MemoryRouter><Servers items={[]} mode="mock" /></MemoryRouter>);
 
     expect(screen.getByRole('heading', { name: '尚未接入服务器实例' })).toBeInTheDocument();
-    expect(screen.getByText(/Phase 1 不提供实例注册/)).toBeInTheDocument();
+    expect(screen.getByText(/当前为 Mock 演示模式/)).toBeInTheDocument();
+    expect(screen.getByText("$env:MCSM_MODE='local'; npm.cmd run dev")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '移除服务器' })).not.toBeInTheDocument();
     expect(screen.queryByText('运行中')).not.toBeInTheDocument();
   });
 

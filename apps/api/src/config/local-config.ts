@@ -4,6 +4,7 @@ import path from "node:path";
 import type { ValidatedLaunchPlan } from "../infra/runtime-contract.js";
 import { detectServer } from "../services/detection-service.js";
 import { captureFabricLaunchBinding } from "../services/fabric-launch-binding.js";
+import { captureForgeLaunchBinding } from "../services/forge-launch-binding.js";
 import { assertJavaEnvironment, trustedLifecycle } from "../services/trusted-lifecycle.js";
 import { DomainError } from "../services/domain-errors.js";
 import { TransactionJournalStore } from "../services/transaction-journal.js";
@@ -35,7 +36,7 @@ export interface ValidatedRegistration {
   readonly identity?: import("../infra/runtime-contract.js").RegisteredExecutionIdentity;
 }
 
-async function executionIdentity(paths: { rootPath: string; jarPath: string; javaExecutable: string }, bindFabric: boolean) {
+async function executionIdentity(paths: { rootPath: string; jarPath: string; javaExecutable: string }, bindFabric: boolean, bindForge = false) {
   const [rootIdentity, launcher, java] = await Promise.all([
     backupDirectoryIdentity(paths.rootPath),
     readPrivatePropertiesFile(paths.jarPath, 64 * 1024 ** 2),
@@ -43,7 +44,10 @@ async function executionIdentity(paths: { rootPath: string; jarPath: string; jav
   ]);
   return { rootIdentity, launcherIdentity: launcher.identity, launcherSha256: launcher.checksum,
     javaIdentity: java.identity, javaSha256: java.checksum,
-    fabricExecutionSha256: bindFabric ? (await captureFabricLaunchBinding(paths.rootPath, paths.jarPath)).identitySha256 : null };
+    fabricExecutionSha256: bindFabric ? (await captureFabricLaunchBinding(paths.rootPath, paths.jarPath)).identitySha256 : null,
+    ...(bindForge ? { forgeExecutionSha256: (await captureForgeLaunchBinding(paths.rootPath, paths.jarPath).catch(() => {
+      throw new DomainError(409, 'ACTION_UNAVAILABLE', 'Forge 启动依赖在注册后发生变化，请重新检测', 'execution-identity-changed');
+    })).identitySha256 } : {}) };
 }
 
 export interface RawServerConfig {
@@ -54,6 +58,26 @@ export interface RawServerConfig {
   readonly jarFile: string;
   readonly jvmArgs: string[];
   readonly serverArgs: string[];
+}
+
+/** Retain only an already verified Java profile when its source registration is removed. */
+export interface RegistrationJavaProfile {
+  id: string; name: string; javaExecutable: string; jvmArgs: string[]; javaIdentity: string; javaSha256: string;
+}
+export function parseRegistrationJavaProfiles(raw: string): RegistrationJavaProfile[] {
+  const document = JSON.parse(raw) as { javaProfiles?: unknown };
+  if (document.javaProfiles === undefined) return [];
+  if (!Array.isArray(document.javaProfiles) || document.javaProfiles.length > 1000) throw configError('java-profiles-invalid');
+  const rows = document.javaProfiles.map((value: unknown) => {
+    if (!isRecord(value) || Object.keys(value).sort().join(',') !== 'id,javaExecutable,javaIdentity,javaSha256,jvmArgs,name' ||
+      typeof value.id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,62}$/u.test(value.id) || typeof value.name !== 'string' || !value.name || value.name.length > 128 ||
+      typeof value.javaExecutable !== 'string' || !path.isAbsolute(value.javaExecutable) || isUnc(value.javaExecutable) ||
+      typeof value.javaIdentity !== 'string' || !value.javaIdentity || value.javaIdentity.length > 1024 ||
+      typeof value.javaSha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(value.javaSha256)) throw configError('java-profile-invalid');
+    return { id: value.id, name: value.name, javaExecutable: value.javaExecutable, jvmArgs: parseJvmArguments(value.jvmArgs), javaIdentity: value.javaIdentity, javaSha256: value.javaSha256 };
+  });
+  if (new Set(rows.map(row => row.id)).size !== rows.length) throw configError('java-profile-duplicate');
+  return rows;
 }
 
 function configError(reason: string): DomainError {
@@ -164,7 +188,7 @@ export function parseLocalConfigDocument(raw: string): RawServerConfig[] {
   }
   if (
     !isRecord(parsed) ||
-    Object.keys(parsed).some((key) => key !== "schemaVersion" && key !== "servers") ||
+    Object.keys(parsed).some((key) => !["schemaVersion", "servers", "javaProfiles"].includes(key)) ||
     parsed.schemaVersion !== 1 ||
     !Array.isArray(parsed.servers) ||
     parsed.servers.length > 1000
@@ -172,6 +196,7 @@ export function parseLocalConfigDocument(raw: string): RawServerConfig[] {
     throw configError("config-shape-invalid");
   }
   const servers = parsed.servers.map(parseServer);
+  parseRegistrationJavaProfiles(raw);
   if (new Set(servers.map((server) => server.id)).size !== servers.length) {
     throw configError("duplicate-server-id");
   }
@@ -291,7 +316,7 @@ export async function validateRegistration(config: RawServerConfig): Promise<Val
     javaExecutable: paths.javaExecutable,
     rootPath: paths.rootPath
   });
-  const registeredIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo));
+  const registeredIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo), serverInfo.type === 'forge' && trustedLifecycle(serverInfo));
   const configuredHost = state.properties.get("server-ip") ?? "";
   if (!["", "127.0.0.1", "localhost"].includes(configuredHost)) {
     serverInfo.detection.warnings.push("Minecraft 当前可能监听非本地地址");
@@ -345,7 +370,7 @@ export async function validateRegistration(config: RawServerConfig): Promise<Val
       javaExecutable: paths.javaExecutable,
       rootPath: paths.rootPath
     });
-    const currentIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo));
+    const currentIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo), serverInfo.type === 'forge' && trustedLifecycle(serverInfo));
     if (JSON.stringify(currentIdentity) !== JSON.stringify(registeredIdentity)) {
       throw new DomainError(409, "ACTION_UNAVAILABLE", "服务端根目录、Java或启动JAR在注册后发生变化", "execution-identity-changed");
     }
@@ -383,7 +408,7 @@ export async function validateRegistration(config: RawServerConfig): Promise<Val
     rootPath: paths.rootPath,
     javaExecutable: paths.javaExecutable,
     jarPath: paths.jarPath,
-    argv: [...config.jvmArgs, "-jar", paths.jarPath, ...config.serverArgs],
+    argv: [...config.jvmArgs, ...(serverInfo.type === 'forge' && trustedLifecycle(serverInfo) ? ['-Djava.net.preferIPv6Addresses=system'] : []), "-jar", paths.jarPath, ...config.serverArgs],
     statusEndpoint: { host: "127.0.0.1", port: statusPort },
     eulaAccepted: state.eulaAccepted,
     serverInfo,

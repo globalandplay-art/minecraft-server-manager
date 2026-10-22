@@ -34,6 +34,7 @@ import { registerServerRegistrationRoutes } from "./routes/server-registrations.
 import { ServerRegistrationService } from "./services/server-registration-service.js";
 import { isLocalAdapter } from "./adapters/contract.js";
 import { activateInstance } from "./services/instance-activation.js";
+import { removeInstance } from "./services/instance-removal.js";
 import type { RuntimeFactory } from "./infra/runtime-contract.js";
 import { registerWebSocketRoute } from "./routes/websocket.js";
 import { registerWorldRoutes } from "./routes/worlds.js";
@@ -93,7 +94,7 @@ export interface BuildAppOptions {
   managerRoot?: string;
   importAutomaticCleanup?: boolean;
   backupSchedulerTimers?: boolean;
-  activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "register" | "snapshot" | "prepareGeneration" | "installImportedWorld" | "archiveCurrentWorld">>;
+  activeWorldState?: Pick<ActiveWorldStateStore, "initialize" | "isActive" | "reconcileAfterStart"> & Partial<Pick<ActiveWorldStateStore, "register" | "unregister" | "snapshot" | "prepareGeneration" | "installImportedWorld" | "archiveCurrentWorld">>;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -212,14 +213,21 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const addonInventory = new AddonInventory();
   registerAddonRoutes(app, registry, clock, mode, addonInventory, options.transactionJournal !== undefined && options.managerRoot !== undefined);
   registerServerRoutes(app, service, clock, mode);
+  const performanceService = new PerformanceService(registry, clock);
   registerServerRegistrationRoutes(app, mode === 'local' && options.managerRoot
     ? new ServerRegistrationService(options.managerRoot, () => registry.list().filter(isLocalAdapter),
       options.activeWorldState?.register && options.localRuntimeFactory ? (registration, authorize) => activateInstance(registration, {
         root: options.managerRoot!, registry, operations, streams, factory: options.localRuntimeFactory!,
         active: { register: options.activeWorldState!.register!.bind(options.activeWorldState) },
         ...(options.transactionJournal ? { journal: options.transactionJournal } : {}), closing: () => closing
-      }, authorize) : undefined) : undefined, clock, mode, options.authentication);
-  registerPerformanceRoutes(app, new PerformanceService(registry, clock), clock, mode);
+      }, authorize) : undefined,
+      (target, publish, authorize) => {
+        const action = () => removeInstance(target, publish, authorize, { registry, operations, streams,
+          factory: options.localRuntimeFactory, journal: options.transactionJournal, closing: () => closing, detached: () => performanceService.unregister(target.id),
+          active: options.activeWorldState?.unregister ? { unregister: options.activeWorldState.unregister.bind(options.activeWorldState) } : undefined });
+        return backupSchedules ? backupSchedules.withRegistrationChange(action) : action();
+      }, id => operations.isUnregistered(id)) : undefined, clock, mode, options.authentication);
+  registerPerformanceRoutes(app, performanceService, clock, mode);
   registerCrashAnalysisRoutes(app, new CrashAnalysisService(registry, clock), clock, mode);
   registerOperationRoutes(app, service, clock, mode, options.authentication);
   registerWorldRoutes(app, worlds, clock, mode);

@@ -7,10 +7,36 @@ import { trustedLifecycle } from "../src/services/trusted-lifecycle.js";
 
 import { launchZip as zip } from "./helpers/launch-zip.js";
 import { fabricLaunchFixture } from "./helpers/fabric-launch.js";
+import { forgeLaunchFixture } from "./helpers/forge-launch.js";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const version = (id: string) => JSON.stringify({ id, java_version: 25 });
+it('detects a complete Forge shim separately from the unsupported legacy bootstrap', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'mcsm-m21-forge-')); roots.push(root);
+  const { jarPath } = await forgeLaunchFixture(root);
+  const info = await detectServer({ id: 'forge', name: 'forge', rootPath: root, jarPath, javaExecutable: process.execPath });
+  expect(info).toMatchObject({ type: 'forge', minecraftVersion: '1.21.9', java: { requiredMajor: 21 }, detection: { confidence: 'high', evidence: expect.arrayContaining(['forge-shim-main-class', 'forge-execution-binding']) } });
+  // This fixture's Node executable is not a verified Java runtime.
+  expect(trustedLifecycle(info)).toBe(false);
+  const verified = { ...info, java: { runtimeVersion: '21.0.4', requiredMajor: 21 } };
+  expect(info.detection.evidence).toContain('forge-headless-exit-unsupported');
+  expect(info.detection.warnings).toContainEqual(expect.stringContaining('59.0.5'));
+  expect(trustedLifecycle(verified)).toBe(false);
+  expect(trustedLifecycle({ ...verified, type: 'neoforge' })).toBe(false);
+  expect(trustedLifecycle({ ...verified, java: { runtimeVersion: '17.0.1', requiredMajor: 21 } })).toBe(false);
+});
+
+it('permits the complete 26.3 Forge candidate only with a sufficient verified Java runtime', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'mcsm-m21-forge26-')); roots.push(root);
+  const { jarPath } = await forgeLaunchFixture(root, { minecraftVersion: '26.3', javaVersion: 25 });
+  const info = await detectServer({ id: 'forge26', name: 'forge26', rootPath: root, jarPath, javaExecutable: process.execPath });
+  expect(info).toMatchObject({ type: 'forge', minecraftVersion: '26.3', java: { requiredMajor: 25 } });
+  expect(info.detection.evidence).not.toContain('forge-headless-exit-unsupported');
+  expect(trustedLifecycle(info)).toBe(false);
+  expect(trustedLifecycle({ ...info, java: { runtimeVersion: '25.0.4', requiredMajor: 25 } })).toBe(true);
+  expect(trustedLifecycle({ ...info, java: { runtimeVersion: '21.0.4', requiredMajor: 25 } })).toBe(false);
+});
 
 it("recognizes exact Paperclip launcher and reports version/Java from embedded metadata", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "mcsm-p52-paper-")); roots.push(root);

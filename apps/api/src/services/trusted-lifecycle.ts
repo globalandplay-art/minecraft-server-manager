@@ -11,10 +11,11 @@ export function assertJavaEnvironment(environment: NodeJS.ProcessEnv = process.e
 /** Detection evidence permits lifecycle only; world mutations retain their own gates. */
 export function trustedLifecycle(info: ServerInfo): boolean {
   if (info.type === "vanilla") return true;
-  if (info.type !== "paper" && info.type !== "fabric") return false;
+  if (info.type !== "paper" && info.type !== "fabric" && info.type !== "forge") return false;
   const runtime = /^(?:1\.)?(\d+)/u.exec(info.java.runtimeVersion ?? "");
   if (info.detection.confidence !== "high" || !info.minecraftVersion ||
     info.java.requiredMajor === null || runtime === null || Number(runtime[1]) < info.java.requiredMajor) return false;
+  if (info.type === 'forge') return !info.detection.evidence.includes('forge-headless-exit-unsupported') && info.java.requiredMajor >= 21 && info.detection.evidence.includes('forge-shim-main-class') && info.detection.evidence.includes('forge-execution-binding');
   return info.type === "paper"
     ? info.detection.evidence.includes("paperclip-main-class") && info.detection.evidence.includes("jar-version-json")
     : info.detection.evidence.includes("fabric-launcher-main-class") && info.detection.evidence.includes("fabric-execution-binding");

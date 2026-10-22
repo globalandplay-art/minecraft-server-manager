@@ -16,6 +16,7 @@ interface StreamState {
   readonly streamId: string;
   readonly adapter: LocalMinecraftServerAdapter;
   readonly listeners: Set<MessageListener>;
+  readonly removed: Set<() => void>;
   readonly events: SequencedMessage[];
   latestSequence: number;
 }
@@ -33,6 +34,7 @@ export interface ReplayResult {
 
 export class EventStreamService {
   #closed = false;
+  readonly #detach = new Map<string, () => void>();
   readonly #streams = new Map<string, StreamState>();
   readonly #unsubscribeRuntime: (() => void)[] = [];
   readonly #unsubscribeOperations: () => void;
@@ -57,6 +59,7 @@ export class EventStreamService {
         streamId: randomUUID(),
         adapter,
         listeners: new Set(),
+        removed: new Set(),
         events: [],
         latestSequence: 0
       };
@@ -70,13 +73,17 @@ export class EventStreamService {
       let attached = true;
       const detach = () => {
         if (!attached) return;
-        attached = false; unsubscribe();
+        attached = false;
+        try { unsubscribe(); } catch { /* Observer close remains responsible for runtime teardown. */ }
+        for (const listener of state.removed) { try { listener(); } catch { /* Socket teardown cannot prevent registry detachment. */ } }
+        state.removed.clear(); state.listeners.clear(); this.#detach.delete(adapter.serverId);
         if (this.#streams.get(adapter.serverId) === state) this.#streams.delete(adapter.serverId);
         const index = this.#unsubscribeRuntime.indexOf(detach);
         if (index >= 0) this.#unsubscribeRuntime.splice(index, 1);
       };
       this.#unsubscribeRuntime.push(detach);
       this.#streams.set(adapter.serverId, state);
+      this.#detach.set(adapter.serverId, detach);
       return detach;
   }
 
@@ -87,6 +94,11 @@ export class EventStreamService {
 
   has(serverId: string): boolean {
     return this.#streams.has(serverId);
+  }
+  remove(serverId: string): void { this.#detach.get(serverId)?.(); }
+  onRemoved(serverId: string, listener: () => void): () => void {
+    const state = this.#get(serverId); state.removed.add(listener);
+    return () => { state.removed.delete(listener); };
   }
 
   async snapshot(serverId: string): Promise<InitialSnapshot> {

@@ -125,6 +125,7 @@ function Sidebar({
 }
 
 interface AppShellProps {
+  mode?: 'mock' | 'local' | undefined;
   children: ReactNode;
   features?: Features | undefined;
   servers: ServerSummary[];
@@ -132,7 +133,7 @@ interface AppShellProps {
   connectionState: 'connecting' | 'connected' | 'error';
 }
 
-export function AppShell({ children, features, servers, selectedId, connectionState }: AppShellProps) {
+export function AppShell({ children, features, servers, selectedId, connectionState, mode }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
@@ -226,7 +227,7 @@ export function AppShell({ children, features, servers, selectedId, connectionSt
             </label>
           </div>
           <div className="topbar__status" aria-live="polite">
-            <span className="topbar-chip">本地模式</span>
+            <span className="topbar-chip">{mode === 'mock' ? 'Mock 演示' : mode === 'local' ? '本地模式' : '读取模式中'}</span>
             <span className={`topbar-chip ${connectionState === 'connected' ? 'topbar-chip--success' : connectionState === 'error' ? 'topbar-chip--danger' : ''}`}>
               <span className={`status-dot ${connectionState === 'connected' ? 'status-dot--success' : connectionState === 'error' ? 'status-dot--danger' : 'status-dot--warning'}`} aria-hidden="true" />
               API {connectionState === 'connected' ? '已连接' : connectionState === 'error' ? '连接异常' : '连接中'}

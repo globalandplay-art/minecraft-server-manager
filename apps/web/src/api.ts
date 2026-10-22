@@ -1,5 +1,6 @@
 import {
   registrationCatalogResponseSchema, registrationPreviewResponseSchema, registrationSaveResponseSchema,
+  registrationRemoveResponseSchema, type RegistrationRemoveResponse,
   type RegistrationCatalogResponse, type RegistrationPreviewResponse, type RegistrationSaveResponse, type RegistrationDraft,
   tailscaleStatusResponseSchema, type TailscaleStatusResponse,
   tailscaleControlResponseSchema, type TailscaleControlResponse,
@@ -109,7 +110,7 @@ async function getJson<T>(path: string, schema: unknown, signal?: AbortSignal): 
 interface RequestOptions {
   endSession?: boolean;
   signal?: AbortSignal | undefined;
-  method?: 'GET' | 'POST' | 'PATCH' | undefined;
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE' | undefined;
   body?: unknown | undefined;
   headers?: Record<string, string> | undefined;
   expectedStatus?: number | undefined;
@@ -203,6 +204,8 @@ async function requestJson<T>(path: string, schema: unknown, options: RequestOpt
 
 export const api = {
   registrationCatalog: (signal?: AbortSignal) => requestJson<RegistrationCatalogResponse>('/server-registrations', registrationCatalogResponseSchema, { signal }),
+  registrationRemove: (id: string) => requestJson<RegistrationRemoveResponse>(`/server-registrations/${encodeURIComponent(id)}`, registrationRemoveResponseSchema,
+    { method: 'DELETE', body: { confirm: true }, headers: { 'X-Manager-Intent': 'local-ui' }, timeoutMs: 30_000 }),
   registrationPreview: (body: RegistrationDraft) => requestJson<RegistrationPreviewResponse>('/server-registrations/preflight', registrationPreviewResponseSchema,
     { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, timeoutMs: 30_000 }),
   registrationSave: (token: string) => requestJson<RegistrationSaveResponse>('/server-registrations', registrationSaveResponseSchema,

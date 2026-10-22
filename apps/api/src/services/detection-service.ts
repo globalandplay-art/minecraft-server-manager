@@ -6,6 +6,7 @@ import yauzl, { type Entry, type ZipFile } from "yauzl";
 
 import { DomainError } from "./domain-errors.js";
 import { captureFabricLaunchBinding } from "./fabric-launch-binding.js";
+import { captureForgeLaunchBinding } from "./forge-launch-binding.js";
 import { launchMetadata, manifestField } from "./fabric-launch-binding.js";
 import { readPrivatePropertiesFile } from "./properties-private-file.js";
 import { trustedLifecycle } from "./trusted-lifecycle.js";
@@ -151,7 +152,7 @@ function detectType(metadata: JarMetadata): ServerType {
   }
   // This identifies a Forge launcher artifact for display only. Forge launch
   // configuration is not trusted by the current lifecycle adapter.
-  if (mainClass === "net.minecraftforge.bootstrap.ForgeBootstrap") {
+  if (mainClass === "net.minecraftforge.bootstrap.ForgeBootstrap" || mainClass === "net.minecraftforge.bootstrap.shim.Main") {
     return "forge";
   }
   if (
@@ -230,6 +231,7 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
   }
   let version = parseVersionMetadata(metadata.content.get("version.json"));
   const evidence = ["jar-manifest"];
+  const warnings: string[] = [];
   if (metadata.entries.has("version.json")) {
     evidence.push("jar-version-json");
   }
@@ -243,6 +245,19 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
   if (type === "forge" && mainClass === "net.minecraftforge.bootstrap.ForgeBootstrap") {
     evidence.push("forge-bootstrap-main-class");
   }
+  if (type === "forge" && mainClass === "net.minecraftforge.bootstrap.shim.Main") {
+    evidence.push("forge-shim-main-class");
+    if (input.rootPath !== undefined) {
+      const binding = await captureForgeLaunchBinding(input.rootPath, input.jarPath).catch(() => null);
+      if (binding) {
+        version = { minecraftVersion: binding.version, requiredMajor: binding.requiredMajor }; evidence.push("forge-execution-binding");
+        if (binding.forgeVersion === "1.21.9-59.0.5") {
+          evidence.push("forge-headless-exit-unsupported");
+          warnings.push("Forge 1.21.9 / 59.0.5 已确认无界面停服后进程无法正常退出；保留识别和登记，暂不支持受管启动。");
+        }
+      }
+    }
+  }
   if (type === "fabric" && (mainClass === "net.fabricmc.installer.ServerLauncher" || mainClass === "net.fabricmc.loader.impl.launch.knot.KnotServer")) {
     evidence.push("fabric-launcher-main-class");
     if (input.rootPath !== undefined) {
@@ -254,7 +269,6 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
       }
     }
   }
-  const warnings: string[] = [];
   if (type === "unknown") {
     warnings.push("无法可靠识别服务端类型；仅提供只读信息");
   }
@@ -264,7 +278,7 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
   if (version.minecraftVersion === null) {
     warnings.push("JAR metadata 未提供可靠的 Minecraft 版本");
   }
-  if (type === "forge") {
+  if (type === "forge" && !evidence.includes("forge-execution-binding")) {
     warnings.push("已识别 Forge 启动器标识；启动配置尚未受支持，当前仅提供只读信息");
   }
 
@@ -275,7 +289,7 @@ export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
     minecraftVersion: version.minecraftVersion,
     java: { runtimeVersion, requiredMajor: version.requiredMajor },
     detection: {
-      confidence: type === "unknown" ? "low" : type === "forge" || version.minecraftVersion === null ? "medium" : "high",
+      confidence: type === "unknown" ? "low" : (type === "forge" && !evidence.includes("forge-execution-binding")) || version.minecraftVersion === null ? "medium" : "high",
       evidence,
       warnings
     }

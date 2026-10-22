@@ -62,6 +62,18 @@ it.each(['duplicate-id', 'same-root', 'nested-root', 'manager-root', 'jar-path',
     await expect(f.service.preview(draft, () => {})).rejects.toThrow();
     expect(await readFile(f.config)).toEqual(before);
   });
+it('binds the selected current Java identity even when a retired profile has the same executable path', async () => {
+  const f = await fixture();
+  const current = f.adapter.getRegisteredExecutionIdentity();
+  await writeFile(f.config, JSON.stringify({ schemaVersion: 1, servers: [f.original], javaProfiles: [{
+    id: 'retired', name: 'Old Java', javaExecutable: f.original.javaExecutable, jvmArgs: f.original.jvmArgs,
+    javaIdentity: current.javaIdentity, javaSha256: '0'.repeat(64)
+  }] }));
+  expect((await f.service.catalog()).profiles[0]!.id).toBe('first');
+  await expect(f.service.preview({ ...f.draft, javaProfileId: 'retired' }, () => {})).rejects.toThrow();
+  const preview = await f.service.preview(f.draft, () => {});
+  expect((await f.service.save(preview.token, () => {})).id).toBe('second');
+});
 it.each(['config-content', 'config-identity', 'target-properties', 'target-jar'])(
   'refuses drift of %s between preview and save', async mode => {
     const f = await fixture(), preview = await f.service.preview(f.draft, () => {});

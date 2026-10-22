@@ -34,6 +34,8 @@ export class BackupScheduleService {
     this.#tail = next.catch(() => {});
     return next;
   }
+  /** Registration changes drain scheduler work before acquiring the instance lock. */
+  withRegistrationChange<T>(action: () => Promise<T>): Promise<T> { return this.serialize(action); }
   private adapter(serverId: string) {
     const adapter = this.registry.getLocal(serverId);
     if (!this.registry.get(serverId)) throw new ServerNotFoundError();

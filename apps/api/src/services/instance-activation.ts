@@ -20,7 +20,7 @@ export async function activateInstance(registration: ValidatedRegistration, cont
 }, authorize: () => void): Promise<void> {
   const id = registration.plan.id;
   const blocked = () => new DomainError(409, 'REGISTRATION_LOAD_REQUIRES_REVIEW', '登记已保存，但历史状态或关闭状态需要重新检查；未启动新实例');
-  if (context.closing() || context.registry.get(id)) throw blocked();
+  if (context.closing() || context.registry.get(id) || context.operations.isUnregistered(id)) throw blocked();
   if (context.operations.getServerState(id).recoveryRequired || (await context.operations.storedOutcomes()).some(row => row.serverId === id)) throw blocked();
   const scan = await context.journal?.scan();
   if (scan?.records.some(row => row.intent.serverId === id) || scan?.issues.some(row => !row.serverId || row.serverId === id)) throw blocked();

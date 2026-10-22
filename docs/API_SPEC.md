@@ -6,6 +6,9 @@
 
 ## M1 本地多实例登记（2026-10-21）
 
+- M1.2 增加 `DELETE /api/v1/server-registrations/:serverId`：严格 `{confirm:true}`，复用本地访问保护和已配置的认证/CSRF/近期授权。只移除注册，**不删除服务端文件**。要求实际停止、无生命周期操作、无恢复锁；已保存未加载的实例也需能确认停止。200 `data={id,removed:true,filesPreserved:true,unloaded,restartRequired,unloadErrorCode}`。观察器收尾失败仍隔离该实例并要求重启；发布结果未知返回409 `REGISTRATION_RESULT_UNKNOWN`，不自动重试。
+- 移除后关闭对应事件订阅（现有WS以1001/instance-removed结束）、监测和运行时引用，其他实例不变。当前Manager内已移除ID不能复用，预检409 `REGISTRATION_ID_RETIRED`；历史证据保留，重新添加请用新ID。最后一个实例移除后保留已验证Java profile供后续添加，浏览器仍不能指定任意程序。真实前后端三档验收见 [M1.2](./M12_SERVERS_2026-10-21.md)。
+
 - `GET /api/v1/server-registrations`：当前可信 Java profile 的 id/name，以及已保存但尚未加载实例 id/name。
 - `POST /api/v1/server-registrations/preflight`：严格 `{id,name,root,jarFile,javaProfileId}`；只检查，不修改目标服务端，返回短期 token、类型/版本/EULA/启动类型能力。
 - `POST /api/v1/server-registrations`：严格 `{token,confirm:true}`，通过配置及目标身份/revision复核后保存，201 返回 `{id,name,restartRequired,loaded,loadErrorCode}`。`loaded=true/restartRequired=false` 才表示加入当前运行列表；保存成功但加载失败返回 `loaded=false/restartRequired=true` 和脱敏错误码，保留配置及证据，不自动重试。`loaded`/`loadErrorCode` 在合约中保持可选以兼容旧响应。

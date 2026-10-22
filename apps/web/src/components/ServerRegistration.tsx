@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { ServerRemoval } from './ServerRemoval';
 import type { RegistrationCatalogResponse, RegistrationDraft, RegistrationPreviewResponse } from '@mcsm/contracts';
 import { api, ApiClientError, errorMessage } from '../api';
 
-export function ServerRegistration({ onLoaded }: { onLoaded?: () => void } = {}) {
+export function ServerRegistration({ onLoaded, onRemoved }: { onLoaded?: (() => void) | undefined; onRemoved?: ((id: string, notice?: string) => void) | undefined } = {}) {
   const [catalog, setCatalog] = useState<RegistrationCatalogResponse['data']>();
   const [draft, setDraft] = useState<RegistrationDraft>({ id: '', name: '', root: '', jarFile: 'server.jar', javaProfileId: '' });
   const [preview, setPreview] = useState<RegistrationPreviewResponse['data']>();
@@ -55,8 +56,9 @@ export function ServerRegistration({ onLoaded }: { onLoaded?: () => void } = {})
     <h2>添加服务器实例</h2>
     <p>选择已有服务端目录并检查。安全初始化成功后立即加入实例列表；不会启动服务器、修改世界或接受 EULA。</p>
     <p>如旧状态需人工检查，登记会保留为待加载；不会自动重试或影响其他实例。</p>
-    {catalog?.pending.length ? <div role="status"><h3>待重启 Manager 加载</h3><ul>{catalog.pending.map(row => <li key={row.id}>{row.name}（{row.id}）</li>)}</ul></div> : null}
-    {!catalog?.profiles.length ? <p>请先在本地配置中建立一个可信 Java 配置，网页不能指定任意程序作为 Java。</p> : null}
+    {catalog?.pending.length ? <div><h3>已保存但待加载</h3><ul>{catalog.pending.map(row => <li key={row.id}>{row.name}（{row.id}）<ServerRemoval id={row.id} name={row.name} type="待加载" onRemoved={onRemoved} /></li>)}</ul></div> : null}
+    {!catalog ? <p role="status">正在读取登记与可信 Java 配置；读取失败时请查看下方错误并刷新页面。</p> : null}
+    {catalog && !catalog.profiles.length ? <p role="status">没有可信 Java 配置，暂不能添加。请先按本地使用指南配置一个现有服务端的 Java；网页不会执行任意程序。</p> : null}
     <form onSubmit={event => { event.preventDefault(); void check(); }}>
       <fieldset disabled={busy || unknown || !catalog?.profiles.length}>
         <legend>现有本地服务端</legend>

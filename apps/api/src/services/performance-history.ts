@@ -35,6 +35,7 @@ export class PerformanceHistory {
     if (!this.#serverIds.has(serverId) && this.#serverIds.size >= 1000) throw new RangeError('Performance server limit reached.');
     this.#serverIds.add(serverId);
   }
+  unregister(serverId: string): void { this.#serverIds.delete(serverId); this.#samples.delete(serverId); }
 
   read(serverId: string): PerformanceSample[] {
     this.#assertRegistered(serverId);

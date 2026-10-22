@@ -17,19 +17,23 @@ import { OperationService } from '../src/services/operation-service.js';
 import { MemoryOperationStore } from '../src/services/operation-store.js';
 import { EventStreamService } from '../src/services/event-stream-service.js';
 import { activateInstance } from '../src/services/instance-activation.js';
+import { ServerRegistrationService } from '../src/services/server-registration-service.js';
+import { RuntimeError } from '../src/infra/runtime/local-runtime.js';
 import { fabricLaunchFixture } from './helpers/fabric-launch.js';
+import { forgeLaunchFixture } from './helpers/forge-launch.js';
 
 // Detection is deterministic; no Java/Minecraft process is spawned by this suite.
 vi.mock('../src/services/detection-service.js', () => ({ detectServer: async (input: { id: string; name: string }) => ({
-  id: input.id, name: input.name, type: input.name === 'Paper' ? 'paper' : input.name === 'Fabric' ? 'fabric' : 'vanilla',
+  id: input.id, name: input.name, type: input.name === 'Paper' ? 'paper' : input.name === 'Fabric' ? 'fabric' : input.name === 'Forge' ? 'forge' : 'vanilla',
   minecraftVersion: input.name === 'Fabric' ? '26.2' : '26.3', java: { runtimeVersion: '25', requiredMajor: 25 },
-  detection: { confidence: 'high', evidence: input.name === 'Fabric' ? ['fabric-launcher-main-class', 'fabric-execution-binding'] : ['jar-version-json', ...(input.name === 'Paper' ? ['paperclip-main-class'] : [])], warnings: [] }
+  detection: { confidence: 'high', evidence: input.name === 'Forge' ? ['forge-shim-main-class', 'forge-execution-binding'] : input.name === 'Fabric' ? ['fabric-launcher-main-class', 'fabric-execution-binding'] : ['jar-version-json', ...(input.name === 'Paper' ? ['paperclip-main-class'] : [])], warnings: [] }
 }) }));
 const roots: string[] = [], apps: ReturnType<typeof buildApp>[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const app of apps.splice(0)) await app.close(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const headers = { host: '127.0.0.1:8080', origin: 'http://127.0.0.1:3000', 'x-manager-intent': 'local-ui' };
 const clock = { now: () => new Date() };
-async function fixture(secondType: 'vanilla' | 'paper' | 'fabric' = 'vanilla', sharedFactory = true) {
+const removeRegistration = (app: ReturnType<typeof buildApp>, id: string) => app.inject({ method: 'DELETE', url: `/api/v1/server-registrations/${id}`, headers, payload: { confirm: true } });
+async function fixture(secondType: 'vanilla' | 'paper' | 'fabric' | 'forge' = 'vanilla', sharedFactory = true) {
   const root = await mkdtemp(path.join(tmpdir(), 'lt-hot-')); roots.push(root);
   const manager = path.join(root, 'manager'), first = path.join(root, 'first'), second = path.join(root, 'second');
   for (const dir of [manager, first, second]) { await mkdir(dir); }
@@ -41,6 +45,7 @@ async function fixture(secondType: 'vanilla' | 'paper' | 'fabric' = 'vanilla', s
     await mkdir(path.join(dir, 'logs')); await writeFile(path.join(dir, 'logs/latest.log'), '');
   }
   if (secondType === 'fabric') await fabricLaunchFixture(second);
+  if (secondType === 'forge') await forgeLaunchFixture(second, { minecraftVersion: '26.3', javaVersion: 25 });
   if (secondType === 'paper') await writeFile(path.join(second, 'server.jar'), launchZip({
     'META-INF/MANIFEST.MF': 'Main-Class: io.papermc.paperclip.Main\n', 'version.json': '{"id":"26.3","java_version":25}'
   }));
@@ -73,8 +78,8 @@ async function fixture(secondType: 'vanilla' | 'paper' | 'fabric' = 'vanilla', s
   const app = buildApp({ mode: 'local', managerRoot: manager, adapters: [adapter], ...(sharedFactory ? { localRuntimeFactory: factory } : {}),
     activeWorldState: active, transactionJournal: journal, transactionRecovery: journal, backupSchedulerTimers: false });
   apps.push(app); await app.ready();
-  const draft = { id: 'second', name: secondType === 'vanilla' ? 'Second' : secondType === 'paper' ? 'Paper' : 'Fabric', root: second,
-    jarFile: secondType === 'fabric' ? 'launcher.jar' : 'server.jar', javaProfileId: 'first' };
+  const draft = { id: 'second', name: secondType === 'vanilla' ? 'Second' : secondType === 'paper' ? 'Paper' : secondType === 'forge' ? 'Forge' : 'Fabric', root: second,
+    jarFile: secondType === 'forge' ? 'forge-shim.jar' : secondType === 'fabric' ? 'launcher.jar' : 'server.jar', javaProfileId: 'first' };
   const add = async () => {
     const preview = await app.inject({ method: 'POST', url: '/api/v1/server-registrations/preflight', headers, payload: draft });
     expect(preview.statusCode).toBe(200);
@@ -82,6 +87,84 @@ async function fixture(secondType: 'vanilla' | 'paper' | 'fabric' = 'vanilla', s
   };
   return { app, root, manager, first, second, active, runtimes, add, adapter, factory, config };
 }
+it.each(['vanilla', 'paper', 'fabric'] as const)('removes only the stopped %s registration, observer and streams; preserves files and peer', async kind => {
+  const f = await fixture(kind); await f.add();
+  const files = await readFile(path.join(f.second, 'server.properties'));
+  const response = await removeRegistration(f.app, 'second'); expect(response.statusCode).toBe(200);
+  expect(response.json().data).toMatchObject({ removed: true, unloaded: true, filesPreserved: true, restartRequired: false });
+  expect(JSON.parse(await readFile(path.join(f.manager, 'config.json'), 'utf8')).servers.map((row: {id:string}) => row.id)).toEqual(['first']);
+  expect((await f.app.inject({ method: 'GET', url: '/api/v1/servers', headers })).json().data.items.map((row: {server:{id:string}}) => row.server.id)).toEqual(['first']);
+  expect((await f.app.inject({ method: 'GET', url: '/api/v1/servers/second', headers })).statusCode).toBe(404);
+  expect((await f.app.inject({ method: 'POST', url: '/api/v1/servers/second/actions/start', headers: { ...headers, 'idempotency-key': randomUUID() }, payload: {} })).statusCode).toBe(404);
+  expect(await readFile(path.join(f.second, 'server.properties'))).toEqual(files);
+  expect(f.runtimes.get('second')!.close).toHaveBeenCalledOnce(); expect(f.runtimes.get('second')!.listeners.size).toBe(0);
+  expect(f.runtimes.get('first')!.close).not.toHaveBeenCalled(); expect(f.runtimes.get('first')!.start).not.toHaveBeenCalled();
+  expect((await removeRegistration(f.app, 'second')).statusCode).toBe(404);
+});
+it('rejects running removal and unknown/unconfirmed writes without changing config', async () => {
+  const f = await fixture(); await f.add(); const before = await readFile(path.join(f.manager, 'config.json'));
+  f.runtimes.get('second')!.status.state = 'running'; f.runtimes.get('second')!.status.ownership = 'managed';
+  const response = await removeRegistration(f.app, 'second'); expect(response.statusCode).toBe(409); expect(response.json().error.code).toBe('REGISTRATION_INSTANCE_ACTIVE');
+  expect((await removeRegistration(f.app, 'missing')).statusCode).toBe(404);
+  expect((await f.app.inject({ method: 'DELETE', url: '/api/v1/server-registrations/first', headers, payload: { confirm: true, root: f.first } })).statusCode).toBe(400);
+  expect((await f.app.inject({ method: 'DELETE', url: '/api/v1/server-registrations/first', headers: { host: headers.host }, payload: { confirm: true } })).statusCode).toBe(403);
+  expect(await readFile(path.join(f.manager, 'config.json'))).toEqual(before);
+});
+it('removes the last instance while retaining its verified Java for a new registration', async () => {
+  const f = await fixture(); expect((await removeRegistration(f.app, 'first')).statusCode).toBe(200);
+  const catalog = (await f.app.inject({ method: 'GET', url: '/api/v1/server-registrations', headers })).json().data;
+  expect(catalog.profiles).toEqual([{ id: 'first', name: 'First' }]);
+  const result = await f.add(); expect(result.statusCode).toBe(201); expect(result.json().data.loaded).toBe(true);
+  expect(JSON.parse(await readFile(path.join(f.manager, 'config.json'), 'utf8')).javaProfiles).toHaveLength(1);
+});
+it('rejects reuse of a removed instance ID before saving or creating another runtime', async () => {
+  const f = await fixture(); await f.add(); expect((await removeRegistration(f.app, 'second')).statusCode).toBe(200);
+  const before = await readFile(path.join(f.manager, 'config.json'));
+  const response = await f.app.inject({ method: 'POST', url: '/api/v1/server-registrations/preflight', headers,
+    payload: { id: 'second', name: 'Second again', root: f.second, jarFile: 'server.jar', javaProfileId: 'first' } });
+  expect(response.statusCode).toBe(409); expect(response.json().error.code).toBe('REGISTRATION_ID_RETIRED');
+  expect(await readFile(path.join(f.manager, 'config.json'))).toEqual(before);
+  expect((await f.app.inject({ method: 'GET', url: '/api/v1/servers/second', headers })).statusCode).toBe(404);
+  expect(f.runtimes.get('second')!.close).toHaveBeenCalledOnce();
+});
+it('quarantines a removed adapter even if closing its observer fails', async () => {
+  const f = await fixture(); await f.add(); f.runtimes.get('second')!.close.mockRejectedValueOnce(new Error('close failed'));
+  const response = await removeRegistration(f.app, 'second'); expect(response.statusCode).toBe(200);
+  expect(response.json().data).toMatchObject({ removed: true, unloaded: false, restartRequired: true, unloadErrorCode: 'REGISTRATION_UNLOAD_REQUIRES_RESTART' });
+  expect((await f.app.inject({ method: 'GET', url: '/api/v1/servers/second', headers })).statusCode).toBe(404);
+  expect((await f.app.inject({ method: 'GET', url: '/api/v1/servers/first', headers })).statusCode).toBe(200);
+});
+it('quarantines a published but unconfirmed removal and preserves its config evidence', async () => {
+  const f = await fixture(); await f.add(); let reads = 0;
+  const original = ServerRegistrationService.prototype.snapshot;
+  vi.spyOn(ServerRegistrationService.prototype, 'snapshot').mockImplementation(async function(this: ServerRegistrationService) {
+    const value = await original.call(this); if (++reads === 3) throw new Error('injected post-publication read failure'); return value;
+  });
+  const response = await removeRegistration(f.app, 'second'); expect(response.statusCode).toBe(409); expect(response.json().error.code).toBe('REGISTRATION_RESULT_UNKNOWN');
+  expect((await f.app.inject({ method: 'GET', url: '/api/v1/servers/second', headers })).statusCode).toBe(404);
+  expect(JSON.parse(await readFile(path.join(f.manager, 'config.json'), 'utf8')).servers.map((row: {id:string}) => row.id)).toEqual(['first']);
+  expect(f.runtimes.get('second')!.close).toHaveBeenCalledOnce();
+});
+it('removes a pending stopped registration without deleting its retained history', async () => {
+  const f = await fixture();
+  await writeFile(path.join(f.manager, 'active-worlds/second.json'), 'retained unknown history');
+  const saved = await f.add(); expect(saved.json().data.loaded).toBe(false);
+  const removed = await removeRegistration(f.app, 'second'); expect(removed.statusCode).toBe(200); expect(removed.json().data.unloaded).toBe(true);
+  expect(await readFile(path.join(f.manager, 'active-worlds/second.json'), 'utf8')).toBe('retained unknown history');
+  expect(f.runtimes.get('first')!.close).not.toHaveBeenCalled();
+});
+it('closes existing WebSocket subscriptions when its instance is removed', async () => {
+  const f = await fixture(); await f.add();
+  const socket = await f.app.injectWS('/ws/v1/servers/second/events', { headers });
+  const closed = new Promise<number>(resolve => socket.once('close', code => resolve(code)));
+  expect((await removeRegistration(f.app, 'second')).statusCode).toBe(200); expect(await closed).toBe(1001);
+});
+it('rejects recovery-required removal with config untouched', async () => {
+  const f = await fixture(); await f.add(); const before = await readFile(path.join(f.manager, 'config.json'));
+  f.runtimes.get('second')!.status.recoveryRequired = true;
+  expect((await removeRegistration(f.app, 'second')).statusCode).toBe(409);
+  expect(await readFile(path.join(f.manager, 'config.json'))).toEqual(before);
+});
 it('loads instantly without recreating first runtime, starting either server or changing its active-world state', async () => {
   const f = await fixture(), firstState = f.active.snapshot('first');
   const result = await f.add(); expect(result.statusCode).toBe(201);
@@ -196,7 +279,7 @@ async function terminal(f: Awaited<ReturnType<typeof fixture>>, id: string) {
   });
   return operation!;
 }
-it.each(['paper', 'fabric'] as const)('M2: newly loaded %s uses the existing start/stop/restart API with scoped idempotency', async type => {
+it.each(['paper', 'fabric', 'forge'] as const)('M2: newly loaded %s uses the existing start/stop/restart API with scoped idempotency', async type => {
   const f = await fixture(type); expect((await f.add()).json().data.loaded).toBe(true);
   const key = randomUUID(), started = await action(f, 'start', key);
   expect(started.statusCode).toBe(202);
@@ -218,6 +301,29 @@ it.each(['paper', 'fabric'] as const)('M2: newly loaded %s uses the existing sta
   expect(f.runtimes.get('first')!.runtime.stop).not.toHaveBeenCalled();
   expect(f.runtimes.get('first')!.close).not.toHaveBeenCalled();
   expect(f.runtimes.get('first')!.status.state).toBe('stopped');
+});
+it('M2.1: an unexited Forge stop blocks restart, new admission and duplicate sends', async () => {
+  const f = await fixture('forge'); await f.add();
+  const started = await action(f, 'start'); expect((await terminal(f, started.json().data.operation.id)).state).toBe('succeeded');
+  const runtime = f.runtimes.get('second')!;
+  vi.mocked(runtime.runtime.stop).mockRejectedValueOnce(new RuntimeError('OPERATION_TIMEOUT', 'Minecraft stop did not exit'));
+  const key = randomUUID(), restarted = await action(f, 'restart', key), id = restarted.json().data.operation.id;
+  expect(await terminal(f, id)).toMatchObject({ state: 'interrupted', error: { code: 'RECOVERY_REQUIRED' } });
+  expect(runtime.start).toHaveBeenCalledOnce(); expect(runtime.runtime.stop).toHaveBeenCalledOnce();
+  expect((await action(f, 'start')).statusCode).toBe(409);
+  const replay = await action(f, 'restart', key);
+  expect(replay.statusCode).toBe(202);
+  expect(replay.json().data.operation).toMatchObject({ id, state: 'interrupted', error: { code: 'RECOVERY_REQUIRED' } });
+  expect(runtime.start).toHaveBeenCalledOnce(); expect(runtime.runtime.stop).toHaveBeenCalledOnce();
+  expect(f.runtimes.get('first')!.start).not.toHaveBeenCalled();
+});
+it('M2.1: changed Forge dependency prevents runtime start without affecting the old instance', async () => {
+  const f = await fixture('forge'); await f.add();
+  await writeFile(path.join(f.second, 'libraries/net/minecraftforge/bootstrap/2.1.8/bootstrap-2.1.8.jar'), 'changed bound code');
+  const started = await action(f, 'start'); expect(started.statusCode).toBe(202);
+  expect(await terminal(f, started.json().data.operation.id)).toMatchObject({ state: 'failed', error: { code: 'ACTION_UNAVAILABLE' } });
+  for (const runtime of f.runtimes.values()) expect(runtime.start).not.toHaveBeenCalled();
+  expect((await f.app.inject({ method: 'GET', url: '/api/v1/servers/first', headers })).json().data.status.recoveryRequired).toBe(false);
 });
 it.each(['paper', 'fabric'] as const)('M2: %s launch identity drift never reaches runtime start', async type => {
   const f = await fixture(type); await f.add();

@@ -147,6 +147,13 @@ export class ActiveWorldStateStore {
     return state?.state === "active" && state.worldId === worldId;
   }
 
+  /** Detach runtime references only; physical world and recovery evidence is retained. */
+  unregister(serverId: string): void {
+    const index = this.#adapters.findIndex(row => row.serverId === serverId);
+    if (index >= 0) this.#adapters.splice(index, 1);
+    this.#states.delete(serverId);
+  }
+
   snapshot(serverId: string): ActiveWorldState | null {
     const state = this.#states.get(serverId);
     return state ? structuredClone(state) : null;

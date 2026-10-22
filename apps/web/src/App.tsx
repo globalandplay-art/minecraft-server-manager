@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
-import type { HealthResponse } from '@mcsm/contracts';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { HealthResponse, ServersResponse } from '@mcsm/contracts';
 import { Component, lazy, Suspense, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { ApiClientError, api, errorMessage, shouldRetry } from './api';
 import { AppShell } from './components/AppShell';
 import { AuthenticationControls } from './components/Authentication';
@@ -116,7 +116,7 @@ function DashboardRoute({
   }
   if (invalidSelection) return <InvalidSelection />;
   if (!selectedId) {
-    return <div className="page-stack">{mode === 'mock' ? <MockBanner /> : null}<PageHeading eyebrow="OVERVIEW" title="Dashboard" /><EmptyState title="没有可显示的服务器" description="当前实例列表为空。Phase 1 不提供未实现的注册操作，请等待本地接入功能。" /></div>;
+    return <div className="page-stack">{mode === 'mock' ? <MockBanner /> : null}<PageHeading eyebrow="OVERVIEW" title="Dashboard" /><EmptyState title="没有可显示的服务器" description="当前实例列表为空。请前往 Servers 添加已有本地服务端。" /></div>;
   }
   if (overviewQuery.isPending) {
     return <div className="page-stack">{mode === 'mock' ? <MockBanner /> : null}<PageHeading eyebrow="OVERVIEW" title="Dashboard" description="正在读取服务器快照…" /><SkeletonMetrics /></div>;
@@ -154,6 +154,7 @@ function DashboardRoute({
 
 export function App() {
   const location = useLocation();
+  const navigate = useNavigate(), queryClient = useQueryClient();
   const requestedId = new URLSearchParams(location.search).get('server') ?? undefined;
   const healthQuery = useQuery({
     queryKey: ['health'],
@@ -195,6 +196,18 @@ export function App() {
     void healthQuery.refetch();
     void serversQuery.refetch();
   };
+  const removed = (id: string) => {
+    void queryClient.cancelQueries({ predicate: query => query.queryKey.includes(id) });
+    queryClient.removeQueries({ predicate: query => query.queryKey.includes(id) });
+    const remaining = servers.filter(row => row.server.id !== id);
+    queryClient.setQueryData<ServersResponse>(['servers'], current => current ? { ...current, data: { ...current.data, items: remaining } } : current);
+    if (selectedId === id) {
+      const search = new URLSearchParams(location.search);
+      if (remaining[0]) search.set('server', remaining[0].server.id); else search.delete('server');
+      void navigate({ pathname: location.pathname, search: search.toString() }, { replace: true });
+    }
+    void serversQuery.refetch();
+  };
 
   const phaseRoute = (kind: PhasePageKind) => invalidSelection
     ? <InvalidSelection />
@@ -207,6 +220,7 @@ export function App() {
 
   return (
     <AppShell
+      mode={mode}
       features={healthQuery.data?.data.features}
       servers={servers}
       selectedId={selectedId}
@@ -236,7 +250,7 @@ export function App() {
             ? <div className="page-stack"><PageHeading eyebrow="INSTANCES" title="Servers" description="正在读取服务器列表…" /></div>
             : serversQuery.isError && !serversQuery.data
               ? <ErrorState description={errorMessage(serversQuery.error)} retry={() => void serversQuery.refetch()} />
-              : <Servers items={servers} mode={mode ?? 'local'} stale={serversStale} onRegistered={() => { void serversQuery.refetch(); }} />
+              : <Servers items={servers} mode={mode ?? 'local'} stale={serversStale} onRegistered={() => { void serversQuery.refetch(); }} onRemoved={removed} />
         } />
         <Route path="/players" element={invalidSelection ? <InvalidSelection /> : mode === 'local' && healthQuery.data?.data.features.players.implemented ? <PlayersPage key={selectedId} server={selectedServer} /> : phaseRoute('players')} />
         <Route path="/whitelist" element={invalidSelection ? <InvalidSelection /> : <WhitelistPage key={selectedId} server={selectedServer} />} />

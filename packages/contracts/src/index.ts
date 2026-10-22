@@ -368,6 +368,11 @@ export const registrationSaveResponseSchema = strictObject({
     loaded: Type.Optional(Type.Boolean()), loadErrorCode: Type.Optional(Type.Union([Type.String(), Type.Null()])) }), meta: responseMetaSchema
 });
 export type RegistrationSaveResponse = Static<typeof registrationSaveResponseSchema>;
+export const registrationRemoveResponseSchema = strictObject({
+  data: strictObject({ id: Type.String(), removed: Type.Literal(true), filesPreserved: Type.Literal(true),
+    unloaded: Type.Boolean(), restartRequired: Type.Boolean(), unloadErrorCode: Type.Union([Type.String(), Type.Null()]) }), meta: responseMetaSchema
+});
+export type RegistrationRemoveResponse = Static<typeof registrationRemoveResponseSchema>;
 
 export const serverResponseSchema = strictObject({
   data: serverSummarySchema,

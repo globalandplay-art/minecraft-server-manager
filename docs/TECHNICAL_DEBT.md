@@ -1,5 +1,72 @@
 # Technical debt register
 
+## 2026-10-22 M21 NeoForge preparation — BLOCKED precondition / NOT IMPLEMENTED adapter
+
+NeoForge26.3.0.95's official installer/profile was statically verified;27 cache
+dependencies are checksum-matched and3 remain missing after two TLS transport
+failures (PowerShell WebException, curl35). A separate PowerShell long-path
+failure was avoided with a fresh short test directory; no system change.
+No NeoForge installer/server execution or production launch support is claimed.
+Complete verified cache and the loader's full runtime closure before adapting
+existing registration/runtime to its dedicated Server/classpath entry. This is
+independent of Forge26.3's validated normal shutdown and the old LC2 native
+debt. Raw logs, partial scenes and exact missing URLs remain in ignored
+evidence. See [bounded checkpoint](./M21_NEOFORGE_PREFLIGHT_2026-10-22.md).
+
+## 2026-10-22 M21 Forge bounded replacement validated
+
+OfficialForge26.3/66.1.0 normal stop/restart now has REAL BUSINESS PASS, with
+three normal Java exits and zero-launch Manager replay. This safely supersedes
+the failing59.0.5 artifact route for the new bounded delivery; it does not repair
+59.0.5 or rewrite its failed run. Exact59.0.5 managed launch is now refused while
+identification/registration remain. M21-FORGE-COMMON-WATCHER-EXIT-001 no longer
+blocks26.3/66.1.0 business delivery; support for59.0.5 stays unavailable.
+Strict diagnostic/whole-repository gates remain BLOCKED, including separately
+retained Log4j/Netty and network evidence. NeoForge's trusted native-main/
+classpath integration is still NOT IMPLEMENTED, independent of this upstream
+Forge issue. See [actual evidence and review](./M21_FORGE26_REAL_2026-10-22.md).
+
+## 2026-10-22 M21 upstream candidate — prior limited scan corrected
+
+Inspecting `.java.patch` as well as `.java` establishes a concrete repair
+candidate: installed59.0.5 calls COMMON forceUnload in showGui, while official
+26.3/66.1.0 places it at exit cleanup. The previous three-archive Java-only
+search below did not cover this patch caller and is superseded on that point.
+Exact26.3 binding support and negative tests passed65tests/3files, independent
+SolHigh delta review P1/P2/P3=0. Official installer checksum/profile inspected,
+not executed. Fresh install/preflight/real normal-stop/restart still pending;
+M21-FORGE-COMMON-WATCHER-EXIT-001 remains open, original run remains BLOCKED.
+Do not upgrade original worlds or claim static source evidence as real PASS.
+
+## 2026-10-22 M21 watcher follow-up — cleanup closed, lifecycle blocker open
+
+Captured isolated PID25020 was identity-checked and ended under the user's
+continuation authorization; separate receipt records exitCode=-1/exited=true.
+No Java processes were observed afterward. This closes the residual-process
+cleanup action only, not the failed normal stop/restart or historical report.
+The pending-cleanup wording below is historical and superseded here.
+Official26.3/66.1.0 fmlcore/forge/fmlloader source inspection does not establish
+an upstream-fixed normal shutdown path: SERVER-only normal unload remains,
+and no forceUnload caller was found within those three archives. Other launch
+dependencies and actual newer runtime remain unverified. Do not claim an
+upgrade fix or rerun the known failing artifact without a concrete repair.
+M21-FORGE-COMMON-WATCHER-EXIT-001 remains MUST_FIX for Forge lifecycle delivery;
+artifact repair attempts remain0. See [follow-up](./M21_FORGE_REAL_BLOCKER_2026-10-22.md).
+
+## 2026-10-22 M21-FORGE-COMMON-WATCHER-EXIT-001 — MUST_FIX before Forge lifecycle delivery
+
+真实Forge59.0.5在freshUUID中启动/RCON正常，但stop后COMMON config watcher非daemon scheduler阻止JVM退出；重启进入RECOVERY_REQUIRED，本轮business/cleanup BLOCKED。已用debug.log将pool3归属到forge-common.toml，并静态确认关闭链只处理SERVER。与Perflib独立，不能延期后声称Forge生命周期可交付。需要已验证上游修复产物或另行审查的退出集成，不继续Native/CommandStore路线。已确认测试PID25020保留待明确清理授权；修复次数0。见 [精确证据](./M21_FORGE_REAL_BLOCKER_2026-10-22.md)。
+
+## 2026-10-22 M2.1 Forge shim 适配更新
+
+Forge shim精确依赖绑定与现有注册/启停链路已实现并通过134项受影响API测试、静态检查；本机81文件只读预检通过。**不等于真实Forge运行PASS**：freshUUID实际验收等待明确授权；NeoForge仍待实际产物/独立启动适配，不因官方ServerStarterJar可能自动安装而直接开放。见 [M2.1检查点](./M21_FORGE_SHIM_2026-10-22.md)。历史“Forge完全未实现”仅按此受限路径更新，旧Bootstrap/JVM args脚本路径仍不支持，不改写此前失败。
+
+## 2026-10-21 M1.2 Servers 实际交付边界
+
+添加/即时加载与仅注销登记的移除已完成真实前后端三档浏览器闭环，修正了Mock误标本地、Java缺失提示、最后实例移除后Java丢失、移除时选择/订阅/观察器/缓存收尾。最终run、测试和Review见 [M1.2](./M12_SERVERS_2026-10-21.md)。不再将“没有移除功能”列为当前缺口。
+
+仍有明确边界：首个可信Java配置不是网页初始化；旧ID历史不删除，重新添加请使用新ID；不能证明停止的pending实例拒绝移除；Forge/NeoForge实际启动属于下一阶段M2.1。此处未扩展注册为任意文件删除，也未重新优化旧LC2原生路径。历史完整回归和严格宿主诊断失败全部保留，不因此阻塞独立M1.2功能，也不改写仓库Final Gate为PASS。
+
 ## 2026-10-21 M2 已验证类型业务交付更新
 
 Vanilla26.3/Paper26.2/Fabric26.2真实多实例启停、双方各自重启不扰对端、RCON/seed/PID隔离、同键重放及三个新Manager进程重开均业务PASS；现有类型的M2功能可交付。严格诊断与全仓最终Gate仍BLOCKED：Perflib009/0x80070057、OSHI Process系统信息缺失、Paper版本提示/JOML警告保留；未修系统、未修改classifier，不能称无条件M2整体PASS。Forge/NeoForge仍是未完成M1受信启动描述前置，不伪称已支持。旧CommandStore技术债不重启、不阻塞独立功能，历史全API2510PASS/12FAIL不改写。完整范围/已解决脚本P2/真实run/限制见 [M2交付](./M2_DELIVERY_2026-10-21.md)，下方旧“真实多实例未验证”是历史记录。

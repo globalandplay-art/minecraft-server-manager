@@ -6,6 +6,7 @@ import {
 
 export class AdapterRegistry {
   #closed = false;
+  readonly #detached = new Set<LocalMinecraftServerAdapter>();
   readonly #adapters: Map<string, MinecraftServerAdapter>;
 
   constructor(adapters: readonly MinecraftServerAdapter[]) {
@@ -38,9 +39,16 @@ export class AdapterRegistry {
   async close(): Promise<void> {
     this.#closed = true;
     await Promise.all(
-      [...this.#adapters.values()]
+      [...this.#adapters.values(), ...this.#detached]
         .filter(isLocalAdapter)
         .map((adapter) => adapter.closeObserver())
     );
   }
+
+  remove(serverId: string, expected: MinecraftServerAdapter): void {
+    if (this.#adapters.get(serverId) !== expected) throw new Error('Adapter identity changed');
+    this.#adapters.delete(serverId);
+    if (isLocalAdapter(expected)) this.#detached.add(expected);
+  }
+  released(adapter: LocalMinecraftServerAdapter): void { this.#detached.delete(adapter); }
 }

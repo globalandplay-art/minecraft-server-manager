@@ -37,6 +37,8 @@ export interface RegisteredExecutionIdentity {
   readonly launcherSha256: string;
   /** Exact unattended Fabric bundle/loader/classpath binding; never an HTTP DTO. */
   readonly fabricExecutionSha256?: string | null;
+  /** Exact Forge shim dependency closure; private registration/start identity only. */
+  readonly forgeExecutionSha256?: string | null;
 }
 
 export interface RuntimeOperationContext {

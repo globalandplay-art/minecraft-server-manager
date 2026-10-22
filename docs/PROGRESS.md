@@ -1,3 +1,55 @@
+## 2026-10-22 M2.1 NeoForge来源准备检查点：27项已校验，3项下载被TLS阻塞
+
+继续推进至NeoForge官方26.3.0.95：安装包SHA-256/元数据只读核对完成，专用Server/direct-classpath格式与Client入口已区分，SolHigh只读架构审查指出必须先闭合classpath外的运行产物依赖。尚未接入生产或执行NeoForge安装器/服务器。隔离缓存已校验27项，剩余jline-terminal、installertools、universal三项；PowerShell长路径问题以新短目录避开，随后PowerShell/curl均TLS失败，curl exit35，原日志/部分现场保留。未继续重试、未关闭证书校验、未修改Windows网络/系统。
+
+Forge26.3/66.1.0业务PASS与121项专项及最终Review结果保持，strict diagnostics和全仓Gate仍BLOCKED；M2.1整体IN PROGRESS。下一步只续缺失官方缓存→独立安装→完整依赖闭包→NeoForge专用受控启动接线和验收，不重跑Forge或旧LC2实验，不进入M3/P7。无commit/push/PR。详见[NeoForge检查点](./M21_NEOFORGE_PREFLIGHT_2026-10-22.md)。最近额度读取五小时剩余49%、周剩余1%，未声称已耗尽。
+
+## 2026-10-22 M2.1 Forge26.3真实生命周期业务PASS；NeoForge待适配
+
+官方Forge26.3/66.1.0已fresh隔离安装，78文件精确来源预检通过，实际字节码确认COMMON退出清理。初次installer TLS失败exit1保留；按官方元数据校验缓存后安装exit0，未改TLS/系统/原服务器。fresh真实双实例run `m2-loaders-real-42337088-99e4-4685-be67-73a258b8ee87`：Forge正常重启、双方seed/PID/RCON隔离、同键重放、显式正常停服均通过，三代Java exit0/null、5项操作succeeded、无crash/兜底，端口/观察器释放、来源不变。新Manager重放5操作、零Minecraft启动，stopped/none/noactive/recoveryfalse。
+
+**Forge26.3/66.1.0限定生命周期 REAL BUSINESS PASS；strict diagnostics仍BLOCKED、runner exit1。** Perflib/OSHI、authlib网络、Forge Unsafe/native与Log4j/Netty异常原样保留，不认定全部无害，不声明全仓全绿。旧59.0.5原report及单独强制清理收据保持；新增精确旧版启动拒绝和说明，识别/登记保留。最终受影响API121PASS/6files、API typecheck/build及局部lint/diff通过，真实只读预检old denied/new allowed，独立SolHigh证据及delta Review P1/P2/P3=0。
+
+M2.1整体仍IN PROGRESS：NeoForge官方26.3.0.95安装/启动元数据已只读确认，需要专用Server主类/classpath绑定，不能用Client元数据或Forge -jar路径；尚未执行NeoForge安装器/服务器。下一步专用受控启动适配，不进入M3/P7。无commit/push/PR。详见[真实交付和限制](./M21_FORGE26_REAL_2026-10-22.md)。
+
+## 2026-10-22 M2.1 找到上游退出修复候选；补齐26.3格式
+
+扩大只读检索到`.java.patch`后找到关键差异：旧59.0.5实际字节码将`forceUnload`放在showGui而非onServerExit；官方26.3/66.1.0补丁放在退出清理位置。此前仅`.java`检索的“未找到调用”是有限范围结果，由本节更正，不删除历史记录。新版是有源码证据的修复候选，尚无真实运行PASS。
+
+启动绑定仅新增精确26.3格式，保留原依赖/版本/Java/SHA/路径身份约束，拒绝未验证的新格式。专项65PASS/3files、API typecheck、局部lint通过，独立SolHigh delta Review P1/P2/P3=0。官方安装包已校验下载并只读检查清单，未执行、未安装、未启动；原安装未改。下一步fresh隔离安装/精确产物预检/真实正常停服与重启。M2.1真实验收继续BLOCKED，NeoForge未完成；无commit/push/PR，不进入M3/P7。见[候选与证据](./M21_FORGE_REAL_BLOCKER_2026-10-22.md)。
+
+## 2026-10-22 M2.1 隔离残留已清理；上游升级尚无修复证据
+
+用户继续授权后，仅对已捕获的隔离测试PID25020核对命令行/父PID/启动时间/进程句柄后结束，单独收据`forced-cleanup-01.json`记录exitCode=-1、exited=true；随后Java进程查询为空。未删除现场，原验收report仍BLOCKED、当时finalStopped=false，强制清理不算正常停服通过。此节仅取代下方“等待清理授权”的当前状态。
+
+官方Forge26.3/66.1.0三个源码包只读核对：正常停服仍只unload SERVER；`forceUnload`可清理COMMON，但所查三个包没有其调用证据，其他依赖链尚未证明。不能据此认定升级已修好或必然仍失败；没有安装、升级或新启动。无源码/测试修改，不重复已有验证。M2.1真实Forge仍BLOCKED，底层artifact修复0次，NeoForge待实际产物与独立适配；不进入M3。详见[后续证据](./M21_FORGE_REAL_BLOCKER_2026-10-22.md)。无commit/push/PR，P7 STOPPED。
+
+## 2026-10-22 M2.1 真实Forge退出阻塞已定位，仍BLOCKED
+
+用户继续下一步后已执行freshUUID Forge+Vanilla真实验收，run `m2-loaders-real-3067ab7e-cff0-4b47-a92c-95680b0fed5c`。双实例真实启动、RCON/seed/PID归属通过，但Forge59.0.5正常RCON stop/全部世界保存后JVM未退出，重启60秒超时进入interrupted/RECOVERY_REQUIRED；没有第二代启动。Vanilla正常停服，四端口释放、原源文件未变、无原世界访问。原report **business/strict均BLOCKED、finalStopped=false、CLEANUP_BLOCKED** 保留，不得改成PASS。
+
+独立SolHigh与实际debug.log/线程转储/安装JAR字节码共同确认：COMMON配置监视器遗留NightConfig非daemon scheduler `pool-3-thread-1`，退出只关闭SERVER watcher。不是Perflib日志、不是LT没发stop，不改超时或按端口释放算退出。已捕获隔离Forge PID25020仍活，已请求仅此PID的结束授权，未强杀或清理现场；暂停新增Minecraft运行。底层artifact修复次数0。详细原始错误、源码路径、证据及下一步见 [Forge真实阻塞](./M21_FORGE_REAL_BLOCKER_2026-10-22.md)。
+
+M1.2完成事实、M2.1代码/专项/Review结果仍保留，不能冒称真实Forge或整个M2.1 PASS。NeoForge仍待安装产物与独立适配。无commit/push/PR，P7 STOPPED，M3未开始。
+
+## 2026-10-22 M2.1 Forge shim 代码接通；真实验收待授权
+
+已复用原注册/Java profile/生命周期接入Forge Bootstrap shim，绑定实际JAR依赖清单、SHA/路径/Maven坐标、Forge server/universal与Minecraft/Java版本；每次启停链路的启动边界重验身份，不执行run.bat/user_jvm_args或installer、不下载、不放宽原安全门。旧ForgeBootstrap只读识别不获启动权限，NeoForge未套用Forge规则。
+
+本机Forge1.21.9/59.0.5 shim2.1.8 **只读来源预检PASS（81文件），未启动、未修改源**。专项集成73PASS/4files，最终受影响API134PASS/8files，lint/typecheck/build/diff均exit0；Web/contracts未改，不重复跑已有效M1.2结果。独立SolHigh发现的Multi-Release资源覆盖P2已修并加测试，最终审查见 [M2.1 Forge检查点](./M21_FORGE_SHIM_2026-10-22.md)。历史完整API失败及宿主严格诊断仍保留。
+
+**M2.1整体IN PROGRESS：真实Forge验收NOT RUN，NeoForge NOT IMPLEMENTED。** 已请求freshUUID隔离Forge真实运行授权，以及NeoForge测试目录信息；Vanilla长期授权不转移到已有Forge/其他世界。M1.2未提交工作完整保留，无commit/push/PR，P7 STOPPED、M3未开始。
+
+## 2026-10-21 M1.2 添加/移除与真实前后端浏览器闭环
+
+M1.2已实现：显示实际Mock/local模式与添加说明、原注册预检/保存/即时加载复用、移除仅注销LT登记不删除服务器文件、运行/活动/恢复/不确定状态拒绝移除、当前/非当前实例选择及缓存同步、最后实例移除后保留可信Java配置。移除发布未知时隔离旧adapter，观察器收尾失败明确提示重启，不丢历史证据。当前Manager已移除ID预检即拒绝复用；旧ID历史不覆盖。
+
+真实Chrome → Vite → Fastify/local adapters最终run `m12-real-68a9dc73-5490-4fd4-9d0c-912f1305fd50` **360/768/1440 PASS，exit0**，没有HTTP拦截或Fake API。添加/立即选择/刷新、运行中拒绝移除、正常停服后移除、全文件树hash保留、新ID重新添加、五次Manager会话持久化、空列表重启再添加、离线失败无写入、非选中移除保留选择均通过。一代隔离真实Vanilla正常exit0/null；零隐式启动，来源JAR/EULA不变、六端口释放。原注册目录/世界未修改。
+
+最终相关API **135PASS/11files**、contracts **26PASS/6files**、完整Web **224PASS/38files**；lint/typecheck/build/diff均exit0。初次Web旧“Phase1不支持登记”文案断言失败已精确更新，原日志保留。独立SolHigh发现两项P2（旧Java profile遮蔽当前身份、Vite关闭无界等待），各一次修复后源码delta复审P1/P2/P3=0；最终证据签核见 [M1.2报告](./M12_SERVERS_2026-10-21.md)。
+
+历史全API2510PASS/12FAIL、Perflib/OSHI/JOML/Paper严格诊断BLOCKED与原生现场不改写，不声明仓库全绿、不重跑旧CommandStore。本轮无commit/push/PR，P7 STOPPED，不提前进入M2.1/M3。下一阶段为M2.1 Forge/NeoForge受控实际启动支持；本轮收口后停止。
+
 ## 2026-10-21 用户授权上传 M1/M2 开发检查点
 
 用户已明确授权将当前M1即时加载、M2已验证类型生命周期、测试与交付文档commit/push到现有`codex/phase-4-players-properties`，不创建PR、不合并main、不改写历史。上传前fetch确认本地/远端同为`d2dadab`，48项候选文件均为源码/测试/文档，凭证模式与8项私密RCON值比对未发现泄漏；`.manager`/runtime/test-results继续忽略，不上传配置/世界/私密证据。实际commit及push结果以随后Git核验为准。M2业务PASS与严格诊断/全仓Final Gate未通过的状态保持，不因上传而变更。下方“无commit/push”均为各自开发检查点当时事实。

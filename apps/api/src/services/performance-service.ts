@@ -27,14 +27,17 @@ export class PerformanceService {
       // Defer adapter invocation until pending is installed, including synchronous throws.
       const task = Promise.resolve().then(async () => {
         const metrics = await adapter.getMetrics();
+        if (this.registry.get(serverId) !== adapter) throw new ServerNotFoundError();
         this.#history.record(serverId, { collectedAt: this.clock.now().toISOString(), metrics });
         this.#failures.delete(serverId);
       });
       this.#pending.set(serverId, task);
-      try { await task; } catch (error) { this.#failures.set(serverId, error); throw error; }
+      try { await task; } catch (error) { if (this.registry.get(serverId) === adapter) this.#failures.set(serverId, error); throw error; }
       finally { this.#pending.delete(serverId); }
     }
+    if (this.registry.get(serverId) !== adapter) throw new ServerNotFoundError();
     if (this.#failures.has(serverId)) throw this.#failures.get(serverId);
     return { retention: "manager-session", minimumIntervalMs: 5000, samples: this.#history.read(serverId) };
   }
+  unregister(serverId: string): void { this.#history.unregister(serverId); this.#next.delete(serverId); this.#failures.delete(serverId); }
 }
