@@ -1,4 +1,182 @@
+# 2026-10-24 M3-INSTALL-RECONCILE-REGISTRY-001 — P2 fixed
+
+Independent integrated review confirmed historical extended-loader installation
+could skip restart physical verification after registration removal/type change.
+One minimal repair retains strong checks from the persisted confirmation marker.
+Six drift/missing-registration combinations preserve recovery/operation ID and
+original bytes/journal. Final affected150 PASS/10 files; SolHigh delta P1/P2/P3=0.
+Initial new-test contract mismatch52PASS/6FAIL is retained; corrected exact
+interrupted/recovery contract is verified, no product weakening. Broad baseline
+2788PASS excluded3 deferred LC2 native files and preceded this repair, so no
+whole-repository PASS is claimed. Web236/contracts28/static checks PASS.
+Nonblocking recommendation: explicit current-loader/missing-confirmation restart
+test. Whole-M3 full regression/advanced Gate and real mod loading remain pending.
+See [repair and evidence](./M3_INSTALL_RECONCILIATION_2026-10-24.md).
+
+# 2026-10-24 M3-E deadline gate: fresh PASS after authorized attempt3
+
+Explicit user approval authorized one extra bounded round for the SAME
+M3-INSTALL-BROWSER-DEADLINE-001; count=3. Operation-local pure-content reuse
+retains all eight full physical checks and owner/recovery/abort guards.
+Final135 affected tests and static/build checks PASS; independent SolHigh code
+delta P1/P2/P3=0. Fresh NON-TIMING run
+`m12-real-1d6fc400-4dcb-4bc5-a9d7-0db7785dc934`:360/768/1440 PASS under
+original30000ms, normal seven-manager cleanup, source unchanged, ports free,
+no Minecraft. Specific deadline gate has fresh passing evidence; final
+independent evidence review subsequently PASS, P1/P2/P3=0: all three original
+30000ms trace assertions and persisted/restart/cleanup proofs independently
+confirmed. Specific deadline blocker RESOLVED FOR CURRENT CANDIDATE.
+Whole-M3 full regression/advanced Gate
+remain PENDING; lifecycle extensions and actual mod loading are not claimed.
+Prior failures and diagnostic-only run below remain historical, not rewritten.
+No additional automatic repair/rerun. See [attempt3 report](./M3_OPERATION_SCOPE_2026-10-24.md).
+
+# 2026-10-24 M3-E reviewed next implementation option
+
+Operation-scoped successful pure-content reuse is conditionally accepted as
+a design; every physical/authorization/transaction boundary must remain fresh.
+No implementation or performance gain is claimed. This would be a further
+round of the SAME deadline issue, requiring explicit exception to the two-round
+stop; count remains2 until authorized implementation. No alternative root-cause
+label, global cache, parallel physical reads or deadline relaxation.
+See [concrete scope and bounded validation](./M3_INSTALL_OPTIMIZATION_DECISION_2026-10-24.md).
+
+# 2026-10-24 M3-E single diagnostic: old failure not reproduced
+
+One opt-in inert timing run `m12-real-1d913f05-d570-46ff-94ac-bb5cffe505e5`
+passed unchanged360/768/1440 completion assertions, but is explicitly not
+delivery acceptance.241 product source hashes unchanged; no third product
+repair. Backend execution26.45–26.76s versus terminal save4–9ms and final
+addons HTTP observation28–29ms does not support a long terminal-save stall
+in this sample. Historical failure phase remains UNKNOWN; count2/HARD BLOCKER
+is retained. Do not add another optimization or change30s based on one
+non-reproduction. No second sampling run. See
+[bounded timing evidence and next decision](./M3_COMPLETION_TIMING_2026-10-24.md).
+
+# 2026-10-24 M3-E completion timeline clarification
+
+Read-only review confirms browser polling responses continued at768; no
+separate frontend defect is established. Operation updatedAt precedes durable
+save completion and in-memory publication, so29.682s is a recorded timestamp
+span, not precise browser/API-observable success latency. Failed768 trace and
+response-state timing were not retained. Do not infer a new cause or reset
+the two-repair counter. Next is a bounded diagnostic design review, not a third
+repair or timeout change. No new tests/server/browser run was performed.
+See [completion review](./M3_COMPLETION_REVIEW_2026-10-24.md).
+
+# 2026-10-23 M3-E deadline — HARD BLOCKER, STOPPED AFTER 2 FIX ATTEMPTS
+
+M3-INSTALL-BROWSER-DEADLINE-001 remains MUST_FIX for M3-E delivery. Attempt1
+removed three adjacent identity captures; Attempt2 added one-identity-only,
+role/hash-keyed bounded content validation reuse while retaining every physical
+read/hash/stability gate. Final123 affected tests and static checks pass;
+independent SolHigh code review found no new P1/P2/P3.
+
+Fresh browser `m12-real-8047946f-a5b2-4a7b-8221-89ee59a7bab6` is BLOCKED:
+360 PASS,768 failed unchanged30000ms UI completion assertion,1440 NOT RUN.
+Backend operations succeeded28150/29682ms, but this does not satisfy UI gate.
+Exact admission/poll/verification/render breakdown UNKNOWN; no independent
+new root cause is asserted to reset the counter. Stop further source repairs
+and reruns for this root pending technical-owner/architecture decision.
+
+No data-integrity failure was demonstrated:768 target hash/stage consumption,
+pinned guard and committed journal were verified separately.3 owned Managers
+closed normally, recorded PIDs absent, zero Minecraft, unchanged source, free
+ports. Original evidence and both historical BLOCKED runs remain preserved.
+Do not revive LC2 native experiments or P7. See [M3-E report](./M3_PROTECTED_INSTALL_2026-10-23.md).
+
+# Historical Attempt1 checkpoint — installation performance gate
+
+M3-INSTALL-BROWSER-DEADLINE-001: real NeoForge install received202 but exceeded
+unchanged30s browser completion assertion. Backend later succeeded86.740s;
+protection/target hashes and source invariance independently verified. Browser
+and normal-cleanup receipt stay BLOCKED. Scope: M3-E delivery blocker, not
+proof of Minecraft crash, not a reason to revive LC2 experiments.
+Nested backup payload was approximately2.9s; repeated identity closure scans
+are a probable contributor, exact internal attribution UNKNOWN. Product
+performance fixes1 (reviewed adjacent-proof deduplication; end-to-end effect
+NOT RUN). Three repeated identity captures were removed inside execution;
+fresh stage verification and all mutation/recovery boundaries remain.
+Scoped57 tests PASS, independent SolHigh delta has no open findings.
+Read-only inert-fixture timing: full identity3691.031/3676.308ms, one complete
+binding1186.044ms. These are current isolated samples, not historical per-call
+costs or a new browser PASS. Next assess internal duplicate closure parsing;
+do not replace a complete proof with detection-only metadata or omit final
+stability verification. No timeout/assertion relaxation or blind reruns. Details/raw evidence:
+[M3-E](./M3_PROTECTED_INSTALL_2026-10-23.md).
+
+New-loader private identity now binds argv and disabled directory. Older D
+stages without these fields are intentionally rejected, not upgraded or
+deleted; the existing3-record quota remains a limitation. Install code is a
+candidate, not final engineering acceptance. Lifecycle writes and full-M3
+advanced Gate remain pending. P7 STOPPED; no Git upload.
+
+# 2026-10-23 M3-D staging boundary
+
+New-loader inert upload validation and its private full-metadata revalidation
+are implemented; actual protected installation/lifecycle/recovery and
+compatibility admission remain open. Existing3-stage-per-instance quota
+includes failed records; no new auto-cleanup/discard action exists. UI states
+this bound explicitly. Do not confuse readable stages with consumable stages.
+Real browser validates NeoForge upload-only, not Minecraft loading. Existing
+audit/core-ZIP/strict-diagnostic/legacy failures remain unchanged. See
+[M3-D checks and preserved intermediate failures](./M3_VALIDATION_STAGING_2026-10-23.md).
+
+# 2026-10-23 M3-C private identity groundwork
+
+Exact Forge/NeoForge registered dependency-closure capture is now implemented
+and independently reviewed (zero open findings), with72 final delta tests.
+This closes the private identity groundwork item only, not the entire M3
+write gap. Mutation-time plan/environment/directory validation, persisted
+staging/receipt metadata, compatibility admission and guarded transaction/
+recovery integration remain required before opening writes. Existing profile
+and API501 guards remain. No old native experiment was introduced or rerun.
+See [M3-C delivery](./M3_ADDON_IDENTITY_2026-10-23.md).
+
+# 2026-10-23 M3-B metadata delivery and release limitations
+
+Read-only Forge/NeoForge declared TOML metadata is now bounded-engineering
+PASS; compatibility evaluation, trusted write identity integration and real
+user-mod load acceptance remain open. This supersedes only the older
+"metadata NOT IMPLEMENTED" checkpoint, not historical failures.
+See [M3-B evidence](./M3_MOD_METADATA_2026-10-23.md).
+
+- RELEASE TRIAGE REQUIRED: root npm audit exit1,16 existing locked-package
+  findings (2 critical/11 high/2 moderate/1 low), including critical
+  concurrently/shell-quote. New smol-toml1.9.1 is not named in this audit.
+  No audit fix/unsafe upgrade performed; preserve `m3-metadata-audit.json`.
+  Assess actual build/dev/production exposure and apply reviewed upgrades
+  with affected tests before claiming release/security Gate PASS.
+- DEFERRED compatibility investigation: optional installed NeoForge universal
+  core JAR probe rejected409 ADDON_JAR_UNSAFE by unchanged ZIP validation.
+  Exact ZIP condition UNKNOWN, fix attempts0; raw log retained. Do not bypass
+  scanner or infer all user mods invalid. Revisit with an identified actual
+  mod fixture before expanding artifact compatibility/write acceptance.
+- Existing old LC2/native and M2.1 strict diagnostic failures remain separate;
+  none was rerun or rewritten by this read-only slice. P7 STOPPED.
+
+# 2026-10-23 M3-A read-only delivery
+
+Forge/NeoForge mod file inventory is now implemented and bounded-engineering PASS; metadata and all writes remain NOT IMPLEMENTED, not silently enabled. The readonly query cache issue and StrictMode429 were corrected and independently reviewed; original failed browser receipt is retained. Actual three-width final browser PASS, API scoped109PASS plus6-test mutation delta, fullWeb228PASS and static/build/diff evidence are in [M3-A report](./M3_READONLY_MODS_2026-10-23.md). M3 overall remains IN PROGRESS. The next work is loader-specific metadata/version validation, not LC2 native experiments or host counter repair. P7 STOPPED, no Git upload.
+
+# 2026-10-23 NeoForge lifecycle checkpoint
+
+Final-closure update: [M2.1 gate](./M21_FINAL_GATE_2026-10-23.md) records API2677PASS/148files with six explicitly deferred suites excluded, complete Web224PASS, contracts26PASS, lint/typecheck/build and 360/768/1440 real registration browser PASS. Adapter-final independent source gate has zero open findings; browser final independent evidence review subsequently PASS/zero findings after actual trace/session inspection by the independent Adapter reviewer; the initial reviewer quota failure remains historical. Strict real diagnostics and full-repository complete gate remain BLOCKED. [M3 inventory](./M3_SCOPE_2026-10-23.md) identifies Forge/NeoForge Addon support as a separate missing capability; existing Paper/Fabric functions should be reused.
+
+Exact NeoForge26.3.0.95 adapter/real lifecycle is now BUSINESS PASS; previous missing-artifact and NOT IMPLEMENTED statements below are historical. See [real evidence](./M21_NEOFORGE_REAL_2026-10-23.md). Strict Perflib/OSHI, terminal and Log4j diagnostics remain BLOCKED; no classifier/system changes. Broader versions, stage/full repository gates and Adapter-final signoff are not implied. Deferred LC2 native failures remain independent; P7 STOPPED. No Git upload.
+
 # Technical debt register
+
+## 2026-10-23 M21 NeoForge offline supply resolves dependency blocker
+
+User-supplied desktop files matched the three missing official checksums;
+all30 metadata dependencies rechecked and official isolated install exited0.
+The TLS download blocker below is resolved by verified offline supply, with
+all old failure records preserved. No network/system workaround was applied.
+Installed66-classpath plus2-game-artifact inventory is available, but complete
+runtime closure remains PENDING_REVIEW. NeoForge production launch integration
+and actual lifecycle acceptance remain open; installation is not lifecycle
+PASS. See [new checkpoint](./M21_NEOFORGE_INSTALL_2026-10-23.md).
 
 ## 2026-10-22 M21 NeoForge preparation — BLOCKED precondition / NOT IMPLEMENTED adapter
 

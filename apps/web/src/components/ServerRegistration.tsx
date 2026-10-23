@@ -65,7 +65,7 @@ export function ServerRegistration({ onLoaded, onRemoved }: { onLoaded?: (() => 
         <label className="field-label">实例标识<input required pattern="[a-z0-9][a-z0-9-]{0,62}" maxLength={63} value={draft.id} onChange={event => edit('id', event.target.value)} placeholder="survival-2" /></label>
         <label className="field-label">显示名称<input required maxLength={128} value={draft.name} onChange={event => edit('name', event.target.value)} /></label>
         <label className="field-label">服务端目录<input required maxLength={4096} value={draft.root} onChange={event => edit('root', event.target.value)} placeholder="C:\Minecraft\survival" /></label>
-        <label className="field-label">启动 JAR 文件名<input required maxLength={128} value={draft.jarFile} onChange={event => edit('jarFile', event.target.value)} /></label>
+        <label className="field-label">启动文件名（JAR 或受支持的 run.bat）<input required maxLength={128} value={draft.jarFile} onChange={event => edit('jarFile', event.target.value)} /></label>
         <label className="field-label">复用 Java 配置<select value={draft.javaProfileId} onChange={event => edit('javaProfileId', event.target.value)}>
           {catalog?.profiles.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
         </select></label>

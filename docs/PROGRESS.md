@@ -1,3 +1,99 @@
+# 2026-10-24 M3-E 整合回归与恢复边界修复完成
+
+独立SolHigh整合审查发现并确认P2：历史Forge/NeoForge安装在重启后同ID改为Paper/Fabric或注册缺失时，当前类型分类可能跳过物理核验。已做一次最小修复：持久化确认标记参与强复核，不改OperationService/journal/写入热路径/时限，补6组合恢复门控、操作ID和原文件证据保留测试。最终独立delta签核P1/P2/P3=0。
+
+本轮先完成冻结广泛API **2788 PASS/155文件**（仅排除用户已延期的3个旧LC2原生实验，非全仓PASS），contracts28PASS；随后修复后的受影响回归 **150 PASS/10文件**，Web236PASS/38文件，lint/typecheck/build/diff通过。新增测试首轮52PASS/6FAIL因恢复后仍期待succeeded而失败；改为既有interrupted/physical-recovery-required/RECOVERY_REQUIRED精确契约后通过，原日志保留，无安全放宽。广泛API为修复前基线，不能宣称修改后全量PASS；旧三档浏览器是此前候选证据，本轮未重跑，不冒充新恢复路径验收。
+
+M3整体仍IN PROGRESS；全仓最终回归/高级Gate/真实模组加载及新loader生命周期扩展尚未完成。缺确认标记恢复负例为非阻塞补测建议。无Minecraft启动、系统/P7操作。Git提交曾因自动审批额度失败未执行，未push；已有暂存及未提交内容均保留，上传仍待完成。详见 [整合复审与修复证据](./M3_INSTALL_RECONCILIATION_2026-10-24.md)。以下为历史检查点。
+
+# 2026-10-24 M3-E 授权第三轮优化：正式三档浏览器 PASS
+
+用户明确“批准执行”，授权同一 `M3-INSTALL-BROWSER-DEADLINE-001` 超出原两轮止损的一次额外实现/验证，计数为3，不是新根因。仅复用一次已受理安装内的 NeoForge 纯内容校验事实；8个身份边界仍完整复读/hash/物理身份/注册绑定/Java/环境/目录检查，操作归属、恢复/取消前后复核，finally释放。默认预检、独立上传及重启恢复保留原路径，未改备份/journal/UI/认证/并发/时限。
+
+最终受影响 API **135/135 PASS（9文件）**，lint/typecheck/build/diff exit0；独立 Sol High 源码及测试 delta Review P1/P2/P3=0。唯一一次正式非计时 Chrome/Vite/Fastify run `m12-real-1d6fc400-4dcb-4bc5-a9d7-0db7785dc934`，**360/768/1440原30000ms均PASS，exit0**，安装hash/保护备份/journal/暂存消费和Manager重启持久化通过。7个Manager正常关闭，零Minecraft启动、源文件不变、端口释放。最终独立证据复核PASS（P1/P2/P3=0）；M3整体仍IN PROGRESS，完整阶段回归及高级Gate PENDING，不能宣称全部M3交付或真实模组加载PASS。
+
+最终独立SolHigh证据复核现已PASS，P1/P2/P3=0：三份trace均保留原30000ms成功断言，持久化操作/committed journal/consumed receipt/pinned guard及重启读回一致，7个记录PID均已退出。**本候选的浏览器deadline具体阻塞解除**；M3整体回归/高级Gate仍PENDING。
+
+本节更新当前状态；下文原两轮BLOCKED和诊断专用PASS完整保留为历史，准确历史故障阶段仍UNKNOWN，不改写失败。详见 [第三轮实现与正式验收](./M3_OPERATION_SCOPE_2026-10-24.md)。无commit/push/PR，P7 STOPPED。
+
+# 2026-10-24 M3-E 下一实现方案评审完成，未开启第三轮修复
+
+已形成有界方案：仅在一次已受理安装执行中，共享现有NeoForge纯内容校验结果；8个关键边界继续完整读取/hash/身份/目录/缺失目标/Java/环境/argv/注册绑定与原批准身份比较。操作、实例及scope生命周期必须严格隔离，异常/退出后销毁；上传和安装各自注入的测试核验器不得被覆盖。预检、单独上传、重启恢复保持原路径。不增加持久化框架，不改备份/journal/UI/认证/并发/30秒断言。
+
+独立SolHigh设计方向为条件接受，收益尚未量化，不承诺达到稳定时限。具体四个现有模块及验证/止损清单见 [下一轮具体方案](./M3_INSTALL_OPTIMIZATION_DECISION_2026-10-24.md)。本轮只更新文档，未修改产品/测试或运行验收。因原问题已两轮止损，后续实施须明确批准本方案的一次额外实现验证，不重置计数、不冒称独立新根因。M3-E仍BLOCKED，P7 STOPPED，无commit/push/PR。
+
+# 2026-10-24 M3-E 单次分段诊断完成：未复现历史超时
+
+已按后续“继续下一步”执行一次隔离诊断，未做第3轮产品修复。run `m12-real-1d913f05-d570-46ff-94ac-bb5cffe505e5`：360/768/1440原30000ms断言均PASS，exit0，但明确diagnosticOnly、NOT_ELIGIBLE_TIMING_RUN，不覆盖历史BLOCKED。241个API/Web/contracts产品源码SHA256前后一致。仅两个测试夹具文件增加可关闭观测，原保存/监听/断言/清理语义保留，执行前独立SolHigh实际delta复审零开放P1/P2/P3。
+
+本次样本：后台队列发布到终态发布观察约26.45–26.76秒，终态保存4–9ms、最终清单请求约28–29ms；页面成功被测试确认约27.20–28.19秒。测试可见确认包含断言采样，不是实际React渲染耗时；不同进程时钟未混用。三档正常trace均保留，失败trace分支因未复现而未执行。7个Manager正常关闭且PID已退出，零Minecraft启动、源文件不变、端口释放，观测零丢弃/溢出。详见 [分段诊断结果](./M3_COMPLETION_TIMING_2026-10-24.md)。
+
+历史768失败的精确阶段仍UNKNOWN；本次不支持继续盲改前端或认定终态保存长期阻塞。修复计数维持2、M3-E HARD BLOCKER保持，不自动重复采样或转成正式交付PASS。下一步是后台验证策略/耗时预算的技术决策；进一步实质修复须明确超越原两轮止损边界。无commit/push/PR，P7 STOPPED。
+
+# 2026-10-24 M3-E 完成路径只读评审完成，HARD BLOCKER 保持
+
+未做第3轮修复、未运行测试/服务器/浏览器。复核失败run发现768安装后仍有30次浏览器操作查询响应（另1次为清理），均HTTP200，并非已证明的轮询停止；未记录安装后addons响应，但响应日志不能证明请求从未发起。成功360 trace显示首次终态响应后，最终状态/清单读取约12/39ms。失败768 trace未保存，响应状态与精确时间均未记录，因此不能认定前端新故障。
+
+重要口径澄清：OperationService先生成updatedAt，再等待终态保存，之后发布内存状态；此前28.150/29.682秒为记录时间跨度，不是API可见成功的精确耗时。原数据及历史BLOCKED保留、不改写。独立SolHigh只读复审同意继续阻塞，不以新根因为名重置两轮计数。下一步限定为审定终态保存/发布/浏览器查询/最终核对/渲染的分段诊断方案；本轮未实施插桩或新采样。见 [完成路径评审及证据](./M3_COMPLETION_REVIEW_2026-10-24.md)。P7 STOPPED、无Git上传。
+
+# 2026-10-23 M3-E 耗时阻塞：两轮修复后停止
+
+M3-INSTALL-BROWSER-DEADLINE-001 = **HARD BLOCKER / STOPPED AFTER 2 FIX ATTEMPTS**。第二轮将成功的NeoForge纯内容校验限定在一次身份核验内复用，仍逐次复读/hash/校验全部文件及目录，角色和classpath分类独立，缓存68项/8MiB上限，INDEX目标每轮重新定位和检查。最终受影响API123/123 PASS，lint/typecheck/build/diff通过，独立SolHigh源码/delta无新开放P1/P2/P3；这不等于耗时验收通过。
+
+新真实Chrome/Vite/Fastify run `m12-real-8047946f-a5b2-4a7b-8221-89ee59a7bab6`：360全流程PASS；768再次在原30000ms页面完成断言BLOCKED；1440 NOT RUN。两个后端操作分别28150ms/29682ms后succeeded，768目标hash匹配、保护备份pinned、journal committed、stage consumed；后端成功不能覆盖页面失败，准确的受理/轮询/核对/渲染耗时分布仍UNKNOWN，不把问题改称新的独立根因。
+
+本轮清理正常：只读观察已受理操作终态，3个测试Manager正常IPC关闭且PID已退出，零Minecraft启动、源文件不变、端口释放，无强制删除/终止。原86.740s失败及本轮失败均保留。**不做第3轮修补、不再次碰运气重跑**；下一步需技术负责人评审完成路径及耗时预算后决定架构或验收策略，不能通过延长时限/降低核验制造PASS。M3-E及整体M3仍未交付PASS，高级Gate PENDING、真实模组加载NOT RUN，P7 STOPPED，无commit/push/PR。见 [详细证据及原始错误](./M3_PROTECTED_INSTALL_2026-10-23.md)。下方为此前检查点。
+
+# 2026-10-23 M3-E 安装候选已实现，浏览器/性能 Gate BLOCKED
+
+Forge/NeoForge 安装已接入现有保护快照、事务、幂等和恢复链。新增逐次未知兼容性/第三方代码风险确认（不等于兼容性验证）、模组ID冲突拒绝、argv及disabled-mods身份绑定、提交前漂移拒绝及成功记录重启复核。UI可确认安装并保留未知结果的操作编号；启用/禁用/回收/恢复仍关闭。此前D阶段暂存缺少新身份字段时拒绝复用，保留证据、不自动迁移。
+
+最终受影响API75PASS/6files、完整Web236PASS/38files、contracts28PASS/7files，lint/typecheck/build/diff通过，独立SolHigh最终源码/delta零开放P1/P2/P3。**M3-E工程交付仍BLOCKED**：真实浏览器run `m12-real-b4dacc05-ebca-4fca-9b50-5e7767c5d52f` 在360档的30秒完成断言失败，768/1440尚未验证。后续只读证明安装实际86.740秒后succeeded，完整pinned保护及committed journal/目标hash匹配；这不覆盖原BLOCKED。正常IPC收尾CLEANUP_BLOCKED后，仅在全部实例停止、操作结束、PID/父进程/子进程身份确认后退出本轮测试Manager，辅助进程已退出、文件未删除，独立清理收据保留，原失败不改写。
+
+后续有界定位及第一轮安全去重已完成：暂存校验返回本次实际身份证明，安装执行入口/保护备份后/准备文件后复验复用同次证明，减少三次紧邻重复扫描；发布前后、提交、消费、恢复检查不变。入口独立检查保留，以保持无效实例原错误响应。新增后备份漂移/证明重新获取测试，最终专项57/57 PASS，独立SolHigh delta零开放P1/P2/P3。只读隔离计时完整身份约3.68秒、单闭包约1.19秒；不能据此断言已达到30秒。原浏览器BLOCKED保持，未碰运气重跑。性能实质修复1轮，端到端效果尚未验证；下一步针对身份函数内部重复闭包解析做有限设计评估，不删除最终稳定性检查，不直接信任detection摘要。不延长时限、不进入新原生框架。M3整体IN PROGRESS、高级Final Gate PENDING，真实Minecraft模组加载NOT RUN，P7 STOPPED，无commit/push/PR。见 [M3-E候选、原始错误及安全收尾](./M3_PROTECTED_INSTALL_2026-10-23.md)。下方D阶段“安装未实现”为历史切片。
+
+# 2026-10-23 M3-D 上传校验已接通，安装仍未开放
+
+Forge/NeoForge 页面现可上传JAR到Manager私有暂存区进行完整声明校验，展示多模组及原始占位版本，明确“尚未安装/兼容性未知”。服务器mods目录不变；保留独立staging profile，原安装/生命周期profile不扩展，新Loader不能consume。已有上传接口新增严格响应变体，暂存重新打开校验完整metadata/身份/hash/revision，64KiB声明和128KiB记录上限。未知结果不自动重传，切换实例隔离旧响应。原有每实例3份暂存配额及失败证据保留。
+
+最终受影响API120PASS/7files、完整Web233PASS/38files、contracts28PASS/7files，lint/typecheck/build/diff通过。独立GPT-6.1 SolHigh源码/最终日志/浏览器证据复审通过，开放P1/P2/P3=0；M3整体高级安全Final Gate仍待后续。真实Chrome/Vite/Fastify run `m12-real-7554c82f-9980-4f9c-87a0-b50953e234c6` 三档360/768/1440 PASS：3次真实上传201且仅入私有暂存，7Manager正常关闭、重启记录保留、零Minecraft启动、服务器源文件不变、端口释放。真实浏览器覆盖NeoForge，Forge为专项覆盖，不冒充真实加载。中间夹具/UUID格式注册失败和首次缺来源参数的运行日志均保留。
+
+**M3整体IN PROGRESS。** 下一步才是兼容准入和保护备份/安装/生命周期/恢复接线，不能把上传校验成功称为安装成功。本轮不声称全API/全仓回归或真实模组加载PASS；审计16项既有告警与核心JAR ZIP限制仍记录，P7 STOPPED，无commit/push/PR。见 [M3-D交付报告](./M3_VALIDATION_STAGING_2026-10-23.md)。下方M3-C“上传501”是此前检查点，仅安装/生命周期现仍关闭。
+
+# 2026-10-23 M3-C 扩展操作身份接线完成（写入仍关闭）
+
+复用原Addon身份核验，接入Forge26.3/66.1.0及精确NeoForge26.3.0.95的完整启动依赖绑定；校验注册目录/启动文件/Java/依赖身份及完整Java版本，不执行run.bat。Paper/Fabric旧身份序列化及digest兼容性有明确断言。受影响六文件110PASS（最终Java比较修正前）；最终身份/共享fixture调用方delta五文件72PASS。最终lint/typecheck/build/diff通过，独立SolHigh设计/源码/delta复审零开放P1/P2/P3。最初夹具EISDIR与错误测试路径的中间日志保留；P2版本比较缺口Attempt1修复关闭。
+
+**M3整体IN PROGRESS，Forge/NeoForge写入仍501。** 这一切片只完成私有身份前置接线，不等于用户可安装模组。下一步补齐现有上传暂存的多模组数据、兼容准入及持久化身份校验，再接保护备份/安装/生命周期/恢复；提交和恢复边界仍需重新验证参数、环境及目录身份。本轮无UI变更，不重复浏览器或旧原生实验，无新的完整回归/真实模组加载声明。依赖审计及ZIP限制未解决，P7 STOPPED，无commit/push/PR。见 [M3-C证据与边界](./M3_ADDON_IDENTITY_2026-10-23.md)。
+
+# 2026-10-23 M3-B 模组元数据只读交付
+
+Forge/NeoForge 的 TOML 声明已接入现有清单/API/页面：支持一个 JAR 多个模组、名称/标识搜索、原始版本与依赖范围；占位版本不展开，兼容性仍 unknown，写入仍关闭。最终专项 delta57PASS，前序受影响API137PASS，contracts27PASS、完整Web229PASS，最终lint/typecheck/build/diff通过；独立SolHigh复审零开放P1/P2/P3。真实Chrome/Vite/Fastify三档浏览器通过，七Manager会话关闭、零Minecraft启动/扩展写入、源文件不变。浏览器早于最终纯表/own-property解析修正，后者以57项专项delta及独立等价性复审覆盖，不重复浏览器、不冒充最终源码新全量API回归。
+
+**M3整体IN PROGRESS**。下一步先审查兼容规则和写入身份接线，再复用已有上传/安装/生命周期事务；不直接开放写按钮。可选NeoForge核心JAR探测被原ZIP读取器以409 ADDON_JAR_UNSAFE拒绝，准确ZIP原因UNKNOWN，未绕过。依赖审计保留16项既有告警（2critical/11high/2moderate/1low），新增smol-toml未列入；发布前必须独立分诊。旧全量/LC2/严格诊断失败保留，P7 STOPPED，无commit/push/PR。见 [M3-B交付与证据](./M3_MOD_METADATA_2026-10-23.md)。以下M3-A为历史切片。
+
+# 2026-10-23 M3-A Forge/NeoForge 模组只读清单交付
+
+已复用 AddonInventory、API 和设计系统，实现 Forge/NeoForge 的 `mods`/`disabled-mods` 文件清单、搜索、刷新、大小和 SHA 展示；导航标注只读。后端仍明确 `writeSupported=false`，原写入 profile 只允许 Paper/Fabric，上传/安装/移除负向请求均501且文件/Manager存储不变；未解析 Forge/NeoForge 元数据，不声称兼容或实际加载。
+
+受影响API109PASS/5files，新增真实写接口拒绝断言后API文件6/6复验；最终完整Web228PASS/38files；lint/typecheck/build/diff exit0。最终真实Chrome/Vite/Fastify run `m12-real-707f4a7f-a9f2-417c-8f3c-b93d9bc80ad7` 三档360/768/1440 PASS，七Manager会话零Minecraft启动、零扩展写入、源文件保留、端口释放。独立SolHigh源/故障修复delta审查零开放问题（6.1容量不可用时按规范使用6Sol High）。最初StrictMode重复读取引发429的BLOCKED现场保留，第一次针对性修复已实际复验通过；手机刷新图标也已补齐并复验。见 [M3-A交付](./M3_READONLY_MODS_2026-10-23.md)。
+
+**M3整体IN PROGRESS**：下一切片验证Forge/NeoForge元数据及版本规则，再复用现有上传/安装/生命周期事务；不直接打开写按钮。M2.1环境/依赖严格诊断、旧完整回归和LC2实验失败均保留，不阻塞独立只读交付；旧实验未重跑。本切片没有新的完整API回归或真实模组加载PASS声明。P7 STOPPED，无commit/push/PR。
+
+# 2026-10-23 M2.1 NeoForge 真实生命周期 BUSINESS PASS
+
+**最终收口更新：** 新阶段基线 API2677PASS/148files（明确排除六项已延期旧LC2原生/容量套件）、完整Web224PASS、contracts26PASS；lint/typecheck/build通过。真实Chrome→Vite→Fastify 的NeoForge登记、立即切换、移除和重启持久化在360/768/1440全部PASS，七次Manager会话零Minecraft启动、源文件及服务端内容保留、端口释放。独立Adapter高级源码Gate零开放P1/P2/P3；浏览器最终独立证据复核也已PASS、零开放问题：初次Sol任务额度失败保留，后续Adapter审查者实际完成三份trace及七会话核验。严格diagnostics与全仓完整Gate仍BLOCKED。见 [收口报告](./M21_FINAL_GATE_2026-10-23.md)。M3已完成只读盘点：Paper/Fabric复用原P5；Forge/NeoForge扩展管理未接通，下一切片先做受控只读清单，不直接开放写入，见 [M3范围](./M3_SCOPE_2026-10-23.md)。无commit/push/PR，P7 STOPPED。
+
+NeoForge26.3.0.95 / Minecraft26.3 / Java25 已接入原注册和生命周期链路；固定直接 Server 启动，不执行脚本或 @argfile。全新隔离 run `m2-loaders-real-7fbbffa3-e1bf-44e9-866b-d3c342b8bbd4` 五项操作成功、三代 Java 正常 exit0/null；独立世界/RCON、重启隔离、同键重放、无 crash、源文件不变、端口释放和最终停服均通过。新 Manager 重开五操作重放且零启动 PASS。
+
+严格 diagnostics 仍 BLOCKED，runner exit1，Perflib/OSHI、terminal、Log4j 异常原样保留；不标记全仓或 M2.1 FINAL PASS。相关验证：受影响 API138PASS（最终 binding24PASS 含额外六负向）、Web4PASS、contracts26PASS；lint/typecheck/build/diff exit0。独立 Sol High pre-real 及最终源码/证据 Review 均无开放 P1/P2/P3；140次源/副本基线文件核验零 Hash 差异。详见 [NeoForge 真实验收](./M21_NEOFORGE_REAL_2026-10-23.md)。下方安装/适配待办是历史检查点；本节仅更新已验证的精确版本范围。无 commit/push/PR；P7 STOPPED，M3 未开始。
+
+## 2026-10-23 M2.1 NeoForge离线依赖补齐，官方隔离安装PASS
+
+用户提供桌面3个缺失JAR，官方校验值全部匹配，已复制到原短路径隔离缓存且桌面源文件未变。30项官方元数据依赖与Vanilla原版包重验通过，官方NeoForge26.3.0.95安装器实际完成安装exit0；未启动Minecraft、未修改原注册/服务端/世界、未新接受EULA。原TLS与长路径失败证据保留，本节解除当前依赖下载阻塞，不改写历史失败。
+
+实际安装静态盘点：官方run.bat/win_args精确匹配，66项classpath加patched Minecraft/universal共68项JAR具备文件身份/SHA记录，MC26.3/Java25匹配。**全运行依赖闭包仍PENDING_REVIEW，NeoForge生产启动适配NOT IMPLEMENTED，真实启停NOT RUN，M2.1整体IN PROGRESS。** 下一步完成依赖闭包审查并接入专用Server/direct-classpath启动描述、复用原注册/生命周期，再做专项与真实隔离验收。无源码/测试改动，不重复Forge或旧LC2验证；无commit/push/PR，P7 STOPPED。见[安装检查点](./M21_NEOFORGE_INSTALL_2026-10-23.md)。
+
 ## 2026-10-22 M2.1 NeoForge来源准备检查点：27项已校验，3项下载被TLS阻塞
 
 继续推进至NeoForge官方26.3.0.95：安装包SHA-256/元数据只读核对完成，专用Server/direct-classpath格式与Client入口已区分，SolHigh只读架构审查指出必须先闭合classpath外的运行产物依赖。尚未接入生产或执行NeoForge安装器/服务器。隔离缓存已校验27项，剩余jline-terminal、installertools、universal三项；PowerShell长路径问题以新短目录避开，随后PowerShell/curl均TLS失败，curl exit35，原日志/部分现场保留。未继续重试、未关闭证书校验、未修改Windows网络/系统。

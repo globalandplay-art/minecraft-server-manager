@@ -1,4 +1,5 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -33,6 +34,12 @@ it("binds Paper/Fabric evidence to registered root, Java and launcher file ident
   expect(identity).toMatchObject({ serverId: "test", serverType: "fabric", minecraftVersion: "26.2", javaMajor: 25,
     requiredJavaMajor: 25, identitySha256: expect.stringMatching(/^[a-f0-9]{64}$/u) });
   expect(JSON.stringify(identity)).not.toContain(f.root);
+  expect(identity).not.toHaveProperty("executionBindingSha256");
+  const legacyTuple = { schemaVersion: 1, serverId: "test", serverType: "fabric", minecraftVersion: "26.2",
+    javaMajor: 25, requiredJavaMajor: 25, rootIdentity: f.registered.rootIdentity,
+    addonRootIdentity: await backupDirectoryIdentity(path.join(f.root, "mods")),
+    launchJarIdentity: f.registered.launcherIdentity, launchJarSha256: f.registered.launcherSha256 };
+  expect(identity.identitySha256).toBe(createHash("sha256").update(JSON.stringify(legacyTuple)).digest("hex"));
   await expect(assertAddonAdapterIdentity(f.adapter, identity, f.detect)).resolves.toBeUndefined();
 });
 
@@ -59,4 +66,17 @@ it("refuses absent or null Fabric execution binding rather than upgrading a hist
   await expect(captureAddonAdapterIdentity(adapter, f.detect)).rejects.toMatchObject({ code: "ADDON_ADAPTER_UNTRUSTED" });
   const nulled = { ...f.adapter, getRegisteredExecutionIdentity: () => ({ ...f.registered, fabricExecutionSha256: null }) } as LocalMinecraftServerAdapter;
   await expect(captureAddonAdapterIdentity(nulled, f.detect)).rejects.toMatchObject({ code: "ADDON_ADAPTER_UNTRUSTED" });
+});
+
+it("preserves the original Paper identity projection and digest without adding loader closure fields", async () => {
+  const f = await fixture();
+  const paperInfo: ServerInfo = { ...info, type: "paper", detection: { confidence: "high", evidence: ["paperclip-main-class", "jar-version-json"], warnings: [] } };
+  const adapter = { ...f.adapter, plan: { ...f.adapter.plan, serverInfo: paperInfo } } as LocalMinecraftServerAdapter;
+  await mkdir(path.join(f.root, "plugins"));
+  const identity = await captureAddonAdapterIdentity(adapter, async () => paperInfo);
+  const tuple = { schemaVersion: 1, serverId: "test", serverType: "paper", minecraftVersion: "26.2",
+    javaMajor: 25, requiredJavaMajor: 25, rootIdentity: f.registered.rootIdentity,
+    addonRootIdentity: await backupDirectoryIdentity(path.join(f.root, "plugins")),
+    launchJarIdentity: f.registered.launcherIdentity, launchJarSha256: f.registered.launcherSha256 };
+  expect(identity).toEqual({ ...tuple, identitySha256: createHash("sha256").update(JSON.stringify(tuple)).digest("hex") });
 });

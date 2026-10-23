@@ -956,4 +956,17 @@ describe("LocalMinecraftRuntime", () => {
     await expect(runtime.initialize()).rejects.toBeInstanceOf(RuntimeError);
     expect(children.size).toBe(0);
   });
+  it('rejects a late NeoForge environment override at the actual spawn boundary', async () => {
+    const root = await fixtureRoot(); const base = plan(root, childScript());
+    const spawnProcess = vi.fn(() => { throw new Error('must not spawn'); });
+    const runtime = new LocalMinecraftRuntime({ ...base, serverInfo: { ...base.serverInfo, type: 'neoforge' } }, { spawnProcess, statusProbe: async () => 'stopped' });
+    await runtime.initialize();
+    vi.stubEnv('MOD_CLASSES', 'external-path');
+    try {
+      await expect(runtime.start(operation())).rejects.toMatchObject({ code: 'RUNTIME_START_FAILED' });
+      expect(spawnProcess).not.toHaveBeenCalled();
+      expect((await runtime.snapshot()).status).toMatchObject({ ownership: 'none', recoveryRequired: false });
+    }
+    finally { vi.unstubAllEnvs(); await runtime.closeObserver(); }
+  });
 });

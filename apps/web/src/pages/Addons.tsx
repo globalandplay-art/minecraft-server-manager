@@ -4,6 +4,7 @@ import { Boxes, RefreshCw, Upload } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { api, ApiClientError, errorMessage, shouldRetry } from '../api';
 import { EmptyState, ErrorState, PageHeading } from '../components/Ui';
+import { ReadonlyModsPage } from './ReadonlyMods';
 
 type AddonRecord = AddonsResponse['data']['items'][number];
 type TrashRecord = AddonTrashResponse['data']['items'][number];
@@ -96,6 +97,11 @@ function AddonCard({ item, busy, disabledReason, onAction }: { item: AddonViewMo
 }
 
 export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
+  if (server?.server.type === 'forge' || server?.server.type === 'neoforge') return <ReadonlyModsPage key={`${server.server.id}:${server.server.type}:${server.server.minecraftVersion}`} server={server} />;
+  return <ManagedAddonsPage server={server} />;
+}
+
+function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
   const serverId = server?.server.id;
   const client = useQueryClient();
   const [staged, setStaged] = useState<StagedAddon | null>(null);

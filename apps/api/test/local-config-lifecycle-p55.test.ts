@@ -5,30 +5,48 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { ServerInfo } from "@mcsm/contracts";
 import { loadLocalRegistrations } from "../src/config/local-config.js";
 import { fabricLaunchFixture } from "./helpers/fabric-launch.js";
+import { neoForgeLaunchFixture } from './helpers/neoforge-launch.js';
 import { launchZip } from "./helpers/launch-zip.js";
 const detect = vi.hoisted(() => vi.fn());
 vi.mock("../src/services/detection-service.js", () => ({ detectServer: detect }));
 const roots: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); detect.mockReset(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
-async function fixture(type: "paper" | "fabric") {
+async function fixture(type: "paper" | "fabric" | 'neoforge') {
   const parent = await mkdtemp(path.join(tmpdir(), "p55-registration-")); roots.push(parent);
   const root = path.join(parent, "server"), manager = path.join(parent, "manager");
   await mkdir(root); await mkdir(manager);
-  if (type === "fabric") await fabricLaunchFixture(root);
+  if (type === 'neoforge') await neoForgeLaunchFixture(root);
+  else if (type === "fabric") await fabricLaunchFixture(root);
   else await writeFile(path.join(root, "launcher.jar"), launchZip({ "META-INF/MANIFEST.MF": "Main-Class: io.papermc.paperclip.Main\n", "version.json": '{"id":"26.2","java_version":25}' }));
   const java = path.join(parent, "java.exe"); await writeFile(java, "not executed; detector mocked");
   await writeFile(path.join(root, "eula.txt"), "eula=true\n");
   await writeFile(path.join(root, "server.properties"), "server-ip=127.0.0.1\nserver-port=25055\n");
-  await writeFile(path.join(manager, "config.json"), JSON.stringify({ schemaVersion: 1, servers: [{ id: "p55", name: "P55", root, javaExecutable: java, jarFile: "launcher.jar", jvmArgs: ["-Xms512M", "-Xmx1G"], serverArgs: ["nogui"] }] }));
-  const info: ServerInfo = { id: "p55", name: "P55", type, minecraftVersion: "26.2", java: { runtimeVersion: "25.0.4", requiredMajor: 25 }, detection: { confidence: "high", evidence: type === "paper" ? ["paperclip-main-class", "jar-version-json"] : ["fabric-launcher-main-class", "fabric-execution-binding"], warnings: [] } };
+  await writeFile(path.join(manager, "config.json"), JSON.stringify({ schemaVersion: 1, servers: [{ id: "p55", name: "P55", root, javaExecutable: java, jarFile: type === 'neoforge' ? 'run.bat' : "launcher.jar", jvmArgs: ["-Xms512M", "-Xmx1G"], serverArgs: ["nogui"] }] }));
+  const info: ServerInfo = { id: "p55", name: "P55", type, minecraftVersion: type === 'neoforge' ? '26.3' : "26.2", java: { runtimeVersion: "25.0.4", requiredMajor: 25 }, detection: { confidence: "high", evidence: type === 'neoforge' ? ['neoforge-server-descriptor', 'neoforge-execution-binding'] : type === "paper" ? ["paperclip-main-class", "jar-version-json"] : ["fabric-launcher-main-class", "fabric-execution-binding"], warnings: [] } };
   detect.mockImplementation(async () => structuredClone(info));
   return { root, manager, info, load: async () => (await loadLocalRegistrations(manager))[0]! };
 }
-it.each(["paper", "fabric"] as const)("revalidates supported %s with bound roots, Java, launcher and accepted EULA", async (type) => {
+it.each(["paper", "fabric", 'neoforge'] as const)("revalidates supported %s with bound roots, Java, launcher and accepted EULA", async (type) => {
   const f = await fixture(type); const registration = await f.load();
   await expect(registration.revalidateBeforeStart()).resolves.toBeUndefined();
   await writeFile(path.join(f.root, "eula.txt"), "eula=false\n");
   await expect(registration.revalidateBeforeStart()).rejects.toMatchObject({ reason: "eula-not-accepted" });
+});
+it('constructs NeoForge direct argv and binds dependency replacement before start', async () => {
+  const f = await fixture('neoforge'), registration = await f.load();
+  expect(registration.plan.argv).toContain('net.neoforged.fml.startup.Server');
+  expect(registration.plan.argv).not.toContain('-jar');
+  expect(registration.plan.argv.some(value => value.startsWith('@') || value.endsWith('run.bat'))).toBe(false);
+  const file = path.join(f.root, 'libraries/net/neoforged/fancymodloader/loader/12.0.12/loader-12.0.12.jar');
+  const bytes = await readFile(file); await rename(file, file + '.old'); await writeFile(file, bytes);
+  await expect(registration.revalidateBeforeStart()).rejects.toMatchObject({ reason: 'execution-identity-changed' });
+});
+it.each(['MOD_CLASSES', 'LOG4J_CONFIGURATION_FILE'])('rejects late NeoForge %s override before any detector or start work', async key => {
+  const f = await fixture('neoforge'), registration = await f.load(); detect.mockClear();
+  vi.stubEnv(key, 'unbound-value');
+  await expect(registration.revalidateBeforeStart()).rejects.toMatchObject({ reason: 'neoforge-environment-override' });
+  await expect(f.load()).rejects.toMatchObject({ reason: 'neoforge-environment-override' });
+  expect(detect).not.toHaveBeenCalled();
 });
 it.each(["launcher", "bundle-bytes", "bundle-inode", "library"])("refuses changed %s after Fabric registration", async (change) => {
   const f = await fixture("fabric"); const registration = await f.load();

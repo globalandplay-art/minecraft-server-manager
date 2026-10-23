@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { MetricSource, Metrics, ServerStatus } from "@mcsm/contracts";
 
 import { assertJavaEnvironment } from "../../services/trusted-lifecycle.js";
+import { assertNeoForgeEnvironment } from '../../services/neoforge-launch-binding.js';
 import type {
   MinecraftRuntime,
   PrivateRconConnection,
@@ -303,6 +304,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     let child: ChildProcessWithoutNullStreams;
     try {
       assertJavaEnvironment();
+      if (this.plan.serverInfo.type === 'neoforge') assertNeoForgeEnvironment();
       this.resourceEarliest = this.now().getTime();
       this.resourceCache = null;
       this.resourceSampler.reset();

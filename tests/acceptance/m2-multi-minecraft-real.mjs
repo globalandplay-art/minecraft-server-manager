@@ -22,10 +22,12 @@ import { sourcePreflight } from './phase55-source-preflight.mjs';
 import { readPrivatePropertiesFile } from '../../apps/api/src/services/properties-private-file.ts';
 import { hasRuntimeException } from './m2-runtime-exception-check.mjs';
 import { forgeSourcePreflight } from './forge-source-preflight.mjs';
+import { neoForgeSourcePreflight } from './neoforge-source-preflight.mjs';
+import { captureNeoForgeLaunchBinding } from '../../apps/api/src/services/neoforge-launch-binding.ts';
 
 assert.equal(process.platform, 'win32');
 const loaderPair = process.env.LT_M2_LOADER_PAIR;
-assert(loaderPair === undefined || loaderPair === 'paper-fabric' || loaderPair === 'forge-vanilla', 'unsupported acceptance loader pair');
+assert(loaderPair === undefined || loaderPair === 'paper-fabric' || loaderPair === 'forge-vanilla' || loaderPair === 'neoforge-vanilla', 'unsupported acceptance loader pair');
 const restartId = process.env.LT_M2_RESTART_TARGET ?? 'm2-a';
 assert(['m2-a', 'm2-b'].includes(restartId));
 assert.equal(process.env.LT_FRESH_MULTI_REAL, loaderPair ? 'AUTHORIZED_TWO_ISOLATED_LOADERS' : 'AUTHORIZED_TWO_ISOLATED_INSTANCES');
@@ -53,7 +55,8 @@ assert.equal(hash(inputs[source.jarFile]), auth.observedJarSha256);
 assert.equal(parseProperties(inputs['eula.txt'].toString('utf8')).get('eula'), 'true', 'source EULA must already be accepted');
 // Exact Paper/Fabric test sources were authorized for isolated testing during P5.5.
 // Reuse their launcher-derived whitelist, never scan/copy source properties/worlds.
-const manifests = loaderPair === 'forge-vanilla' ? [await forgeSourcePreflight(), undefined]
+const manifests = loaderPair === 'neoforge-vanilla' ? [await neoForgeSourcePreflight(), undefined]
+  : loaderPair === 'forge-vanilla' ? [await forgeSourcePreflight(), undefined]
   : loaderPair ? await Promise.all(['paper', 'fabric'].map(kind => sourcePreflight(kind, source.javaExecutable))) : [];
 const { stdout: processCount } = await promisify(execFile)('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
   ['-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -match '^javaw?\\.exe$' }).Count"],
@@ -75,7 +78,7 @@ try {
 const secrets = [randomBytes(24).toString('hex'), randomBytes(24).toString('hex')];
 const redactor = createRedactor({ secrets: () => secrets });
 const children = [], observations = [], checks = [], registrations = [];
-const report = { runId, kind: loaderPair === 'forge-vanilla' ? 'REAL_FORGE_VANILLA_DUAL_INSTANCE' : loaderPair ? 'REAL_PAPER_FABRIC_DUAL_INSTANCE' : 'REAL_VANILLA_DUAL_INSTANCE', restartId, result: 'BLOCKED', businessResult: 'BLOCKED', checks, observations, operations: [], sourceWorldAccessed: false,
+const report = { runId, kind: loaderPair === 'neoforge-vanilla' ? 'REAL_NEOFORGE_VANILLA_DUAL_INSTANCE' : loaderPair === 'forge-vanilla' ? 'REAL_FORGE_VANILLA_DUAL_INSTANCE' : loaderPair ? 'REAL_PAPER_FABRIC_DUAL_INSTANCE' : 'REAL_VANILLA_DUAL_INSTANCE', restartId, result: 'BLOCKED', businessResult: 'BLOCKED', checks, observations, operations: [], sourceWorldAccessed: false,
   sourceManifests: manifests.filter(Boolean).map(manifest => ({ kind: manifest.kind, files: manifest.files.length, manifestSha256: manifest.manifestSha256, noFetchProof: manifest.noFetchProof })) };
 const headers = { host: '127.0.0.1:8080', origin: 'http://127.0.0.1:3000', 'x-manager-intent': 'local-ui' };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms)); let app;
@@ -127,7 +130,8 @@ try {
     const manifest = manifests[index];
     if (manifest) {
       for (const entry of manifest.files) {
-        assert(entry.target === 'server.jar' || entry.target === 'eula.txt' || /^(?:libraries|versions|cache|\.fabric\/server)\/[a-zA-Z0-9_+.\/-]+\.jar$/u.test(entry.target));
+        assert(entry.target === 'server.jar' || entry.target === 'eula.txt' || /^(?:libraries|versions|cache|\.fabric\/server)\/[a-zA-Z0-9_+.\/-]+\.jar$/u.test(entry.target) ||
+          (manifest.kind === 'neoforge' && ['run.bat', 'libraries/net/neoforged/neoforge/26.3.0.95/win_args.txt'].includes(entry.target)));
         assert(entry.target.split('/').every(part => part !== '..' && part !== '.' && part !== ''));
         const destination = path.join(root, entry.target), relative = path.relative(root, destination);
         assert(relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative));
@@ -138,6 +142,7 @@ try {
         assert.equal((await readPrivatePropertiesFile(destination, 64 * 1024 ** 2)).checksum, entry.sha256);
       }
       await mkdir(path.join(root, manifest.kind === 'paper' ? 'plugins' : 'mods'));
+      if (manifest.kind === 'neoforge') await writeFile(path.join(root, 'eula.txt'), inputs['eula.txt'], { flag: 'wx' });
     } else {
       for (const [name, bytes] of Object.entries(inputs)) await writeFile(path.join(root, name), bytes, { flag: 'wx' });
     }
@@ -147,16 +152,21 @@ try {
       'online-mode': 'true', 'enable-query': 'false', 'management-server-enabled': 'false' };
     await writeFile(path.join(root, 'server.properties'), Object.entries(fields).map(([key, value]) => `${key}=${value}`).join('\n') + '\n', { flag: 'wx' });
     registrations.push({ ...source, id, name: `M2 isolated ${manifest?.kind ?? 'vanilla'} ${id}`, root,
-      jarFile: manifest ? 'server.jar' : source.jarFile, jvmArgs: ['-Xms256M', '-Xmx1G'] });
+      jarFile: manifest?.kind === 'neoforge' ? 'run.bat' : manifest ? 'server.jar' : source.jarFile, jvmArgs: ['-Xms256M', '-Xmx1G'] });
   }
   await writeFile(path.join(evidence, 'config.json'), JSON.stringify({ schemaVersion: 1, servers: registrations }), { flag: 'wx' });
+  const neoProfiles = new Map();
+  for (const [index, registration] of registrations.entries()) if (manifests[index]?.kind === 'neoforge') {
+    neoProfiles.set(registration.id, await captureNeoForgeLaunchBinding(registration.root, path.join(registration.root, 'run.bat')));
+  }
   const factory = new LocalRuntimeFactory({
     tcpPeerVerifier: async (peer, pid) => { await verifyWindowsTcpPeer(peer, pid); assert(observations.length < 1000); observations.push({ ...peer, pid }); },
     spawnProcess(executable, argv, options) {
       const registration = registrations.find(row => row.root.toLowerCase() === options.cwd.toLowerCase()); assert(registration);
       assert.equal(executable, registration.javaExecutable); assert.equal(options.shell, false); assert.equal(options.windowsHide, true);
       const forge = manifests[registrations.indexOf(registration)]?.kind === 'forge';
-      assert.deepEqual([...argv], [...registration.jvmArgs, ...(forge ? ['-Djava.net.preferIPv6Addresses=system'] : []), '-jar', path.join(registration.root, registration.jarFile), ...registration.serverArgs]);
+      const neo = neoProfiles.get(registration.id);
+      assert.deepEqual([...argv], [...registration.jvmArgs, ...(neo ? neo.argv : [...(forge ? ['-Djava.net.preferIPv6Addresses=system'] : []), '-jar', path.join(registration.root, registration.jarFile)]), ...registration.serverArgs]);
       const child = spawn(executable, [...argv], options), row = { id: registration.id, child, stdout: '', stderr: '', closed: false, stopRequested: false }; children.push(row);
       for (const stream of ['stdout', 'stderr']) child[stream].on('data', chunk => {
         const safe = redactor.redactText(chunk.toString('utf8'));
@@ -212,7 +222,7 @@ try {
   report.sourceInputsUnchanged = true;
   try {
     for (const [name, bytes] of Object.entries(inputs)) if (!bytes.equals(await readFile(path.join(sourceRoot, name)))) report.sourceInputsUnchanged = false;
-    for (const manifest of manifests.filter(Boolean)) assert.deepEqual(manifest.kind === 'forge' ? await forgeSourcePreflight() : await sourcePreflight(manifest.kind, source.javaExecutable), manifest);
+    for (const manifest of manifests.filter(Boolean)) assert.deepEqual(manifest.kind === 'neoforge' ? await neoForgeSourcePreflight() : manifest.kind === 'forge' ? await forgeSourcePreflight() : await sourcePreflight(manifest.kind, source.javaExecutable), manifest);
   }
   catch { report.sourceInputsUnchanged = false; report.cleanupErrors.push('SOURCE_RECHECK_FAILED'); }
   report.launches = children.map(row => ({ id: row.id, pid: row.child.pid, closed: row.closed, exitCode: row.exitCode, exitSignal: row.exitSignal, premature: row.premature }));

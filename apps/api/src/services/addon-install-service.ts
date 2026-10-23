@@ -7,14 +7,15 @@ import type { Clock } from "../clock.js";
 import { backupDirectoryIdentity } from "./backup-identity.js";
 import type { BackupService } from "./backup-service.js";
 import { DomainError } from "./domain-errors.js";
-import { ADDON_LIMITS, AddonInventory, addonOpaqueId, addonProfile } from "./addon-inventory.js";
-import { captureAddonAdapterIdentity, type AddonAdapterIdentity } from "./addon-adapter-identity.js";
+import { ADDON_LIMITS, AddonInventory, addonOpaqueId, addonInstallProfile } from "./addon-inventory.js";
+import { assertAddonInstallAdmission } from "./addon-install-policy.js";
+import { captureAddonAdapterIdentity, createAddonInstallIdentityScope, type AddonAdapterIdentity, type AddonIdentityScope } from "./addon-adapter-identity.js";
 import type { OperationService } from "./operation-service.js";
 import type { TransactionJournalRecord, TransactionJournalStore } from "./transaction-journal.js";
 import type { AddonUploadService } from "./addon-upload-service.js";
 import { readPrivatePropertiesFile } from "./properties-private-file.js";
 
-type InstallRequest = { uploadId: string; uploadRevision: string; inventoryRevision: string };
+type InstallRequest = { uploadId: string; uploadRevision: string; inventoryRevision: string; confirmUnknownCompatibility?: true };
 const unsafe = () => new DomainError(409, "ADDON_INSTALL_RECOVERY_REQUIRED", "扩展安装结果需要人工检查；备份和暂存证据已保留", "addon-install-recovery-required", true);
 const conflict = () => new DomainError(409, "ADDON_REVISION_CONFLICT", "扩展清单已变化，请刷新后重新确认", "addon-inventory-revision-conflict");
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -61,21 +62,24 @@ export class AddonInstallService {
       throw new DomainError(400, "VALIDATION_ERROR", "扩展安装确认信息无效", "invalid-addon-install-request");
     }
     let approvedIdentity: AddonAdapterIdentity | undefined;
-    const request = { uploadId: body.uploadId, uploadRevision: body.uploadRevision, inventoryRevision: body.inventoryRevision };
+    const request: InstallRequest = { uploadId: body.uploadId, uploadRevision: body.uploadRevision, inventoryRevision: body.inventoryRevision,
+      ...(body.confirmUnknownCompatibility === true ? { confirmUnknownCompatibility: true as const } : {}) };
     return this.operations.requestBackup(serverId, key, JSON.stringify(request), async (context) => {
       if (!approvedIdentity) throw conflict();
       await this.execute(serverId, request, approvedIdentity, context);
     }, async () => {
       const adapter = this.registry.getLocal(serverId);
       if (!adapter) throw new DomainError(501, "ADDON_UNSUPPORTED", "安装仅支持已识别的本地 Paper/Fabric", "addon-local-required");
-      const profile = addonProfile(adapter.plan.serverInfo.type);
+      const profile = addonInstallProfile(adapter.plan.serverInfo.type);
       if (!profile) throw new DomainError(501, "ADDON_UNSUPPORTED", "此服务端类型尚未开放扩展安装", "addon-profile-unsupported");
       await this.requireStopped(adapter);
       approvedIdentity = await this.captureIdentity(adapter);
       const stage = await this.uploads.validatedSource(serverId, body.uploadId, body.uploadRevision, profile.kind);
+      if (stage.adapter !== adapter) throw conflict();
       if (JSON.stringify(stage.validated.adapterIdentity) !== JSON.stringify(approvedIdentity)) throw conflict();
       const listing = await this.inventory.read(serverId, adapter.plan.rootPath, adapter.plan.serverInfo.type);
       if (listing.revision !== body.inventoryRevision) throw conflict();
+      assertAddonInstallAdmission(adapter.plan.serverInfo.type, stage.validated.metadata, listing, request.confirmUnknownCompatibility);
       this.requireCapacity(listing, stage.validated.sizeBytes, (await readdir(path.join(adapter.plan.rootPath, profile.enabled))).length);
       if (listing.items.some((item) => item.filename.normalize("NFC").toLowerCase() === stage.validated.filename.normalize("NFC").toLowerCase())) {
         throw new DomainError(409, "ADDON_TARGET_CONFLICT", "同名扩展已经存在；不会覆盖", "addon-target-conflict");
@@ -103,18 +107,31 @@ export class AddonInstallService {
   private async execute(serverId: string, body: InstallRequest, approved: AddonAdapterIdentity, ctx: RuntimeOperationContext) {
     let record: TransactionJournalRecord | undefined;
     let workspace: string | undefined;
+    let scope: AddonIdentityScope | undefined;
     try {
       const adapter = this.registry.getLocal(serverId);
       if (!adapter) throw unsafe();
-      const profile = addonProfile(adapter.plan.serverInfo.type);
+      const profile = addonInstallProfile(adapter.plan.serverInfo.type);
       if (!profile) throw unsafe();
       await this.requireStopped(adapter, ctx.operationId);
-      let identity = await this.captureIdentity(adapter);
+      if (adapter.plan.serverInfo.type === 'neoforge') scope = createAddonInstallIdentityScope(adapter, approved, async () => {
+        const active = () => {
+          const operation = this.operations.get(ctx.operationId);
+          if (ctx.signal.aborted || this.registry.getLocal(serverId) !== adapter || !operation || operation.serverId !== serverId ||
+            operation.kind !== 'addon-change' || operation.state !== 'running' ||
+            this.operations.getServerState(serverId).activeOperationId !== ctx.operationId) throw unsafe();
+        };
+        active(); await this.requireStopped(adapter, ctx.operationId); active();
+      });
+      const capture = () => scope ? scope.capture(adapter, this.captureIdentity) : this.captureIdentity(adapter);
+      let source = await this.uploads.validatedSource(serverId, body.uploadId, body.uploadRevision, profile.kind, scope);
+      if (source.adapter !== adapter) throw conflict();
+      let identity = source.liveIdentity;
       if (JSON.stringify(identity) !== JSON.stringify(approved) || !identity.addonRootIdentity) throw conflict();
-      let source = await this.uploads.validatedSource(serverId, body.uploadId, body.uploadRevision, profile.kind);
       if (JSON.stringify(source.validated.adapterIdentity) !== JSON.stringify(identity)) throw conflict();
       let listing = await this.inventory.read(serverId, adapter.plan.rootPath, adapter.plan.serverInfo.type);
       if (listing.revision !== body.inventoryRevision) throw conflict();
+      assertAddonInstallAdmission(adapter.plan.serverInfo.type, source.validated.metadata, listing, body.confirmUnknownCompatibility);
       this.requireCapacity(listing, source.validated.sizeBytes, (await readdir(path.join(adapter.plan.rootPath, profile.enabled))).length);
       const filename = source.validated.filename;
       const existing = await readdir(path.join(adapter.plan.rootPath, profile.enabled));
@@ -123,7 +140,7 @@ export class AddonInstallService {
       }
 
       await ctx.onStep("creating-protection-backup");
-      const guard = await this.backups.createAddonProtectionSnapshot(ctx, serverId, adapter.plan.serverInfo.type as "paper" | "fabric");
+      const guard = await this.backups.createAddonProtectionSnapshot(ctx, serverId, adapter.plan.serverInfo.type as "paper" | "fabric" | "forge" | "neoforge");
       const guardManifest = await this.backups.privateSnapshot(serverId, guard.id);
       const serverEntriesBeforeGuard = (await readdir(adapter.plan.rootPath)).sort();
       const launcherRelative = path.relative(adapter.plan.rootPath, adapter.plan.jarPath).split(path.sep).join("/");
@@ -132,8 +149,9 @@ export class AddonInstallService {
         guardManifest.minecraftVersion !== adapter.plan.serverInfo.minecraftVersion || guardManifest.checksumSha256 !== guard.checksumSha256 ||
         JSON.stringify([...guardManifest.includedRoots].sort()) !== JSON.stringify(serverEntriesBeforeGuard) ||
         ![profile.enabled, "server.properties", "eula.txt", launcherRelative].every((rootName) => guardManifest.includedRoots.includes(rootName))) throw unsafe();
-      identity = await this.captureIdentity(adapter);
-      source = await this.uploads.validatedSource(serverId, body.uploadId, body.uploadRevision, profile.kind);
+      source = await this.uploads.validatedSource(serverId, body.uploadId, body.uploadRevision, profile.kind, scope);
+      if (source.adapter !== adapter) throw conflict();
+      identity = source.liveIdentity;
       listing = await this.inventory.read(serverId, adapter.plan.rootPath, adapter.plan.serverInfo.type);
       this.requireCapacity(listing, source.validated.sizeBytes, (await readdir(path.join(adapter.plan.rootPath, profile.enabled))).length);
       if (JSON.stringify(identity) !== JSON.stringify(approved) || identity.addonRootIdentity !== approved.addonRootIdentity ||
@@ -155,7 +173,8 @@ export class AddonInstallService {
         addonInstall: { rootIdentity: identity.rootIdentity, adapterIdentitySha256: identity.identitySha256,
           addonRootIdentity: identity.addonRootIdentity!, kind: profile.kind, filename, uploadId: body.uploadId,
           uploadRevision: source.validated.revision, uploadSha256: source.validated.checksumSha256,
-          guardBackupId: guard.id, guardChecksum: guard.checksumSha256, workspaceName } });
+          guardBackupId: guard.id, guardChecksum: guard.checksumSha256, workspaceName,
+          ...(body.confirmUnknownCompatibility ? { confirmUnknownCompatibility: true } : {}) } });
       await this.checkpoint(record, "backup-created", guard.checksumSha256, guard.id);
       await this.checkpoint(record, "intent-written");
       workspace = path.join(root, workspaceName);
@@ -170,8 +189,9 @@ export class AddonInstallService {
       if (preparedState.checksum !== source.validated.checksumSha256 || preparedState.bytes.length !== source.validated.sizeBytes ||
         await backupDirectoryIdentity(workspace) !== workspaceIdentity) throw unsafe();
       await this.checkpoint(record, "staging-validated", preparedState.checksum, undefined, preparedState.physicalIdentity);
-      const rechecked = await this.uploads.validatedSource(serverId, body.uploadId, body.uploadRevision, profile.kind);
-      const currentIdentity = await this.captureIdentity(adapter);
+      const rechecked = await this.uploads.validatedSource(serverId, body.uploadId, body.uploadRevision, profile.kind, scope);
+      if (rechecked.adapter !== adapter) throw unsafe();
+      const currentIdentity = rechecked.liveIdentity;
       const currentListing = await this.inventory.read(serverId, adapter.plan.rootPath, adapter.plan.serverInfo.type);
       await this.backups.privateSnapshot(serverId, guard.id);
       await this.requireStopped(adapter, ctx.operationId);
@@ -185,6 +205,9 @@ export class AddonInstallService {
       if (lastPrepared.identity !== preparedState.identity || lastPrepared.checksum !== preparedState.checksum) throw unsafe();
       const finalListing = await this.inventory.read(serverId, adapter.plan.rootPath, adapter.plan.serverInfo.type);
       if (finalListing.revision !== body.inventoryRevision) throw conflict();
+      assertAddonInstallAdmission(adapter.plan.serverInfo.type, source.validated.metadata, finalListing, body.confirmUnknownCompatibility);
+      await this.requireStopped(adapter, ctx.operationId);
+      if (JSON.stringify(await capture()) !== JSON.stringify(approved)) throw unsafe();
       this.requireCapacity(finalListing, source.validated.sizeBytes, (await readdir(path.join(adapter.plan.rootPath, profile.enabled))).length);
       const [preparedStat, targetParentStat] = await Promise.all([stat(prepared), stat(path.dirname(target))]);
       if (preparedStat.dev !== targetParentStat.dev) throw unsafe();
@@ -198,14 +221,16 @@ export class AddonInstallService {
       if (linked.physicalIdentity !== lastPrepared.physicalIdentity || linked.checksum !== lastPrepared.checksum) throw unsafe();
       await this.checkpoint(record, "target-installed", lastPrepared.checksum);
       const installed = await readPrivatePropertiesFile(target, 64 * 1024 * 1024);
-      const newIdentity = await this.captureIdentity(adapter);
+      const newIdentity = await capture();
       if (installed.physicalIdentity !== lastPrepared.physicalIdentity || installed.checksum !== source.validated.checksumSha256 ||
         newIdentity.rootIdentity !== identity.rootIdentity || newIdentity.addonRootIdentity !== identity.addonRootIdentity) throw unsafe();
       await this.checkpoint(record, "installed-verified", installed.checksum, undefined, installed.physicalIdentity);
       await this.checkpoint(record, "before-commit", installed.checksum, undefined, installed.physicalIdentity);
       const finalFile = await readPrivatePropertiesFile(target, 64 * 1024 * 1024);
       if (finalFile.physicalIdentity !== installed.physicalIdentity || finalFile.checksum !== installed.checksum) throw unsafe();
-      await this.uploads.markConsumed(serverId, body.uploadId, body.uploadRevision, profile.kind, ctx.operationId);
+      await this.requireStopped(adapter, ctx.operationId);
+      if (JSON.stringify(await capture()) !== JSON.stringify(approved)) throw unsafe();
+      await this.uploads.markConsumed(serverId, body.uploadId, body.uploadRevision, profile.kind, ctx.operationId, scope);
       await this.checkpoint(record, "staging-consumed", source.validated.checksumSha256, body.uploadId);
       await this.checkpoint(record, "before-publication", finalFile.checksum, undefined, finalFile.physicalIdentity, false);
       await this.checkpoint(record, "committed", finalFile.checksum, undefined, finalFile.physicalIdentity, false);
@@ -214,7 +239,7 @@ export class AddonInstallService {
       await this.inject?.("before-publication");
       const afterCommit = await readPrivatePropertiesFile(target, 64 * 1024 * 1024);
       if (afterCommit.physicalIdentity !== installed.physicalIdentity || afterCommit.checksum !== installed.checksum ||
-        !(await this.uploads.verifyConsumed(serverId, body.uploadId, body.uploadRevision, profile.kind, ctx.operationId))) throw unsafe();
+        !(await this.uploads.verifyConsumed(serverId, body.uploadId, body.uploadRevision, profile.kind, ctx.operationId, scope))) throw unsafe();
       const addonId = addonOpaqueId(serverId, profile.kind, filename);
       await ctx.onResult?.({ resourceId: addonId, rollbackAvailable: false, restartRequired: true });
       // The empty per-operation workspace is private transaction residue. Preserve it as journal evidence until a later audited cleanup slice.
@@ -225,7 +250,7 @@ export class AddonInstallService {
       if (error instanceof DomainError && error.requiresRecovery) throw error;
       if (record) throw unsafe();
       throw error;
-    }
+    } finally { scope?.dispose(); }
   }
 
   private requireCapacity(listing: Awaited<ReturnType<AddonInventory["read"]>>, incomingBytes: number, enabledDirectoryEntries: number) {
@@ -243,11 +268,18 @@ export class AddonInstallService {
       const install = record.intent.addonInstall;
       if (!install || !["active", "recovery-required", "committed", "rolled-back"].includes(record.state) ||
         scan.issues.some((issue) => issue.serverId === record.intent.serverId)) continue;
+      const registeredType = this.registry.getLocal(record.intent.serverId)?.plan.serverInfo.type;
+      if ((registeredType === 'forge' || registeredType === 'neoforge') && install.confirmUnknownCompatibility !== true) {
+        this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId); continue;
+      }
       const priorOutcome = outcomes.get(record.intent.operationId);
-      if ((record.state === "committed" && priorOutcome?.state === "succeeded") ||
-        (record.state === "rolled-back" && priorOutcome?.state === "failed" && priorOutcome.error?.code === "ADDON_INSTALL_NOT_APPLIED")) continue;
+      // Persisted extended-loader evidence survives removal or replacement of
+      // today's registration; never downgrade its restart verification policy.
+      const extendedLoader = registeredType === 'forge' || registeredType === 'neoforge' || install.confirmUnknownCompatibility === true;
+      if (!extendedLoader && ((record.state === "committed" && priorOutcome?.state === "succeeded") ||
+        (record.state === "rolled-back" && priorOutcome?.state === "failed" && priorOutcome.error?.code === "ADDON_INSTALL_NOT_APPLIED"))) continue;
       const preserveRollbackGate = () => {
-        if (record.state === "rolled-back") this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId);
+        if (record.state === "rolled-back" || extendedLoader) this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId);
       };
       try {
         const adapter = this.registry.getLocal(record.intent.serverId);

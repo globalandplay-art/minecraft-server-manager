@@ -39,6 +39,8 @@ export interface RegisteredExecutionIdentity {
   readonly fabricExecutionSha256?: string | null;
   /** Exact Forge shim dependency closure; private registration/start identity only. */
   readonly forgeExecutionSha256?: string | null;
+  /** Exact NeoForge Server descriptor/dependency closure; never an HTTP DTO. */
+  readonly neoforgeExecutionSha256?: string | null;
 }
 
 export interface RuntimeOperationContext {

@@ -56,7 +56,8 @@ function Sidebar({
   closeDrawer,
   drawerRef,
 }: SidebarProps) {
-  const addonsUnsupported = selectedServer
+  const readOnlyMods = selectedServer?.server.type === 'forge' || selectedServer?.server.type === 'neoforge';
+  const addonsUnsupported = !readOnlyMods && selectedServer
     ? !selectedServer.capabilities.mods && !selectedServer.capabilities.plugins
     : false;
 
@@ -80,9 +81,9 @@ function Sidebar({
           {navItems.map(({ to, label: defaultLabel, feature, icon: Icon }) => {
             const label = feature === 'addons' && selectedServer
               ? selectedServer.server.type === 'paper' && selectedServer.capabilities.plugins ? 'Plugins'
-                : selectedServer.server.type === 'fabric' && selectedServer.capabilities.mods ? 'Mods' : defaultLabel
+                : readOnlyMods || selectedServer.server.type === 'fabric' && selectedServer.capabilities.mods ? 'Mods' : defaultLabel
               : defaultLabel;
-            const badge = feature === 'addons' && addonsUnsupported
+            const badge = feature === 'addons' && readOnlyMods ? '受限' : feature === 'addons' && addonsUnsupported
               ? '不支持'
               : feature === 'addons' && (selectedServer?.capabilities.mods || selectedServer?.capabilities.plugins)
                 ? null

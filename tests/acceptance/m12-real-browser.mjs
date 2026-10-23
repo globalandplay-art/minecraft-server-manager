@@ -71,7 +71,7 @@ async function json(url, body, method = 'POST') {
 }
 async function load() { await page.goto('http://127.0.0.1:3000/servers'); await expect(page.getByRole('button', { name: '检查实例' })).toBeEnabled(); }
 async function fill(record) {
-  for (const [name, value] of [['实例标识',record.id],['显示名称',record.name],['服务端目录',record.root],['启动 JAR 文件名','server.jar']]) await page.getByLabel(name, { exact: true }).fill(value);
+  for (const [name, value] of [['实例标识',record.id],['显示名称',record.name],['服务端目录',record.root],['启动文件名（JAR 或受支持的 run.bat）','server.jar']]) await page.getByLabel(name, { exact: true }).fill(value);
 }
 async function add(record) {
   await fill(record); const checked = page.waitForResponse(response => response.url().endsWith('/server-registrations/preflight') && response.request().method() === 'POST');

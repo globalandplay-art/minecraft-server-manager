@@ -901,6 +901,25 @@ export const worldImportRecoveryPlanResponseSchema = strictObject({ data: strict
 }), meta: responseMetaSchema });
 export type WorldImportRecoveryPlanResponse = Static<typeof worldImportRecoveryPlanResponseSchema>;
 
+export const declaredModMetadataSchema = strictObject({
+  loader: Type.Union([Type.Literal("forge"), Type.Literal("neoforge")]),
+  source: Type.Union([Type.Literal("META-INF/mods.toml"), Type.Literal("META-INF/neoforge.mods.toml")]),
+  modLoader: Type.String({ minLength: 1, maxLength: 128 }),
+  loaderVersion: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]),
+  mods: Type.Array(strictObject({
+    id: Type.String({ pattern: "^[a-z][a-z0-9_]{1,63}$" }), name: Type.String({ minLength: 1, maxLength: 128 }),
+    version: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
+    versionStatus: Type.Union([Type.Literal("declared"), Type.Literal("unresolved"), Type.Literal("unspecified")]),
+    dependencies: Type.Array(strictObject({
+      id: Type.String({ pattern: "^[a-z][a-z0-9_]{1,63}$" }),
+      versionRange: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]),
+      requirement: Type.Union([Type.Literal("required"), Type.Literal("optional"), Type.Literal("incompatible"), Type.Literal("discouraged"), Type.Literal("unknown")]),
+      side: Type.Union([Type.Literal("CLIENT"), Type.Literal("SERVER"), Type.Literal("BOTH"), Type.Literal("unknown")])
+    }), { maxItems: 64 })
+  }), { minItems: 1, maxItems: 32 })
+});
+export type DeclaredModMetadata = Static<typeof declaredModMetadataSchema>;
+
 export const addonsResponseSchema = strictObject({ data: strictObject({
   items: Type.Array(strictObject({ id: Type.String({ pattern: "^[a-f0-9]{64}$" }),
     kind: Type.Union([Type.Literal("mod"), Type.Literal("plugin")]), state: Type.Union([Type.Literal("enabled"), Type.Literal("disabled")]),
@@ -908,8 +927,9 @@ export const addonsResponseSchema = strictObject({ data: strictObject({
     name: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]), version: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]),
     loader: Type.Union([Type.Literal("fabric"), Type.Literal("paper"), Type.Null()]), compatibility: Type.Literal("unknown"),
     minecraftConstraint: Type.Union([Type.Array(Type.String({ maxLength: 128 }), { maxItems: 16 }), Type.Null()]),
-    metadataStatus: Type.Union([Type.Literal("parsed"), Type.Literal("invalid"), Type.Literal("missing")]) }), { maxItems: 1000 }),
-  revision: Type.String({ pattern: "^[a-f0-9]{64}$" }), writeSupported: Type.Boolean()
+    metadataStatus: Type.Union([Type.Literal("parsed"), Type.Literal("invalid"), Type.Literal("missing")]),
+    declaredMetadata: Type.Optional(declaredModMetadataSchema) }), { maxItems: 1000 }),
+  revision: Type.String({ pattern: "^[a-f0-9]{64}$" }), writeSupported: Type.Boolean(), installSupported: Type.Optional(Type.Boolean())
 }), meta: responseMetaSchema });
 export type AddonsResponse = Static<typeof addonsResponseSchema>;
 export const addonTrashResponseSchema = strictObject({ data: strictObject({
@@ -926,18 +946,29 @@ export const addonTrashResponseSchema = strictObject({ data: strictObject({
 export type AddonTrashResponse = Static<typeof addonTrashResponseSchema>;
 export const addonLifecycleRequestSchema = strictObject({ revision: Type.String({ pattern: "^[a-f0-9]{64}$" }) });
 export type AddonLifecycleRequest = Static<typeof addonLifecycleRequestSchema>;
-export const addonUploadResponseSchema = strictObject({ data: strictObject({
+const addonUploadCommon = {
   id: Type.String({ format: "uuid" }), kind: Type.Union([Type.Literal("mod"), Type.Literal("plugin")]),
   filename: Type.String({ minLength: 5, maxLength: 200 }), sizeBytes: Type.Integer({ minimum: 1, maximum: 67108864 }),
   checksumSha256: Type.String({ pattern: "^[a-f0-9]{64}$" }), revision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
-  name: Type.String({ minLength: 1, maxLength: 128 }), version: Type.String({ minLength: 1, maxLength: 128 }),
-  loader: Type.Union([Type.Literal("fabric"), Type.Literal("paper")]),
-  minecraftConstraint: Type.Union([Type.Array(Type.String({ maxLength: 128 }), { maxItems: 16 }), Type.Null()]),
   state: Type.Literal("validated"), executionAvailable: Type.Literal(false)
-}), meta: responseMetaSchema });
+};
+const declaredUploadSchema = (loader: "forge" | "neoforge") => strictObject({ ...addonUploadCommon, kind: Type.Literal("mod"),
+  name: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
+  version: Type.Union([Type.String({ minLength: 1, maxLength: 128 }), Type.Null()]),
+  loader: Type.Literal(loader), minecraftConstraint: Type.Null(), compatibility: Type.Literal("unknown"),
+  declaredMetadata: strictObject({ ...declaredModMetadataSchema.properties, loader: Type.Literal(loader),
+    source: Type.Literal(loader === "forge" ? "META-INF/mods.toml" : "META-INF/neoforge.mods.toml") }) });
+export const addonUploadResponseSchema = strictObject({ data: Type.Union([
+  strictObject({ ...addonUploadCommon,
+    name: Type.String({ minLength: 1, maxLength: 128 }), version: Type.String({ minLength: 1, maxLength: 128 }),
+    loader: Type.Union([Type.Literal("fabric"), Type.Literal("paper")]),
+    minecraftConstraint: Type.Union([Type.Array(Type.String({ maxLength: 128 }), { maxItems: 16 }), Type.Null()]) }),
+  declaredUploadSchema("forge"), declaredUploadSchema("neoforge")
+]), meta: responseMetaSchema });
 export type AddonUploadResponse = Static<typeof addonUploadResponseSchema>;
 export const addonInstallRequestSchema = strictObject({ uploadId: Type.String({ format: "uuid" }),
-  uploadRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }), inventoryRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }) });
+  uploadRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }), inventoryRevision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  confirmUnknownCompatibility: Type.Optional(Type.Literal(true)) });
 export type AddonInstallRequest = Static<typeof addonInstallRequestSchema>;
 
 export const performanceResponseSchema = strictObject({ data: strictObject({

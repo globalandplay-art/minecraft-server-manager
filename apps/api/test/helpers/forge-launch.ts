@@ -3,9 +3,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { launchZip } from './launch-zip.js';
 
-export async function forgeLaunchFixture(root: string, options: { minecraftVersion?: string; javaVersion?: number; classpath?: string; properties?: string; index?: string; outerFields?: string; list?: (value: string) => string } = {}) {
+export async function forgeLaunchFixture(root: string, options: { minecraftVersion?: string; javaVersion?: number; forgeRelease?: string; classpath?: string; properties?: string; index?: string; outerFields?: string; list?: (value: string) => string } = {}) {
   const minecraftVersion = options.minecraftVersion ?? '1.21.9', javaVersion = options.javaVersion ?? 21;
-  const forgeVersion = `${minecraftVersion}-${minecraftVersion === '26.3' ? '66.1.0' : '59.0.5'}`;
+  const forgeVersion = `${minecraftVersion}-${options.forgeRelease ?? (minecraftVersion === '26.3' ? '66.1.0' : '59.0.5')}`;
   const dependency = 'net/minecraftforge/bootstrap/2.1.8/bootstrap-2.1.8.jar';
   const rows: [string, string, Record<string, string>][] = [
     ['net.minecraftforge:bootstrap:2.1.8', dependency, { 'META-INF/MANIFEST.MF': 'Manifest-Version: 1.0\n', ...(options.index === undefined ? {} : { 'META-INF/INDEX.LIST': options.index }) }],

@@ -10,21 +10,19 @@ import { backupDirectoryIdentity } from "./backup-identity.js";
 import { DomainError } from "./domain-errors.js";
 import type { OperationService } from "./operation-service.js";
 import { ServerNotFoundError } from "./server-service.js";
-import { captureAddonAdapterIdentity, type AddonAdapterIdentity } from "./addon-adapter-identity.js";
-import { ADDON_LIMITS, addonProfile, safeAddonFilename } from "./addon-inventory.js";
+import { captureAddonAdapterIdentity, type AddonAdapterIdentity, type AddonIdentityScope } from "./addon-adapter-identity.js";
+import { ADDON_LIMITS, addonProfile, addonInstallProfile, safeAddonFilename } from "./addon-inventory.js";
 import { readAddonJarMetadata } from "./addon-jar-metadata.js";
-import { parseFabricAddonMetadata } from "./fabric-addon-metadata.js";
-import { parsePluginAddonMetadata } from "./plugin-addon-metadata.js";
+import { addonStagingProfile, parseAddonUploadMetadata, type AddonUploadMetadata } from "./addon-upload-metadata.js";
 
 export const ADDON_UPLOAD_LIMITS = Object.freeze({ bytes: ADDON_LIMITS.jarBytes, filesPerServer: 3, timeoutMs: 60_000 });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const SHA = /^[0-9a-f]{64}$/u;
 const failure = () => new DomainError(409, "ADDON_STAGING_UNSAFE", "扩展暂存记录无法安全核验", "addon-staging-unsafe");
-type AddonMetadata = { name: string; version: string; loader: "fabric" | "paper"; minecraftConstraint: string[] | null };
 type Owner = { schemaVersion: 1; id: string; serverId: string; rootIdentity: string; directoryIdentity: string; createdAt: string };
 type Lifecycle = { schemaVersion: 1; id: string; serverId: string; directoryIdentity: string; createdAt: string; state: "receiving" | "failed" | "validated" | "requires-inspection" | "consumed" };
 type Validated = { schemaVersion: 1; id: string; serverId: string; kind: "mod" | "plugin"; filename: string; sizeBytes: number;
-  checksumSha256: string; revision: string; adapterIdentity: AddonAdapterIdentity; metadata: AddonMetadata };
+  checksumSha256: string; revision: string; adapterIdentity: AddonAdapterIdentity; metadata: AddonUploadMetadata };
 
 async function plainDirectory(directory: string): Promise<void> {
   const info = await lstat(directory), canonical = await realpath(directory);
@@ -68,9 +66,9 @@ export class AddonUploadService {
       return await this.operations.runExclusive(serverId, async () => {
         const adapter = this.registry.get(serverId);
         if (!adapter) throw new ServerNotFoundError();
-        if (!isLocalAdapter(adapter)) throw new DomainError(501, "ADDON_UNSUPPORTED", "扩展上传仅支持本地 Paper/Fabric", "addon-local-required");
-        const profile = addonProfile(adapter.plan.serverInfo.type);
-        if (!profile) throw new DomainError(501, "ADDON_UNSUPPORTED", "扩展上传仅支持本地 Paper/Fabric", "addon-profile-unsupported");
+        if (!isLocalAdapter(adapter)) throw new DomainError(501, "ADDON_UNSUPPORTED", "扩展上传仅支持已核验的本地实例", "addon-local-required");
+        const profile = addonStagingProfile(adapter.plan.serverInfo.type);
+        if (!profile) throw new DomainError(501, "ADDON_UNSUPPORTED", "此服务端类型尚未支持扩展暂存", "addon-profile-unsupported");
         const kind = profile.kind;
         const status = await adapter.getStatus();
         if (status.recoveryRequired || !((status.state === "stopped" && status.ownership === "none") ||
@@ -124,21 +122,21 @@ export class AddonUploadService {
         try {
         const physical = await readUploadedJar(target);
         const metadataBytes = readAddonJarMetadata(physical.bytes);
-        const raw = metadataBytes.get(kind === "mod" ? "fabric.mod.json" : "plugin.yml");
-        const parsed = raw ? (kind === "mod" ? parseFabricAddonMetadata(raw) : parsePluginAddonMetadata(raw)) : null;
-        if (!parsed || parsed.loader !== (kind === "mod" ? "fabric" : "paper")) throw new DomainError(422, "ADDON_METADATA_INVALID", "JAR 缺少可验证且与服务端匹配的 Loader metadata", "addon-metadata-invalid");
-        const metadata: AddonMetadata = { name: parsed.name, version: parsed.version, loader: parsed.loader,
-          minecraftConstraint: "minecraftConstraint" in parsed ? parsed.minecraftConstraint : null };
+        const metadata = parseAddonUploadMetadata(metadataBytes, adapter.plan.serverInfo.type);
+        if (!metadata) throw new DomainError(422, "ADDON_METADATA_INVALID", "JAR 元数据缺失、无效、超限或与服务端 Loader 不匹配", "addon-metadata-invalid");
         if (JSON.stringify(await this.captureIdentity(adapter)) !== JSON.stringify(identity)) throw failure();
         if (await backupDirectoryIdentity(directory) !== directoryIdentity || physical.bytes.length !== bytes) throw failure();
         const partial = { schemaVersion: 1 as const, id, serverId, kind, filename, sizeBytes: bytes,
           checksumSha256: physical.checksumSha256, adapterIdentity: identity, metadata };
         const validated: Validated = { ...partial, revision: revisionOf(partial) };
+        if ('declaredMetadata' in metadata && Buffer.byteLength(JSON.stringify(validated)) + 1 > 128 * 1024) {
+          throw new DomainError(422, "ADDON_METADATA_INVALID", "扩展暂存元数据超过安全上限", "addon-metadata-invalid");
+        }
         await writeJson(path.join(directory, "validated.json"), validated);
         await writeJson(path.join(directory, "lifecycle.json"), { ...lifecycle, state: "validated" });
         await syncDirectory(directory); await syncDirectory(uploadsRoot);
         return { id, kind, filename, sizeBytes: bytes, checksumSha256: validated.checksumSha256, revision: validated.revision,
-          name: metadata.name, version: metadata.version, loader: metadata.loader, minecraftConstraint: metadata.minecraftConstraint,
+          ...metadata,
           state: "validated" as const, executionAvailable: false as const };
         } catch (error) {
           try { if (await backupDirectoryIdentity(directory) === directoryIdentity) await writeJson(path.join(directory, "lifecycle.json"), { ...lifecycle, state: "failed" }); } catch {}
@@ -148,7 +146,7 @@ export class AddonUploadService {
     } finally { this.#busy = false; }
   }
 
-  async validatedSource(serverId: string, id: string, revision: string, kind: "mod" | "plugin") {
+  async validatedSource(serverId: string, id: string, revision: string, kind: "mod" | "plugin", scope?: AddonIdentityScope) {
     if (!UUID.test(id) || !SHA.test(revision)) throw new DomainError(404, "RESOURCE_NOT_FOUND", "扩展暂存记录不存在", "addon-upload-not-found");
     const adapter = this.registry.getLocal(serverId); if (!adapter) throw new ServerNotFoundError();
     const directory = path.join(path.resolve(this.managerRoot), "addon-uploads", id);
@@ -157,7 +155,7 @@ export class AddonUploadService {
     const lifecycle = await readJson<Lifecycle>(path.join(directory, "lifecycle.json"));
     if (lifecycle.state !== "validated") throw failure();
     const validated = await readJson<Validated>(path.join(directory, "validated.json"));
-    const profile = addonProfile(adapter.plan.serverInfo.type);
+    const profile = addonStagingProfile(adapter.plan.serverInfo.type);
     const revisionBody = Object.fromEntries(Object.entries(validated).filter(([key]) => key !== "revision")) as Omit<Validated, "revision">;
     if (!profile || owner.schemaVersion !== 1 || owner.id !== id || owner.serverId !== serverId ||
       owner.rootIdentity !== await backupDirectoryIdentity(adapter.plan.rootPath) || owner.directoryIdentity !== await backupDirectoryIdentity(directory) ||
@@ -166,21 +164,25 @@ export class AddonUploadService {
       validated.revision !== revision || revisionOf(revisionBody) !== revision || Object.keys(validated).length !== 10 ||
       !safeAddonFilename(validated.filename) || !Number.isSafeInteger(validated.sizeBytes) || validated.sizeBytes < 1 ||
       validated.sizeBytes > ADDON_UPLOAD_LIMITS.bytes || !SHA.test(validated.checksumSha256) ||
-      !validated.metadata || ![validated.metadata.name, validated.metadata.version].every((value) => typeof value === "string" && value.length > 0 && value.length <= 128) ||
-      validated.metadata.loader !== (kind === "mod" ? "fabric" : "paper")) throw failure();
-    const liveIdentity = await this.captureIdentity(adapter);
+      !validated.metadata || validated.metadata.loader !== adapter.plan.serverInfo.type) throw failure();
+    const liveIdentity = scope ? await scope.capture(adapter, this.captureIdentity) : await this.captureIdentity(adapter);
     if (JSON.stringify(liveIdentity) !== JSON.stringify(validated.adapterIdentity)) throw failure();
     const jar = await readUploadedJar(path.join(directory, "payload.jar"));
     if (jar.bytes.length !== validated.sizeBytes || jar.checksumSha256 !== validated.checksumSha256) throw failure();
-    const raw = readAddonJarMetadata(jar.bytes).get(kind === "mod" ? "fabric.mod.json" : "plugin.yml");
-    const parsed = raw ? (kind === "mod" ? parseFabricAddonMetadata(raw) : parsePluginAddonMetadata(raw)) : null;
-    if (!parsed || parsed.name !== validated.metadata.name || parsed.version !== validated.metadata.version || parsed.loader !== validated.metadata.loader) throw failure();
-    return { directory, filePath: path.join(directory, "payload.jar"), owner, validated, adapter };
+    const parsed = parseAddonUploadMetadata(readAddonJarMetadata(jar.bytes), adapter.plan.serverInfo.type);
+    if (!parsed || JSON.stringify(parsed) !== JSON.stringify(validated.metadata)) throw failure();
+    // Private, fresh proof from this validation call; never substitute the persisted receipt.
+    return { directory, filePath: path.join(directory, "payload.jar"), owner, validated, adapter, liveIdentity };
   }
 
-  async markConsumed(serverId: string, id: string, revision: string, kind: "mod" | "plugin", operationId: string): Promise<void> {
+  async markConsumed(serverId: string, id: string, revision: string, kind: "mod" | "plugin", operationId: string, scope?: AddonIdentityScope): Promise<void> {
     if (!UUID.test(operationId)) throw failure();
-    const source = await this.validatedSource(serverId, id, revision, kind);
+    const source = await this.validatedSource(serverId, id, revision, kind, scope);
+    if (!addonProfile(source.adapter.plan.serverInfo.type)) {
+      const operation = this.operations.get(operationId);
+      if (!addonInstallProfile(source.adapter.plan.serverInfo.type) || !operation || operation.serverId !== serverId ||
+        operation.kind !== 'addon-change' || operation.state !== 'running' || this.operations.getServerState(serverId).activeOperationId !== operationId) throw failure();
+    }
     await writeJson(path.join(source.directory, "consumed.json"), { schemaVersion: 1, id, serverId, revision, operationId,
       checksumSha256: source.validated.checksumSha256, directoryIdentity: source.owner.directoryIdentity,
       consumedAt: this.clock.now().toISOString() });
@@ -189,7 +191,7 @@ export class AddonUploadService {
     await writeJson(path.join(source.directory, "lifecycle.json"), { ...lifecycle, state: "consumed" });
   }
 
-  async verifyConsumed(serverId: string, id: string, revision: string, kind: "mod" | "plugin", operationId: string): Promise<boolean> {
+  async verifyConsumed(serverId: string, id: string, revision: string, kind: "mod" | "plugin", operationId: string, scope?: AddonIdentityScope): Promise<boolean> {
     try {
       if (!UUID.test(id) || !UUID.test(operationId) || !SHA.test(revision)) return false;
       const directory = path.join(path.resolve(this.managerRoot), "addon-uploads", id);
@@ -207,21 +209,17 @@ export class AddonUploadService {
         Object.keys(validated).length !== 10 || !safeAddonFilename(validated.filename) ||
         !Number.isSafeInteger(validated.sizeBytes) || validated.sizeBytes < 1 || validated.sizeBytes > ADDON_UPLOAD_LIMITS.bytes ||
         !SHA.test(validated.checksumSha256) || !validated.metadata ||
-        ![validated.metadata.name, validated.metadata.version].every((value) => typeof value === "string" && value.length > 0 && value.length <= 128) ||
         validated.kind !== kind ||
         lifecycle.state !== "consumed" || consumed.operationId !== operationId || consumed.serverId !== serverId || consumed.id !== id ||
         consumed.revision !== revision || consumed.checksumSha256 !== validated.checksumSha256 || consumed.directoryIdentity !== owner.directoryIdentity) return false;
-      const live = await this.captureIdentity(adapter);
+      const live = scope ? await scope.capture(adapter, this.captureIdentity) : await this.captureIdentity(adapter);
       if (JSON.stringify(live) !== JSON.stringify(validated.adapterIdentity)) return false;
       const jar = await readUploadedJar(path.join(directory, "payload.jar"));
-      const profile = addonProfile(adapter.plan.serverInfo.type);
-      if (!profile || profile.kind !== kind || validated.metadata.loader !== (kind === "mod" ? "fabric" : "paper") ||
+      const profile = addonInstallProfile(adapter.plan.serverInfo.type);
+      if (!profile || profile.kind !== kind || validated.metadata.loader !== adapter.plan.serverInfo.type ||
         jar.checksumSha256 !== validated.checksumSha256 || jar.bytes.length !== validated.sizeBytes) return false;
-      const raw = readAddonJarMetadata(jar.bytes).get(kind === "mod" ? "fabric.mod.json" : "plugin.yml");
-      const parsed = raw ? (kind === "mod" ? parseFabricAddonMetadata(raw) : parsePluginAddonMetadata(raw)) : null;
-      return parsed !== null && parsed.name === validated.metadata.name && parsed.version === validated.metadata.version &&
-        parsed.loader === validated.metadata.loader && JSON.stringify("minecraftConstraint" in parsed ? parsed.minecraftConstraint : null) ===
-          JSON.stringify(validated.metadata.minecraftConstraint);
+      const parsed = parseAddonUploadMetadata(readAddonJarMetadata(jar.bytes), adapter.plan.serverInfo.type);
+      return parsed !== null && JSON.stringify(parsed) === JSON.stringify(validated.metadata);
     } catch { return false; }
   }
 }

@@ -21,19 +21,20 @@ import { ServerRegistrationService } from '../src/services/server-registration-s
 import { RuntimeError } from '../src/infra/runtime/local-runtime.js';
 import { fabricLaunchFixture } from './helpers/fabric-launch.js';
 import { forgeLaunchFixture } from './helpers/forge-launch.js';
+import { neoForgeLaunchFixture } from './helpers/neoforge-launch.js';
 
 // Detection is deterministic; no Java/Minecraft process is spawned by this suite.
 vi.mock('../src/services/detection-service.js', () => ({ detectServer: async (input: { id: string; name: string }) => ({
-  id: input.id, name: input.name, type: input.name === 'Paper' ? 'paper' : input.name === 'Fabric' ? 'fabric' : input.name === 'Forge' ? 'forge' : 'vanilla',
+  id: input.id, name: input.name, type: input.name === 'NeoForge' ? 'neoforge' : input.name === 'Paper' ? 'paper' : input.name === 'Fabric' ? 'fabric' : input.name === 'Forge' ? 'forge' : 'vanilla',
   minecraftVersion: input.name === 'Fabric' ? '26.2' : '26.3', java: { runtimeVersion: '25', requiredMajor: 25 },
-  detection: { confidence: 'high', evidence: input.name === 'Forge' ? ['forge-shim-main-class', 'forge-execution-binding'] : input.name === 'Fabric' ? ['fabric-launcher-main-class', 'fabric-execution-binding'] : ['jar-version-json', ...(input.name === 'Paper' ? ['paperclip-main-class'] : [])], warnings: [] }
+  detection: { confidence: 'high', evidence: input.name === 'NeoForge' ? ['neoforge-server-descriptor', 'neoforge-execution-binding'] : input.name === 'Forge' ? ['forge-shim-main-class', 'forge-execution-binding'] : input.name === 'Fabric' ? ['fabric-launcher-main-class', 'fabric-execution-binding'] : ['jar-version-json', ...(input.name === 'Paper' ? ['paperclip-main-class'] : [])], warnings: [] }
 }) }));
 const roots: string[] = [], apps: ReturnType<typeof buildApp>[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const app of apps.splice(0)) await app.close(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const headers = { host: '127.0.0.1:8080', origin: 'http://127.0.0.1:3000', 'x-manager-intent': 'local-ui' };
 const clock = { now: () => new Date() };
 const removeRegistration = (app: ReturnType<typeof buildApp>, id: string) => app.inject({ method: 'DELETE', url: `/api/v1/server-registrations/${id}`, headers, payload: { confirm: true } });
-async function fixture(secondType: 'vanilla' | 'paper' | 'fabric' | 'forge' = 'vanilla', sharedFactory = true) {
+async function fixture(secondType: 'vanilla' | 'paper' | 'fabric' | 'forge' | 'neoforge' = 'vanilla', sharedFactory = true) {
   const root = await mkdtemp(path.join(tmpdir(), 'lt-hot-')); roots.push(root);
   const manager = path.join(root, 'manager'), first = path.join(root, 'first'), second = path.join(root, 'second');
   for (const dir of [manager, first, second]) { await mkdir(dir); }
@@ -46,6 +47,7 @@ async function fixture(secondType: 'vanilla' | 'paper' | 'fabric' | 'forge' = 'v
   }
   if (secondType === 'fabric') await fabricLaunchFixture(second);
   if (secondType === 'forge') await forgeLaunchFixture(second, { minecraftVersion: '26.3', javaVersion: 25 });
+  if (secondType === 'neoforge') await neoForgeLaunchFixture(second);
   if (secondType === 'paper') await writeFile(path.join(second, 'server.jar'), launchZip({
     'META-INF/MANIFEST.MF': 'Main-Class: io.papermc.paperclip.Main\n', 'version.json': '{"id":"26.3","java_version":25}'
   }));
@@ -78,8 +80,8 @@ async function fixture(secondType: 'vanilla' | 'paper' | 'fabric' | 'forge' = 'v
   const app = buildApp({ mode: 'local', managerRoot: manager, adapters: [adapter], ...(sharedFactory ? { localRuntimeFactory: factory } : {}),
     activeWorldState: active, transactionJournal: journal, transactionRecovery: journal, backupSchedulerTimers: false });
   apps.push(app); await app.ready();
-  const draft = { id: 'second', name: secondType === 'vanilla' ? 'Second' : secondType === 'paper' ? 'Paper' : secondType === 'forge' ? 'Forge' : 'Fabric', root: second,
-    jarFile: secondType === 'forge' ? 'forge-shim.jar' : secondType === 'fabric' ? 'launcher.jar' : 'server.jar', javaProfileId: 'first' };
+  const draft = { id: 'second', name: secondType === 'neoforge' ? 'NeoForge' : secondType === 'vanilla' ? 'Second' : secondType === 'paper' ? 'Paper' : secondType === 'forge' ? 'Forge' : 'Fabric', root: second,
+    jarFile: secondType === 'neoforge' ? 'run.bat' : secondType === 'forge' ? 'forge-shim.jar' : secondType === 'fabric' ? 'launcher.jar' : 'server.jar', javaProfileId: 'first' };
   const add = async () => {
     const preview = await app.inject({ method: 'POST', url: '/api/v1/server-registrations/preflight', headers, payload: draft });
     expect(preview.statusCode).toBe(200);
@@ -279,7 +281,7 @@ async function terminal(f: Awaited<ReturnType<typeof fixture>>, id: string) {
   });
   return operation!;
 }
-it.each(['paper', 'fabric', 'forge'] as const)('M2: newly loaded %s uses the existing start/stop/restart API with scoped idempotency', async type => {
+it.each(['paper', 'fabric', 'forge', 'neoforge'] as const)('M2: newly loaded %s uses the existing start/stop/restart API with scoped idempotency', async type => {
   const f = await fixture(type); expect((await f.add()).json().data.loaded).toBe(true);
   const key = randomUUID(), started = await action(f, 'start', key);
   expect(started.statusCode).toBe(202);

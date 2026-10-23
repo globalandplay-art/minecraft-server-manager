@@ -8,10 +8,22 @@ import { trustedLifecycle } from "../src/services/trusted-lifecycle.js";
 import { launchZip as zip } from "./helpers/launch-zip.js";
 import { fabricLaunchFixture } from "./helpers/fabric-launch.js";
 import { forgeLaunchFixture } from "./helpers/forge-launch.js";
+import { neoForgeLaunchFixture } from './helpers/neoforge-launch.js';
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const version = (id: string) => JSON.stringify({ id, java_version: 25 });
+it('recognizes NeoForge only through its complete dedicated-server descriptor', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'mcsm-m21-neo-')); roots.push(root);
+  const { anchor } = await neoForgeLaunchFixture(root);
+  const info = await detectServer({ id: 'neo', name: 'NeoForge', rootPath: root, jarPath: anchor, javaExecutable: process.execPath });
+  expect(info).toMatchObject({ type: 'neoforge', minecraftVersion: '26.3', java: { requiredMajor: 25 }, detection: { confidence: 'high' } });
+  expect(trustedLifecycle(info)).toBe(false);
+  expect(trustedLifecycle({ ...info, java: { requiredMajor: 25, runtimeVersion: '25.0.4' } })).toBe(true);
+  await writeFile(anchor, '@echo off\njava attacker.Main\n');
+  const unknown = await detectServer({ id: 'neo', name: 'NeoForge', rootPath: root, jarPath: anchor, javaExecutable: process.execPath });
+  expect(unknown.type).toBe('unknown'); expect(trustedLifecycle(unknown)).toBe(false);
+});
 it('detects a complete Forge shim separately from the unsupported legacy bootstrap', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'mcsm-m21-forge-')); roots.push(root);
   const { jarPath } = await forgeLaunchFixture(root);

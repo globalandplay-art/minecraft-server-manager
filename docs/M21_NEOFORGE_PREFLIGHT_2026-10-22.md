@@ -1,5 +1,15 @@
 # M2.1 NeoForge preparation checkpoint
 
+**Later update2026-10-23:** exact-version adapter and fresh real lifecycle now
+BUSINESS PASS; strict diagnostics remain BLOCKED. See
+[real checkpoint](./M21_NEOFORGE_REAL_2026-10-23.md). Earlier pending statements
+are historical and are not rewritten.
+
+**Later update2026-10-23:** user-supplied desktop artifacts matched all missing
+checksums and official isolated installation completed with exit0. See
+[offline preparation](./M21_NEOFORGE_INSTALL_2026-10-23.md). Missing-dependency
+statements below are historical; adapter/runtime acceptance remains pending.
+
 ## Status
 
 **BLOCKED — official dependency cache incomplete.**

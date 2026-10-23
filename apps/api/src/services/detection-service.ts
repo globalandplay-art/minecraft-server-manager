@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import path from 'node:path';
 
 import type { ServerInfo, ServerType } from "@mcsm/contracts";
 import yauzl, { type Entry, type ZipFile } from "yauzl";
@@ -7,6 +8,7 @@ import yauzl, { type Entry, type ZipFile } from "yauzl";
 import { DomainError } from "./domain-errors.js";
 import { captureFabricLaunchBinding } from "./fabric-launch-binding.js";
 import { captureForgeLaunchBinding } from "./forge-launch-binding.js";
+import { captureNeoForgeLaunchBinding } from "./neoforge-launch-binding.js";
 import { launchMetadata, manifestField } from "./fabric-launch-binding.js";
 import { readPrivatePropertiesFile } from "./properties-private-file.js";
 import { trustedLifecycle } from "./trusted-lifecycle.js";
@@ -212,7 +214,18 @@ async function probeJava(javaExecutable: string): Promise<string | null> {
   }
 }
 
-export async function detectServer(input: DetectionInput): Promise<ServerInfo> {
+export async function detectServer(input: DetectionInput,
+  readNeoForgeBinding: typeof captureNeoForgeLaunchBinding = captureNeoForgeLaunchBinding): Promise<ServerInfo> {
+  if (path.basename(input.jarPath) === 'run.bat') {
+    const [binding, runtimeVersion] = await Promise.all([
+      input.rootPath ? readNeoForgeBinding(input.rootPath, input.jarPath).catch(() => null) : Promise.resolve(null),
+      probeJava(input.javaExecutable)
+    ]);
+    return { id: input.id, name: input.name, type: binding ? 'neoforge' : 'unknown', minecraftVersion: binding?.version ?? null,
+      java: { runtimeVersion, requiredMajor: binding?.requiredMajor ?? null },
+      detection: { confidence: binding ? 'high' : 'low', evidence: binding ? ['neoforge-server-descriptor', 'neoforge-execution-binding'] : [],
+        warnings: binding ? ['使用受控 Server 主类启动；不执行 run.bat 或 user_jvm_args.txt'] : ['未识别为完整、受支持的 NeoForge 安装；不执行此脚本'] } };
+  }
   const [initialMetadata, runtimeVersion] = await Promise.all([
     inspectJar(input.jarPath),
     probeJava(input.javaExecutable)

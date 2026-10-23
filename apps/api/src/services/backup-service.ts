@@ -198,7 +198,7 @@ export class BackupService {
   async createAddonProtectionSnapshot(
     context: RuntimeOperationContext,
     serverId: string,
-    type: "paper" | "fabric"
+    type: "paper" | "fabric" | "forge" | "neoforge"
   ): Promise<{ id: string; checksumSha256: string; files: number }> {
     const adapter = this.#adapter(serverId);
     if (adapter.plan.serverInfo.type !== type) throw new DomainError(409, "ADDON_ADAPTER_UNTRUSTED", "服务端身份已变化", "addon-adapter-untrusted");
@@ -284,7 +284,7 @@ export class BackupService {
     const wasRunning = original.state === "running";
     const roots = await this.#roots(adapter, request.scope);
     const completeAddonSnapshot = request.scope === "server-snapshot" &&
-      (adapter.plan.serverInfo.type === "paper" || adapter.plan.serverInfo.type === "fabric");
+      (["paper", "fabric", "forge", "neoforge"].includes(adapter.plan.serverInfo.type));
     const rootEntriesBeforeCopy = completeAddonSnapshot ? (await readdir(serverRoot)).sort() : undefined;
     await requireCapacity(serverBackupRoot, await estimateRoots(serverRoot, roots), this.availableBytes);
     const journal = await this.journal.createIntent({
@@ -489,10 +489,7 @@ export class BackupService {
     if (scope === "world-set") return [world];
     const jarRelative = path.relative(adapter.plan.rootPath, adapter.plan.jarPath).split(path.sep).join("/");
     if (!jarRelative.split("/").every(safeSegment)) throw unsafe("jar-outside-server-root");
-    if (scope === "server-snapshot" && adapter.plan.serverInfo.type === "paper") {
-      return (await readdir(adapter.plan.rootPath)).sort();
-    }
-    if (scope === "server-snapshot" && adapter.plan.serverInfo.type === "fabric") {
+    if (scope === "server-snapshot" && ["paper", "fabric", "forge", "neoforge"].includes(adapter.plan.serverInfo.type)) {
       return (await readdir(adapter.plan.rootPath)).sort();
     }
     const roots = [world, jarRelative, "server.properties", "eula.txt"];

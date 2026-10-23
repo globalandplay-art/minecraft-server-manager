@@ -1,3 +1,69 @@
+# 2026-10-23 M3-E install candidate (delivery Gate BLOCKED)
+
+Existing install DTO additionally accepts optional literal
+`confirmUnknownCompatibility:true`; it is mandatory for Forge/NeoForge and
+included in idempotency/journal evidence. Missing consent428
+ADDON_COMPATIBILITY_CONFIRMATION_REQUIRED; declared ID collision409
+ADDON_MOD_ID_CONFLICT. This acknowledgement never changes compatibility from
+unknown. New inventory optional installSupported indicates install-service
+availability separately from lifecycle writeSupported=false; every install
+still rechecks current registered identity, revision, stopped state and guards.
+202 is acceptance only; final operation/file proof is required. Full argv and
+disabled-directory identity now bind new stages; old unmatched evidence is
+refused without migration. New-loader lifecycle routes remain unsupported.
+This is implemented candidate behavior: actual browser performance Gate still
+BLOCKED, not production/release certification. See [M3-E](./M3_PROTECTED_INSTALL_2026-10-23.md).
+
+# 2026-10-23 M3-D inert validation staging
+
+Existing `POST /api/v1/servers/:serverId/addons/uploads` now accepts Forge/
+NeoForge JARs only after complete registered execution identity verification.
+It writes only private Manager staging; installed server files are unchanged.
+The legacy Paper/Fabric201 shape is retained. New strict201 variants require
+kind=mod, matching loader/source `declaredMetadata`, compatibility=unknown,
+nullable single-mod name/concrete version, minecraftConstraint=null and
+executionAvailable=false. Multi-mod/unresolved versions are retained in
+declaredMetadata and are not flattened into invented top-level values.
+Descriptors above64KiB projected metadata reject422 ADDON_METADATA_INVALID;
+the entire private validated record remains within128KiB. Reopen rechecks full
+declarations, adapter identity, payload hash, root/owner/revision. Existing
+64MiB upload, timeout and3-stage quota remain. Response validation does not
+grant installation permission; Forge/NeoForge install/lifecycle still501,
+inventory writeSupported=false. See [delivery](./M3_VALIDATION_STAGING_2026-10-23.md).
+Earlier blanket upload501 statements below describe prior checkpoints.
+
+# 2026-10-23 M3-C private adapter identity groundwork
+
+No public API/DTO or write-capability changes. Exact Forge/NeoForge private
+Addon identities now include their registered dependency closure and full
+Java version agreement; this is not an HTTP field or mutation authorization.
+Forge/NeoForge upload/install/lifecycle remain501 and inventory writes false.
+See [M3-C scope](./M3_ADDON_IDENTITY_2026-10-23.md).
+
+# 2026-10-23 M3-B declared mod metadata extension
+
+Existing addon inventory items optionally include `declaredMetadata`:
+`{loader,source,modLoader,loaderVersion,mods:[{id,name,version,versionStatus,dependencies:[{id,versionRange,requirement,side}]}]}`.
+Loader is forge/neoforge, source is its exact META-INF TOML descriptor.
+Versions/ranges remain raw bounded declarations; versionStatus is
+declared/unresolved/unspecified. Missing dependency requirement/side remains
+unknown. Up to32 mods and64 dependencies per mod; aggregate metadata above1MiB
+rejects the inventory with ADDON_INVENTORY_UNSAFE instead of truncating.
+Legacy top-level loader remains null; compatibility unknown and writes false.
+Upload/trash contracts remain Paper/Fabric-only. No new path or mutation API.
+See [M3-B contract and evidence](./M3_MOD_METADATA_2026-10-23.md).
+The following null-name/version statement is the earlier M3-A checkpoint;
+M3-B may now project a concrete single-mod name/version and exposes multi-mod
+declarations separately without inventing a single top-level version.
+
+# 2026-10-23 M3-A read-only mod discovery
+
+Existing `GET /api/v1/servers/:serverId/addons` additionally reads registered Forge/NeoForge `mods` and `disabled-mods` inventories with the same bounded identity-checked reader. Response contract is unchanged: `writeSupported=false`, metadata name/version/loader remain null and compatibility unknown; foreign Fabric metadata does not grant Forge compatibility. Valid JARs without supported parsed metadata use `metadataStatus=missing`; unsafe JAR metadata remains invalid. No recursive paths, arbitrary path parameter or new endpoint is introduced. Existing upload/install/lifecycle guards still reject these loader types; Paper/Fabric behavior remains unchanged. See [bounded delivery](./M3_READONLY_MODS_2026-10-23.md).
+
+# 2026-10-23 NeoForge exact-version lifecycle extension
+
+Existing registration DTO `jarFile` additionally accepts exact `run.bat` as a descriptor anchor for verified NeoForge26.3.0.95 installations. No arbitrary script execution endpoint is added: unsupported descriptors remain nonlaunchable. Existing start/stop/restart and operation APIs are reused. Forge26.3/66.1.0 and NeoForge26.3.0.95 now have bounded real lifecycle BUSINESS PASS; historical statements below remain scoped to their earlier checkpoints. Strict diagnostics and whole-repository Final Gate remain BLOCKED. See [NeoForge evidence](./M21_NEOFORGE_REAL_2026-10-23.md).
+
 # Minecraft Java Server Manager — API 合约
 
 ## M2 当前交付状态（2026-10-21）

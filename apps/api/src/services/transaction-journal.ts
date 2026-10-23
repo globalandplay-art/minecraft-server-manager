@@ -93,6 +93,7 @@ export interface TransactionIntent {
     readonly workspaceName: string;
   };
   readonly addonInstall?: {
+    readonly confirmUnknownCompatibility?: true;
     readonly rootIdentity: string;
     readonly adapterIdentitySha256: string;
     readonly addonRootIdentity: string;
@@ -296,7 +297,8 @@ function validateIntent(value: unknown): value is TransactionIntent {
     const a = value.addonInstall;
     if (value.kind !== "addon-install" || value.scope !== "server-snapshot" || value.allowStop !== false || value.originalState !== "stopped" ||
       value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldArchive !== undefined || value.propertiesWrite !== undefined ||
-      !isObject(a) || !hasOnlyKeys(a, ["rootIdentity", "adapterIdentitySha256", "addonRootIdentity", "kind", "filename", "uploadId", "uploadRevision", "uploadSha256", "guardBackupId", "guardChecksum", "workspaceName"]) ||
+      !isObject(a) || !hasOnlyKeys(a, ["rootIdentity", "adapterIdentitySha256", "addonRootIdentity", "kind", "filename", "uploadId", "uploadRevision", "uploadSha256", "guardBackupId", "guardChecksum", "workspaceName", "confirmUnknownCompatibility"]) ||
+      (a.confirmUnknownCompatibility !== undefined && a.confirmUnknownCompatibility !== true) ||
       ![a.rootIdentity, a.adapterIdentitySha256, a.addonRootIdentity, a.uploadRevision, a.uploadSha256, a.guardChecksum].every((item) => typeof item === "string" && SHA256.test(item)) ||
       !["mod", "plugin"].includes(String(a.kind)) || typeof a.filename !== "string" || a.filename.length < 5 || a.filename.length > 200 ||
       /[\\/:<>"|?*\u0000-\u001f\u007f]/u.test(a.filename) || !UUID.test(String(a.uploadId)) || !UUID.test(String(a.guardBackupId)) ||

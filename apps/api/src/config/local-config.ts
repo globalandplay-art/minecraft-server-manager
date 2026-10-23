@@ -5,6 +5,7 @@ import type { ValidatedLaunchPlan } from "../infra/runtime-contract.js";
 import { detectServer } from "../services/detection-service.js";
 import { captureFabricLaunchBinding } from "../services/fabric-launch-binding.js";
 import { captureForgeLaunchBinding } from "../services/forge-launch-binding.js";
+import { assertNeoForgeEnvironment, captureNeoForgeLaunchBinding } from "../services/neoforge-launch-binding.js";
 import { assertJavaEnvironment, trustedLifecycle } from "../services/trusted-lifecycle.js";
 import { DomainError } from "../services/domain-errors.js";
 import { TransactionJournalStore } from "../services/transaction-journal.js";
@@ -36,7 +37,7 @@ export interface ValidatedRegistration {
   readonly identity?: import("../infra/runtime-contract.js").RegisteredExecutionIdentity;
 }
 
-async function executionIdentity(paths: { rootPath: string; jarPath: string; javaExecutable: string }, bindFabric: boolean, bindForge = false) {
+async function executionIdentity(paths: { rootPath: string; jarPath: string; javaExecutable: string }, bindFabric: boolean, bindForge = false, bindNeoForge = false) {
   const [rootIdentity, launcher, java] = await Promise.all([
     backupDirectoryIdentity(paths.rootPath),
     readPrivatePropertiesFile(paths.jarPath, 64 * 1024 ** 2),
@@ -47,6 +48,9 @@ async function executionIdentity(paths: { rootPath: string; jarPath: string; jav
     fabricExecutionSha256: bindFabric ? (await captureFabricLaunchBinding(paths.rootPath, paths.jarPath)).identitySha256 : null,
     ...(bindForge ? { forgeExecutionSha256: (await captureForgeLaunchBinding(paths.rootPath, paths.jarPath).catch(() => {
       throw new DomainError(409, 'ACTION_UNAVAILABLE', 'Forge 启动依赖在注册后发生变化，请重新检测', 'execution-identity-changed');
+    })).identitySha256 } : {}),
+    ...(bindNeoForge ? { neoforgeExecutionSha256: (await captureNeoForgeLaunchBinding(paths.rootPath, paths.jarPath).catch(() => {
+      throw new DomainError(409, 'ACTION_UNAVAILABLE', 'NeoForge 启动依赖在注册后发生变化，请重新检测', 'execution-identity-changed');
     })).identitySha256 } : {}) };
 }
 
@@ -145,7 +149,7 @@ function parseServer(value: unknown): RawServerConfig {
     typeof jarFile !== "string" ||
     path.basename(jarFile) !== jarFile ||
     jarFile.includes(":") ||
-    !jarFile.toLowerCase().endsWith(".jar")
+    (!jarFile.toLowerCase().endsWith(".jar") && jarFile !== 'run.bat')
   ) {
     throw configError("server-values-invalid");
   }
@@ -260,7 +264,7 @@ async function validatePaths(config: RawServerConfig): Promise<{
   if (
     path.basename(config.jarFile) !== config.jarFile ||
     config.jarFile.includes(":") ||
-    !config.jarFile.toLowerCase().endsWith(".jar")
+    (!config.jarFile.toLowerCase().endsWith(".jar") && config.jarFile !== 'run.bat')
   ) {
     throw configError("jar-name-invalid");
   }
@@ -307,6 +311,7 @@ function parsePort(value: string | undefined, fallback: number): number {
 
 export async function validateRegistration(config: RawServerConfig): Promise<ValidatedRegistration> {
   assertJavaEnvironment();
+  if (config.jarFile === 'run.bat') assertNeoForgeEnvironment();
   const paths = await validatePaths(config);
   const state = await readServerState(paths.rootPath);
   const serverInfo = await detectServer({
@@ -316,7 +321,8 @@ export async function validateRegistration(config: RawServerConfig): Promise<Val
     javaExecutable: paths.javaExecutable,
     rootPath: paths.rootPath
   });
-  const registeredIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo), serverInfo.type === 'forge' && trustedLifecycle(serverInfo));
+  const neoForge = serverInfo.type === 'neoforge' && trustedLifecycle(serverInfo) ? await captureNeoForgeLaunchBinding(paths.rootPath, paths.jarPath) : null;
+  const registeredIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo), serverInfo.type === 'forge' && trustedLifecycle(serverInfo), neoForge !== null);
   const configuredHost = state.properties.get("server-ip") ?? "";
   if (!["", "127.0.0.1", "localhost"].includes(configuredHost)) {
     serverInfo.detection.warnings.push("Minecraft 当前可能监听非本地地址");
@@ -341,6 +347,7 @@ export async function validateRegistration(config: RawServerConfig): Promise<Val
 
   const revalidateBeforeStart = async () => {
     assertJavaEnvironment();
+    if (config.jarFile === 'run.bat') assertNeoForgeEnvironment();
     const currentPaths = await validatePaths(config);
     if (
       normalized(currentPaths.rootPath) !== normalized(paths.rootPath) ||
@@ -370,7 +377,7 @@ export async function validateRegistration(config: RawServerConfig): Promise<Val
       javaExecutable: paths.javaExecutable,
       rootPath: paths.rootPath
     });
-    const currentIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo), serverInfo.type === 'forge' && trustedLifecycle(serverInfo));
+    const currentIdentity = await executionIdentity(paths, serverInfo.type === "fabric" && trustedLifecycle(serverInfo), serverInfo.type === 'forge' && trustedLifecycle(serverInfo), neoForge !== null);
     if (JSON.stringify(currentIdentity) !== JSON.stringify(registeredIdentity)) {
       throw new DomainError(409, "ACTION_UNAVAILABLE", "服务端根目录、Java或启动JAR在注册后发生变化", "execution-identity-changed");
     }
@@ -408,7 +415,8 @@ export async function validateRegistration(config: RawServerConfig): Promise<Val
     rootPath: paths.rootPath,
     javaExecutable: paths.javaExecutable,
     jarPath: paths.jarPath,
-    argv: [...config.jvmArgs, ...(serverInfo.type === 'forge' && trustedLifecycle(serverInfo) ? ['-Djava.net.preferIPv6Addresses=system'] : []), "-jar", paths.jarPath, ...config.serverArgs],
+    argv: config.jarFile === 'run.bat' ? (neoForge ? [...config.jvmArgs, ...neoForge.argv, ...config.serverArgs] : [])
+      : [...config.jvmArgs, ...(serverInfo.type === 'forge' && trustedLifecycle(serverInfo) ? ['-Djava.net.preferIPv6Addresses=system'] : []), "-jar", paths.jarPath, ...config.serverArgs],
     statusEndpoint: { host: "127.0.0.1", port: statusPort },
     eulaAccepted: state.eulaAccepted,
     serverInfo,

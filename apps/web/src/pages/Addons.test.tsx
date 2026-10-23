@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AddonTrashResponse, AddonsResponse, AddonUploadResponse, LifecycleActionResponse, Operation, ServerResponse, ServersResponse } from '@mcsm/contracts';
@@ -14,7 +15,7 @@ vi.mock('../api', async (load) => {
 });
 const revision = 'a'.repeat(64);
 const meta = { requestId: 'test', generatedAt: new Date().toISOString(), mode: 'local' as const };
-function summary(type: 'paper' | 'fabric' | 'vanilla' = 'paper', overrides = {}) {
+function summary(type: 'paper' | 'fabric' | 'vanilla' | 'forge' | 'neoforge' = 'paper', overrides = {}) {
   const data = { server: { id: 'test', name: 'Test server', type, minecraftVersion: '26.2', java: { runtimeVersion: '25', requiredMajor: 25 }, detection: { confidence: 'high', evidence: [], warnings: [] } },
     capabilities: { mods: type === 'fabric', plugins: type === 'paper', rcon: true, console: true, backup: true, worlds: true, properties: true },
     status: { state: 'stopped' as const, ownership: 'none' as const, source: 'process' as const, observedAt: new Date().toISOString(), activeOperationId: null, recoveryRequired: false, ...overrides },
@@ -33,6 +34,14 @@ function addonsResponse(type: 'paper' | 'fabric' = 'paper', items = [addon(type 
 function trashResponse(): AddonTrashResponse { return { meta, data: { revision, items: [] } }; }
 function stagedResponse(): AddonUploadResponse { return { meta, data: { id: 'e5cbbfa0-836a-4f57-a8b8-1a6772947c01', kind: 'plugin', filename: 'private-stage.jar', sizeBytes: 2048,
   checksumSha256: 'd'.repeat(64), revision, name: 'Fresh Addon', version: '2.0', loader: 'paper', minecraftConstraint: ['26.2'], state: 'validated', executionAvailable: false } }; }
+function stagedModResponse(loader: 'forge' | 'neoforge'): AddonUploadResponse {
+  return { meta, data: { id: 'e5cbbfa0-836a-4f57-a8b8-1a6772947c01', kind: 'mod', filename: 'multiple.jar', sizeBytes: 2048,
+    checksumSha256: 'd'.repeat(64), revision, name: null, version: null, loader, minecraftConstraint: null,
+    compatibility: 'unknown', state: 'validated', executionAvailable: false, declaredMetadata: {
+      loader, source: loader === 'forge' ? 'META-INF/mods.toml' : 'META-INF/neoforge.mods.toml', modLoader: 'javafml', loaderVersion: '[1,)',
+      mods: [{ id: 'staged_mod', name: '暂存模组', version: '${file.jarVersion}', versionStatus: 'unresolved', dependencies: [] },
+        { id: 'another_mod', name: 'Another mod', version: '2.0', versionStatus: 'declared', dependencies: [] }] } } };
+}
 function operation(state: Operation['state'] = 'running'): Operation {
   return { id: 'operation-42', serverId: 'test', kind: 'addon-change', state, step: state === 'running' ? 'installing' : 'completed', progress: 50,
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), result: state === 'succeeded' ? { resourceId: 'opaque', rollbackAvailable: false, restartRequired: true } : null, error: null };
@@ -55,6 +64,139 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('P5.4 addon management UI', () => {
+  it('requires stopped-instance state and explicit unknown-compatibility acknowledgement before installing', async () => {
+    const server = summary('neoforge'), listing = { meta, data: { items: [], revision, writeSupported: false, installSupported: true } };
+    vi.mocked(api.addons).mockResolvedValue(listing); vi.mocked(api.server).mockResolvedValue({ meta, data: server });
+    vi.mocked(api.uploadAddon).mockResolvedValue(stagedModResponse('neoforge'));
+    vi.mocked(api.operation).mockResolvedValue({ meta, data: operation('running') }); show(server);
+    fireEvent.change(screen.getByLabelText('选择模组 JAR'), { target: { files: [new File(['jar'], 'multiple.jar')] } });
+    const open = await screen.findByRole('button', { name: '安装已校验模组' }); await waitFor(() => expect(open).toBeEnabled()); fireEvent.click(open);
+    const confirm = screen.getByRole('button', { name: '确认安装' }); expect(confirm).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: /接受未知兼容性/ })); fireEvent.click(confirm); fireEvent.click(confirm);
+    await waitFor(() => expect(api.installAddon).toHaveBeenCalledTimes(1));
+    expect(api.installAddon).toHaveBeenCalledWith('test', expect.objectContaining({ confirmUnknownCompatibility: true, inventoryRevision: revision }), expect.stringMatching(/^[a-f0-9-]{36}$/u));
+    expect(screen.getByLabelText('选择模组 JAR')).toBeDisabled(); expect(api.mutateAddon).not.toHaveBeenCalled();
+  });
+  it('locks a new-loader install with a lost response and never repeats its mutation', async () => {
+    const server = summary('neoforge'); vi.mocked(api.server).mockResolvedValue({ meta, data: server });
+    vi.mocked(api.addons).mockResolvedValue({ meta, data: { items: [], revision, writeSupported: false, installSupported: true } });
+    vi.mocked(api.uploadAddon).mockResolvedValue(stagedModResponse('neoforge')); vi.mocked(api.installAddon).mockRejectedValue(new ApiClientError('lost install response', 'network'));
+    show(server); fireEvent.change(screen.getByLabelText('选择模组 JAR'), { target: { files: [new File(['jar'], 'multiple.jar')] } });
+    const open = await screen.findByRole('button', { name: '安装已校验模组' }); await waitFor(() => expect(open).toBeEnabled()); fireEvent.click(open);
+    fireEvent.click(screen.getByRole('checkbox', { name: /接受未知兼容性/ })); fireEvent.click(screen.getByRole('button', { name: '确认安装' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '安装已校验模组' })).toBeDisabled());
+    expect(screen.getByLabelText('选择模组 JAR')).toBeDisabled(); expect(api.installAddon).toHaveBeenCalledTimes(1);
+  });
+  it('retains the accepted operation ID when installation is interrupted and locks all further changes', async () => {
+    const server = summary('neoforge'); vi.mocked(api.server).mockResolvedValue({ meta, data: server });
+    vi.mocked(api.addons).mockResolvedValue({ meta, data: { items: [], revision, writeSupported: false, installSupported: true } });
+    vi.mocked(api.uploadAddon).mockResolvedValue(stagedModResponse('neoforge'));
+    vi.mocked(api.operation).mockResolvedValue({ meta, data: operation('interrupted') }); show(server);
+    fireEvent.change(screen.getByLabelText('选择模组 JAR'), { target: { files: [new File(['jar'], 'multiple.jar')] } });
+    const open = await screen.findByRole('button', { name: '安装已校验模组' }); await waitFor(() => expect(open).toBeEnabled()); fireEvent.click(open);
+    fireEvent.click(screen.getByRole('checkbox', { name: /接受未知兼容性/ })); fireEvent.click(screen.getByRole('button', { name: '确认安装' }));
+    expect(await screen.findByText(/安装状态需要检查.*操作：operation-42/)).toBeInTheDocument();
+    expect(screen.getByLabelText('选择模组 JAR')).toBeDisabled(); expect(screen.getByRole('button', { name: '安装已校验模组' })).toBeDisabled();
+    expect(api.installAddon).toHaveBeenCalledTimes(1);
+  });
+  it.each(['forge', 'neoforge'] as const)('uploads %s into inert staging once, without changing installed mods or offering install', async type => {
+    vi.mocked(api.uploadAddon).mockResolvedValue(stagedModResponse(type));
+    vi.mocked(api.addons).mockResolvedValue({ meta, data: { items: [], revision, writeSupported: false } }); show(summary(type));
+    const input = screen.getByLabelText('选择模组 JAR'), file = new File(['jar'], 'multiple.jar');
+    fireEvent.change(input, { target: { files: [file] } }); fireEvent.change(input, { target: { files: [file] } });
+    expect(await screen.findByRole('heading', { name: '暂存校验通过，尚未安装' })).toBeInTheDocument();
+    expect(screen.getByLabelText('已校验暂存模组')).toHaveTextContent('未展开：${file.jarVersion}');
+    expect(api.uploadAddon).toHaveBeenCalledTimes(1); expect(api.uploadAddon).toHaveBeenCalledWith('test', file);
+    expect(screen.getByText('未发现模组 JAR 文件。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /安装|禁用|启用|回收/ })).not.toBeInTheDocument();
+    expect(api.installAddon).not.toHaveBeenCalled(); expect(api.mutateAddon).not.toHaveBeenCalled();
+  });
+  it('locks inert uploads after a lost response and never resends automatically', async () => {
+    vi.mocked(api.uploadAddon).mockRejectedValue(new ApiClientError('response lost', 'network')); show(summary('neoforge'));
+    const input = screen.getByLabelText('选择模组 JAR'), file = new File(['jar'], 'sample.jar');
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('暂存结果未知'); expect(input).toBeDisabled();
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(api.uploadAddon).toHaveBeenCalledTimes(1); expect(api.installAddon).not.toHaveBeenCalled();
+  });
+  it('discards the old-instance staged response when the selected server changes', async () => {
+    let finish!: (response: AddonUploadResponse) => void;
+    vi.mocked(api.uploadAddon).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const first = summary('neoforge'), second = { ...first, server: { ...first.server, id: 'second', name: 'Second instance' } };
+    const view = render(<QueryClientProvider client={client}><AddonsPage server={first} /></QueryClientProvider>);
+    fireEvent.change(screen.getByLabelText('选择模组 JAR'), { target: { files: [new File(['jar'], 'sample.jar')] } });
+    view.rerender(<QueryClientProvider client={client}><AddonsPage server={second} /></QueryClientProvider>);
+    await act(async () => finish(stagedModResponse('neoforge')));
+    expect(screen.queryByRole('heading', { name: '暂存校验通过，尚未安装' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('选择模组 JAR')).toBeEnabled();
+    expect(api.uploadAddon).toHaveBeenCalledTimes(1); client.clear();
+  });
+  it('displays each declared mod, unresolved versions and raw dependencies without claiming compatibility', async () => {
+    const item = { ...addon('mod'), name: null, loader: null, version: null, declaredMetadata: {
+      loader: 'neoforge' as const, source: 'META-INF/neoforge.mods.toml' as const, modLoader: 'javafml', loaderVersion: '[1,)',
+      mods: [{ id: 'first_mod', name: '第一个模组', version: '${file.jarVersion}', versionStatus: 'unresolved' as const, dependencies: [] },
+        { id: 'second_mod', name: '第二个模组', version: '2.0', versionStatus: 'declared' as const,
+          dependencies: [{ id: 'minecraft', versionRange: '[26.3,27)', side: 'SERVER' as const, requirement: 'required' as const }] }]
+    } };
+    vi.mocked(api.addons).mockResolvedValue({ meta, data: { items: [item], revision, writeSupported: false } });
+    show(summary('neoforge'));
+    expect(await screen.findByRole('heading', { name: '第一个模组' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '第二个模组' })).toBeInTheDocument();
+    expect(screen.getByText('声明版本：未展开：${file.jarVersion}')).toBeInTheDocument();
+    expect(screen.getByText(/minecraft · 声明范围：\[26.3,27\)/)).toBeInTheDocument();
+    expect(screen.getByText('未知')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('搜索文件名、模组名称或标识'), { target: { value: 'second_mod' } });
+    expect(screen.getByRole('heading', { name: item.filename })).toBeInTheDocument();
+    expect(api.installAddon).not.toHaveBeenCalled();
+  });
+  it('deduplicates StrictMode reads and keeps a late old-instance result out of the selected instance', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const first = summary('forge'), second = { ...first, server: { ...first.server, id: 'second', name: 'Second' } };
+    let completeFirst!: (response: AddonsResponse) => void;
+    vi.mocked(api.addons).mockImplementation(id => id === 'test' ? new Promise(resolve => { completeFirst = resolve; })
+      : Promise.resolve({ meta, data: { items: [{ ...addon('mod'), filename: 'second.jar', loader: null }], revision, writeSupported: false } }));
+    const view = render(<StrictMode><QueryClientProvider client={client}><AddonsPage server={first} /></QueryClientProvider></StrictMode>);
+    await waitFor(() => expect(api.addons).toHaveBeenCalledTimes(1));
+    expect(api.addons).toHaveBeenCalledWith('test');
+    view.rerender(<StrictMode><QueryClientProvider client={client}><AddonsPage server={second} /></QueryClientProvider></StrictMode>);
+    expect(await screen.findByRole('heading', { name: 'second.jar' })).toBeInTheDocument();
+    await act(async () => completeFirst({ meta, data: { items: [{ ...addon('mod'), filename: 'first.jar', loader: null }], revision, writeSupported: false } }));
+    expect(screen.queryByRole('heading', { name: 'first.jar' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'second.jar' })).toBeInTheDocument();
+    client.clear();
+  });
+  it('isolates managed-loader cache and hides same-ID cached files until the current read completes', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: 0 } } });
+    client.setQueryData(['addons', 'test'], addonsResponse());
+    client.setQueryData(['addons-readonly', 'test', 'forge', '26.2'], { meta, data: { items: [{ ...addon('mod'), filename: 'old-root.jar' }], revision, writeSupported: false } });
+    let complete!: (response: AddonsResponse) => void;
+    vi.mocked(api.addons).mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+    render(<QueryClientProvider client={client}><AddonsPage server={summary('forge')} /></QueryClientProvider>);
+    expect(screen.queryByRole('heading', { name: 'old-root.jar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'private-name.jar' })).not.toBeInTheDocument();
+    expect(screen.getByText('正在读取模组文件…')).toBeInTheDocument();
+    await waitFor(() => expect(api.addons).toHaveBeenCalledTimes(1));
+    await act(async () => complete({ meta, data: { items: [{ ...addon('mod'), filename: 'current-root.jar', loader: null, name: null }], revision, writeSupported: false } }));
+    expect(await screen.findByRole('heading', { name: 'current-root.jar' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'old-root.jar' })).not.toBeInTheDocument();
+  });
+  it.each(['forge', 'neoforge'] as const)('shows %s file inventory without enabling any mutation API', async type => {
+    const item = { ...addon('mod'), name: null, loader: null, version: null, metadataStatus: 'missing' as const };
+    vi.mocked(api.addons).mockResolvedValue({ meta, data: { items: [item], revision, writeSupported: false } });
+    show(summary(type));
+    expect(await screen.findByRole('heading', { name: '模组文件清单（只读）' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: item.filename })).toBeInTheDocument();
+    expect(screen.getByText(/元数据仅展示文件声明，不代表文件兼容/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '刷新清单' }).querySelector('svg')).not.toBeNull();
+    expect(screen.queryByLabelText('选择扩展 JAR 文件')).not.toBeInTheDocument();
+    expect(api.addonTrash).not.toHaveBeenCalled(); expect(api.server).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('搜索文件名、模组名称或标识'), { target: { value: 'no-match' } });
+    expect(screen.getByText('没有匹配的文件。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '刷新清单' }));
+    await waitFor(() => expect(api.addons).toHaveBeenCalledTimes(2));
+    expect(api.uploadAddon).not.toHaveBeenCalled(); expect(api.installAddon).not.toHaveBeenCalled(); expect(api.mutateAddon).not.toHaveBeenCalled(); expect(api.restoreAddon).not.toHaveBeenCalled();
+  });
   it('shows Paper plugins from backend capability data and never renders internal filename identity', async () => {
     show();
     expect(await screen.findByRole('heading', { name: 'Plugins' })).toBeInTheDocument();
