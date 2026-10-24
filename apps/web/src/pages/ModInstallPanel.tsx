@@ -1,5 +1,5 @@
 import type { AddonUploadResponse } from '@mcsm/contracts';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiClientError, errorMessage, shouldRetry } from '../api';
 
@@ -7,6 +7,7 @@ export function ModInstallPanel({ serverId, serverName, stage, revision, invento
   serverId: string; serverName: string; stage: AddonUploadResponse['data']; revision: string; inventoryFresh: boolean;
   locked: boolean; onBusy: (busy: boolean) => void; onUnknown: () => void; onInstalled: () => void;
 }) {
+  const client = useQueryClient();
   const [confirm, setConfirm] = useState(false), [ack, setAck] = useState(false);
   const [operationId, setOperationId] = useState<string>(), [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -30,7 +31,8 @@ export function ModInstallPanel({ serverId, serverName, stage, revision, invento
         setMessage('操作身份不匹配，结果未知，请保留证据。'); onUnknown(); return;
       }
       try {
-        const [listed, observed] = await Promise.all([api.addons(serverId), api.server(serverId)]);
+        const [listed, observed] = await Promise.all([client.fetchQuery({ queryKey: ['addons', serverId],
+          queryFn: () => api.addons(serverId), staleTime: 0 }), api.server(serverId)]);
         if (op.state === 'interrupted' || observed.data.status.recoveryRequired || op.error?.code.includes('RECOVERY_REQUIRED')) {
           setMessage('安装需要恢复检查，禁止重复提交；保护快照和暂存证据已保留。'); onUnknown(); return;
         }
@@ -44,7 +46,7 @@ export function ModInstallPanel({ serverId, serverName, stage, revision, invento
         }
       } catch { setMessage('操作已结束，但最新清单或状态未确认，结果未知，请勿重复安装。'); onUnknown(); }
     })();
-  }, [operation.data, operationId, serverId, stage.filename, stage.checksumSha256, onBusy, onUnknown, onInstalled]);
+  }, [operation.data, operationId, serverId, stage.filename, stage.checksumSha256, onBusy, onUnknown, onInstalled, client]);
   async function install() {
     if (submitting.current || !ready || !ack) return;
     submitting.current = true; setBusy(true); onBusy(true); setMessage('');

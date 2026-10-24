@@ -48,7 +48,8 @@ it.each(["forge", "neoforge"] as const)("discovers %s files without granting wri
   await writeFile(path.join(root, "mods", "sample.jar"), "invalid jar remains explicitly invalid");
   await writeFile(path.join(root, "disabled-mods", "other.jar"), "other bytes");
   const result = await new AddonInventory().read("test", root, type, true);
-  expect(addonProfile(type)).toBeNull(); expect(result.writeSupported).toBe(false);
+  expect(addonProfile(type)).toBeNull(); expect(result.writeSupported).toBe(true);
+  expect((await new AddonInventory().read('test', root, type, false)).writeSupported).toBe(false);
   expect(result.items).toHaveLength(2);
   expect(result.items.map(item => item.state).sort()).toEqual(["disabled", "enabled"]);
   expect(result.items.every(item => item.kind === "mod" && item.loader === null && item.name === null && item.compatibility === "unknown" && item.metadataStatus === "invalid")).toBe(true);

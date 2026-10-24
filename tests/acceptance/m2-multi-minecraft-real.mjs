@@ -24,9 +24,13 @@ import { hasRuntimeException } from './m2-runtime-exception-check.mjs';
 import { forgeSourcePreflight } from './forge-source-preflight.mjs';
 import { neoForgeSourcePreflight } from './neoforge-source-preflight.mjs';
 import { captureNeoForgeLaunchBinding } from '../../apps/api/src/services/neoforge-launch-binding.ts';
+import { buildMarkerMod } from './m3-build-marker-mod.mjs';
+import { TransactionJournalStore } from '../../apps/api/src/services/transaction-journal.ts';
 
 assert.equal(process.platform, 'win32');
 const loaderPair = process.env.LT_M2_LOADER_PAIR;
+const modLifecycle = process.env.LT_M3_REAL_LIFECYCLE === 'AUTHORIZED_FRESH_LOADER_MODS';
+if (modLifecycle) assert(['forge-vanilla', 'neoforge-vanilla'].includes(loaderPair));
 assert(loaderPair === undefined || loaderPair === 'paper-fabric' || loaderPair === 'forge-vanilla' || loaderPair === 'neoforge-vanilla', 'unsupported acceptance loader pair');
 const restartId = process.env.LT_M2_RESTART_TARGET ?? 'm2-a';
 assert(['m2-a', 'm2-b'].includes(restartId));
@@ -142,6 +146,7 @@ try {
         assert.equal((await readPrivatePropertiesFile(destination, 64 * 1024 ** 2)).checksum, entry.sha256);
       }
       await mkdir(path.join(root, manifest.kind === 'paper' ? 'plugins' : 'mods'));
+      if (modLifecycle && index === 0) await mkdir(path.join(root, 'disabled-mods'));
       if (manifest.kind === 'neoforge') await writeFile(path.join(root, 'eula.txt'), inputs['eula.txt'], { flag: 'wx' });
     } else {
       for (const [name, bytes] of Object.entries(inputs)) await writeFile(path.join(root, name), bytes, { flag: 'wx' });
@@ -185,7 +190,84 @@ try {
     report.detectedServers.push({ id: info.id, type: info.type, minecraftVersion: info.minecraftVersion, javaVersion: info.java.runtimeVersion });
   }
   app = buildApp({ mode: 'local', adapters, managerRoot: evidence, localRuntimeFactory: factory,
+    ...(modLifecycle ? { transactionJournal: new TransactionJournalStore(evidence) } : {}),
     activeWorldState: new ActiveWorldStateStore(evidence, adapters), operationStore: new JsonOperationStore(evidence), backupSchedulerTimers: false }); await app.ready();
+  await app.managerRecovery.wait();
+  report.startupStages = app.managerRecovery.stages;
+  if (modLifecycle) {
+    report.modLifecycle = { result: 'BLOCKED', phases: [], managerReplay: false };
+    const built = await buildMarkerMod({ manifest: manifests[0], javaExecutable: source.javaExecutable, evidence, runId });
+    report.modLifecycle.markerSha256 = built.sha256; report.modLifecycle.sourceSha256 = built.sourceSha256;
+    const accepted = await app.inject({ method: 'POST', url: '/api/v1/servers/m2-a/addons/uploads',
+      headers: { ...headers, 'content-type': 'application/java-archive', 'x-upload-filename': 'lt-m3-marker.jar' }, payload: built.bytes });
+    assert.equal(accepted.statusCode, 201, `upload:${accepted.json().error?.code}`);
+    const stage = accepted.json().data;
+    const poll = async operation => {
+      const deadline = Date.now() + 180000;
+      while (Date.now() < deadline) {
+        const current = await request(`/api/v1/operations/${operation.id}`);
+        if (['succeeded', 'failed', 'interrupted'].includes(current.state)) { assert.equal(current.state, 'succeeded', current.error?.code); return current; }
+        await sleep(300);
+      }
+      throw new Error('mod-operation-deadline');
+    };
+    const before = await request('/api/v1/servers/m2-a/addons');
+    const installed = await request('/api/v1/servers/m2-a/addons/install', { uploadId: stage.id, uploadRevision: stage.revision,
+      inventoryRevision: before.revision, confirmUnknownCompatibility: true });
+    await poll(installed.operation); assert.equal(children.length, 0, 'install must not implicitly launch');
+    await action('m2-b', 'start'); await verify('m2-b', 222222);
+    const loaded = async (phase, expected) => {
+      await action('m2-a', 'start'); await verify('m2-a', 111111);
+      const child = children.filter(row => row.id === 'm2-a').at(-1);
+      assert.equal((child.stdout + child.stderr).includes(built.marker), expected, `${phase}:actual marker load/omission`);
+      await verify('m2-b', 222222); await action('m2-a', 'stop');
+      assert.equal(child.exitCode, 0); assert.equal(child.exitSignal, null); assert.equal(child.closed, true);
+      report.modLifecycle.phases.push({ phase, expectedLoaded: expected, markerObserved: expected, exitCode: child.exitCode, exitSignal: child.exitSignal });
+    };
+    const mutate = async actionName => {
+      const list = await request('/api/v1/servers/m2-a/addons');
+      const item = list.items.find(item => item.filename === 'lt-m3-marker.jar'); assert(item);
+      const count = children.length, key = randomUUID(), body = { revision: list.revision,
+        ...(actionName === 'enable' ? { confirmUnknownCompatibility: true } : {}) };
+      const url = `/api/v1/servers/m2-a/addons/${item.id}/${actionName}`;
+      const response = await request(url, body, key); await poll(response.operation);
+      assert.equal((await request(url, body, key)).operation.id, response.operation.id);
+      assert.equal(children.length, count, 'lifecycle must not implicitly launch');
+      return response.operation;
+    };
+    const restore = async expectedState => {
+      const count = children.length;
+      const list = await request('/api/v1/servers/m2-a/addons/trash');
+      const item = list.items.find(item => item.filename === 'lt-m3-marker.jar'); assert.equal(item?.originalState, expectedState);
+      assert.equal(item.declaredMetadata.loader, manifests[0].kind);
+      const response = await request(`/api/v1/servers/m2-a/addons/trash/${item.id}/restore`, { revision: list.revision,
+        ...(expectedState === 'enabled' ? { confirmUnknownCompatibility: true } : {}) });
+      await poll(response.operation);
+      assert.equal(children.length, count, 'restore must not implicitly launch');
+    };
+    await loaded('installed', true);
+    await mutate('disable'); await loaded('disabled', false);
+    await mutate('enable'); await loaded('enabled', true);
+    await mutate('trash'); await loaded('trashed-enabled', false);
+    await restore('enabled'); await loaded('restored-enabled', true);
+    await mutate('disable'); await mutate('trash'); await restore('disabled'); await loaded('restored-disabled', false);
+    await mutate('enable'); await action('m2-b', 'stop');
+    const count = children.length; await app.close(); app = undefined;
+    const reopened = await createLocalAdapters(evidence, factory);
+    app = buildApp({ mode: 'local', adapters: reopened, managerRoot: evidence, localRuntimeFactory: factory,
+      transactionJournal: new TransactionJournalStore(evidence),
+      activeWorldState: new ActiveWorldStateStore(evidence, reopened), operationStore: new JsonOperationStore(evidence), backupSchedulerTimers: false }); await app.ready();
+    await app.managerRecovery.wait(); report.reconstructionStages = app.managerRecovery.stages;
+    assert.equal(children.length, count);
+    const state = (await request('/api/v1/servers/m2-a')).status;
+    assert.equal(state.state, 'stopped'); assert.equal(state.recoveryRequired, false); assert.equal(state.activeOperationId, null);
+    assert.equal((await request(`/api/v1/operations/${installed.operation.id}`)).state, 'succeeded');
+    assert.equal((await request('/api/v1/servers/m2-a/addons/trash')).items.length, 0);
+    assert.equal(hash(await readFile(path.join(registrations[0].root, 'mods/lt-m3-marker.jar'))), built.sha256);
+    report.modLifecycle.managerReplay = true; report.modLifecycle.replayScope = 'same-process app/adapter/store reconstruction';
+    report.modLifecycle.osProcessRestart = 'NOT_RUN'; report.modLifecycle.result = 'PASS';
+    checks.push('actual local marker mod install/disable/enable/trash/both restore states; peer isolation and same-process Manager reconstruction');
+  } else {
   const startKey = randomUUID(); const starts = await Promise.allSettled([action('m2-a', 'start', startKey), action('m2-b', 'start', startKey)]);
   assert(starts.every(row => row.status === 'fulfilled'), 'parallel start did not reach two succeeded operations');
   assert.notEqual(starts[0].value.id, starts[1].value.id); assert.equal(children.length, 2);
@@ -199,6 +281,7 @@ try {
   checks.push(`${restartId} restart preserves its world seed; peer remains original live generation; replay does not launch`);
   await action('m2-a', 'stop'); await verify('m2-b', 222222); await action('m2-b', 'stop');
   checks.push('stopping A leaves B responsive; explicit normal shutdown for both');
+  }
   for (const registration of registrations) {
     const crashes = await readdir(path.join(registration.root, 'crash-reports')).catch(error => { if (error.code === 'ENOENT') return []; throw error; }); assert.equal(crashes.length, 0);
     assert((await lstat(path.join(registration.root, 'world/level.dat'))).isFile());

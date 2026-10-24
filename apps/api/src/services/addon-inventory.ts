@@ -23,6 +23,10 @@ export function addonProfile(type: ServerType): { kind: AddonKind; enabled: stri
 export function addonInstallProfile(type: ServerType): { kind: AddonKind; enabled: string; disabled: string } | null {
   return addonProfile(type) ?? (type === 'forge' || type === 'neoforge' ? { kind: 'mod', enabled: 'mods', disabled: 'disabled-mods' } : null);
 }
+/** Lifecycle policy is independent of staging/consumption admission. */
+export function addonLifecycleProfile(type: ServerType) {
+  return addonInstallProfile(type);
+}
 export function safeAddonFilename(name: string): boolean {
   return name.length > 4 && name.length <= 200 && /\.jar$/iu.test(name) &&
     name === name.normalize("NFC") && !/[\\/:<>"|?*\u0000-\u001f\u007f]/u.test(name) &&
@@ -128,7 +132,8 @@ export class AddonInventory {
       const fileIdentities = files.map((captured) => ({ relativePath: path.relative(registeredRoot, captured.file).split(path.sep).join("/"),
         identity: captured.identity, checksum: captured.checksum })).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
       return { items: entries, revision: createHmac("sha256", this.#key).update(JSON.stringify({ serverId, rootIdentity, identities, entries, fileIdentities })).digest("hex"),
-        writeSupported: lifecycleAvailable && writeProfile !== null,
+        writeSupported: lifecycleAvailable && addonLifecycleProfile(type) !== null &&
+          (writeProfile !== null || identities.every(directory => directory.identity !== null)),
         ...(type === 'forge' || type === 'neoforge' ? { installSupported: lifecycleAvailable } : {}) };
     } catch (error) {
       if (error instanceof DomainError) throw error;

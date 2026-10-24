@@ -147,6 +147,23 @@ afterEach(async () => {
 });
 
 describe("LocalMinecraftRuntime", () => {
+  it('refreshes repeated actual observations without duplicate transition events or stale stream snapshots', async () => {
+    const root = await fixtureRoot(); let nowMs = Date.parse('2026-10-24T00:00:00Z');
+    let probe: 'stopped' | 'unknown' = 'stopped';
+    const runtime = new LocalMinecraftRuntime(plan(root, ''), { now: () => new Date(nowMs), statusProbe: async () => probe });
+    const events: string[] = []; runtime.subscribe(event => { if (event.type === 'status') events.push(event.status.state); });
+    try {
+      await runtime.initialize(); const before = await runtime.streamSnapshot(), eventCount = events.length;
+      nowMs += 20_000;
+      expect((await runtime.snapshot()).status).toMatchObject({ state: 'stopped', ownership: 'none', observedAt: new Date(nowMs).toISOString() });
+      const fresh = await runtime.streamSnapshot();
+      expect(fresh.status.observedAt).toBe(new Date(nowMs).toISOString());
+      expect(fresh.latestSequence).toBe(before.latestSequence); expect(events).toHaveLength(eventCount);
+      nowMs += 20_000; probe = 'unknown';
+      expect((await runtime.snapshot()).status).toMatchObject({ state: 'unknown', ownership: 'unknown', observedAt: new Date(nowMs).toISOString() });
+      expect(children.size).toBe(0);
+    } finally { await runtime.closeObserver(); }
+  });
   async function ready(runtime: Awaited<ReturnType<LocalRuntimeFactory['create']>>, root: string) {
     const before = new Set(children), starting = runtime.start(operation());
     await vi.waitFor(() => expect([...children].some(child => !before.has(child))).toBe(true));

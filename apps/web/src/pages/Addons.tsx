@@ -20,6 +20,7 @@ export type AddonViewModel = {
   readonly metadata: string;
   readonly minecraft: string;
   readonly sizeBytes: number;
+  readonly loaderLabel?: string;
   readonly trashId?: string;
 };
 export type UploadUiState = { readonly kind: 'idle' } | { readonly kind: 'uploading' } |
@@ -51,7 +52,9 @@ function toTrashView(item: TrashRecord): AddonViewModel {
     minecraft: item.minecraftConstraint?.join(', ') ?? '未知', sizeBytes: item.sizeBytes };
 }
 
-function ActionConfirmation({ target, busy, onCancel, onConfirm }: { target: ConfirmTarget; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+function ActionConfirmation({ target, busy, onCancel, onConfirm, acknowledgementRequired = false, loaderLabel }: {
+  target: ConfirmTarget; busy: boolean; onCancel: () => void; onConfirm: () => void; acknowledgementRequired?: boolean; loaderLabel?: string | undefined }) {
+  const [acknowledged, setAcknowledged] = useState(false);
   const dialog = useRef<HTMLElement>(null);
   useEffect(() => { dialog.current?.focus(); }, []);
   const title = target.action === 'install' ? '确认安装' : target.action === 'disable' ? '确认禁用' : target.action === 'enable' ? '确认启用' : target.action === 'trash' ? '移到回收区' : '确认恢复';
@@ -59,7 +62,7 @@ function ActionConfirmation({ target, busy, onCancel, onConfirm }: { target: Con
   const keyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape' && !busy) { event.preventDefault(); onCancel(); }
     if (event.key === 'Tab') {
-      const buttons = dialog.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])');
+      const buttons = dialog.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])');
       if (!buttons?.length) return;
       if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons[buttons.length - 1]?.focus(); }
       else if (!event.shiftKey && document.activeElement === buttons[buttons.length - 1]) { event.preventDefault(); buttons[0]?.focus(); }
@@ -68,21 +71,31 @@ function ActionConfirmation({ target, busy, onCancel, onConfirm }: { target: Con
   return <div className="addon-dialog-backdrop"><section ref={dialog} className="confirm-dialog addon-confirm" role="alertdialog" aria-modal="true"
     aria-labelledby="addon-confirm-title" aria-describedby="addon-confirm-description" tabIndex={-1} onKeyDown={keyDown}>
     <h2 id="addon-confirm-title">{title}</h2>
-    <p id="addon-confirm-description"><strong>{record.name}</strong> · {record.version} · {record.kind === 'plugin' ? 'Paper 插件' : 'Fabric 模组'}</p>
+    <p id="addon-confirm-description"><strong>{record.name ?? record.filename}</strong> · {record.version} · {loaderLabel ?? (record.kind === 'plugin' ? 'Paper 插件' : 'Fabric 模组')}</p>
     {target.action === 'install' ? <p>目标：{record.loader === 'paper' ? 'Paper' : 'Fabric'}。安装会创建保护快照；之后需要重启才能生效。</p> : null}
     {target.action === 'disable' || target.action === 'enable' ? <p>服务端必须已停止。操作不会自动停服或重启。</p> : null}
     {target.action === 'trash' ? <p>扩展会移入回收区，可恢复，不会永久删除。需要重启才能生效。</p> : null}
     {target.action === 'restore' ? <p>将恢复为原先的{target.item.originalState === 'enabled' ? '启用' : '禁用'}状态。目标冲突时会停止并保留回收记录。</p> : null}
+    {'declaredMetadata' in record && record.declaredMetadata ? <section aria-label="本次操作的模组声明" style={{ overflowWrap: 'anywhere' }}>
+      <p>声明来源：{record.declaredMetadata.source}；兼容性未验证。</p>
+      <p>语言加载器：{record.declaredMetadata.modLoader}；原始加载器范围：{record.declaredMetadata.loaderVersion ?? '未声明'}</p>
+      {record.declaredMetadata.mods.map(mod => <div key={mod.id}><strong>{mod.name} · {mod.id}</strong>
+        <p>声明版本：{mod.versionStatus === 'unresolved' ? '未展开：' : ''}{mod.version ?? '未声明'}</p>
+        <ul>{mod.dependencies.map((dependency, index) => <li key={`${dependency.id}-${index}`}>{dependency.id} · {dependency.versionRange ?? '范围未声明'} · {dependency.requirement} · {dependency.side}</li>)}</ul>
+      </div>)}
+    </section> : null}
+    {acknowledgementRequired ? <label><input type="checkbox" checked={acknowledged} disabled={busy}
+      onChange={event => setAcknowledged(event.currentTarget.checked)} />我已确认模组兼容性、依赖和第三方代码风险尚未验证，仍要启用该文件。</label> : null}
     <div className="confirm-dialog__actions">
       <button className="button button--secondary" disabled={busy} onClick={onCancel}>取消</button>
-      <button className="button button--primary" disabled={busy} onClick={onConfirm}>{busy ? '正在提交…' : '确认操作'}</button>
+      <button className="button button--primary" disabled={busy || acknowledgementRequired && !acknowledged} onClick={onConfirm}>{busy ? '正在提交…' : '确认操作'}</button>
     </div>
   </section></div>;
 }
 
 function AddonCard({ item, busy, disabledReason, onAction }: { item: AddonViewModel; busy: boolean; disabledReason: string; onAction: (action: 'disable' | 'enable' | 'trash' | 'restore') => void }) {
-  return <article className="addon-card">
-    <div className="addon-card__title"><div><h3>{item.name}</h3><p>{item.kind === 'plugin' ? 'Paper Plugin' : 'Fabric Mod'} · {item.version}</p></div>
+  return <article className="addon-card" aria-label={item.loaderLabel ? `${item.name} 管理操作` : undefined}>
+    <div className="addon-card__title"><div><h3>{item.name}{item.loaderLabel ? ' · 管理操作' : ''}</h3><p>{item.loaderLabel ?? (item.kind === 'plugin' ? 'Paper Plugin' : 'Fabric Mod')} · {item.version}</p></div>
       <span className={`addon-state addon-state--${item.state}`}>{item.state === 'installed' ? '已启用' : item.state === 'disabled' ? '已禁用' : '回收区'}</span></div>
     <dl className="addon-card__details"><div><dt>兼容性</dt><dd>{item.compatibility}</dd></div><div><dt>Minecraft 版本约束</dt><dd>{item.minecraft}</dd></div>
       <div><dt>元数据</dt><dd>{item.metadata}</dd></div><div><dt>文件大小</dt><dd>{sizeLabel(item.sizeBytes)}</dd></div></dl>
@@ -97,11 +110,14 @@ function AddonCard({ item, busy, disabledReason, onAction }: { item: AddonViewMo
 }
 
 export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
-  if (server?.server.type === 'forge' || server?.server.type === 'neoforge') return <ReadonlyModsPage key={`${server.server.id}:${server.server.type}:${server.server.minecraftVersion}`} server={server} />;
+  if (server?.server.type === 'forge' || server?.server.type === 'neoforge') return <ReadonlyModsPage
+    key={`${server.server.id}:${server.server.type}:${server.server.minecraftVersion}`} server={server}
+    renderLifecycle={server.capabilities.mods ? (locked, onBusy) => <ManagedAddonsPage server={server} lifecycleOnly externalBusy={locked} onLifecycleBusy={onBusy} /> : undefined} />;
   return <ManagedAddonsPage server={server} />;
 }
 
-function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
+function ManagedAddonsPage({ server, lifecycleOnly = false, externalBusy = false, onLifecycleBusy }: {
+  server?: ServerSummary | undefined; lifecycleOnly?: boolean; externalBusy?: boolean; onLifecycleBusy?: (busy: boolean) => void }) {
   const serverId = server?.server.id;
   const client = useQueryClient();
   const [staged, setStaged] = useState<StagedAddon | null>(null);
@@ -119,12 +135,13 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
   const submissionInFlight = useRef(false);
 
   const supportedKind = server?.server.type === 'paper' && server.capabilities.plugins ? 'plugin'
-    : server?.server.type === 'fabric' && server.capabilities.mods ? 'mod' : null;
+    : (server?.server.type === 'fabric' || lifecycleOnly) && server?.capabilities.mods ? 'mod' : null;
+  const extended = server?.server.type === 'forge' || server?.server.type === 'neoforge';
   const supported = supportedKind !== null;
   const title = supportedKind === 'plugin' ? 'Plugins' : supportedKind === 'mod' ? 'Mods' : 'Mods / Plugins';
-  const inventory = useQuery({ queryKey: ['addons', serverId], queryFn: ({ signal }) => api.addons(serverId!, signal),
+  const inventory = useQuery({ queryKey: ['addons', serverId], queryFn: lifecycleOnly ? () => api.addons(serverId!) : ({ signal }) => api.addons(serverId!, signal),
     enabled: Boolean(serverId && supported), retry: shouldRetry, refetchOnWindowFocus: false });
-  const trash = useQuery({ queryKey: ['addon-trash', serverId], queryFn: ({ signal }) => api.addonTrash(serverId!, signal),
+  const trash = useQuery({ queryKey: ['addon-trash', serverId], queryFn: lifecycleOnly ? () => api.addonTrash(serverId!) : ({ signal }) => api.addonTrash(serverId!, signal),
     enabled: Boolean(serverId && supported), retry: shouldRetry, refetchOnWindowFocus: false });
   const status = useQuery({ queryKey: ['server', serverId], queryFn: ({ signal }) => api.server(serverId!, signal),
     enabled: Boolean(serverId && supported), retry: false, refetchInterval: 5_000, refetchIntervalInBackground: false });
@@ -133,7 +150,7 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
   const activeOperation = current?.status.activeOperationId ?? null;
   const age = current ? Date.now() - Date.parse(current.status.observedAt) : Infinity;
   const statusFresh = Boolean(current && age >= 0 && age <= 15_000 && !status.isError && !status.isFetching);
-  const mutationReady = Boolean(statusFresh && current?.status.state === 'stopped' && current.status.ownership === 'none' &&
+  const mutationReady = Boolean(!externalBusy && statusFresh && current?.status.state === 'stopped' && current.status.ownership === 'none' &&
     !recovery && !activeOperation && current.readiness.addonChanges.allowed && inventory.data?.data.writeSupported && !inventory.isError && !inventory.isFetching);
   const inventoryFresh = Boolean(inventory.data && !inventory.isError && !inventory.isFetching);
   const upload = useMutation({ mutationFn: (file: File) => api.uploadAddon(serverId!, file), retry: false });
@@ -151,13 +168,17 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
     }
     if (action.action === 'restore') {
       if (!trash.data) throw new Error('回收区版本已失效，请刷新并重新确认。');
-      return api.restoreAddon(serverId!, action.item.id, { revision: trash.data.data.revision }, request.key);
+      return api.restoreAddon(serverId!, action.item.id, { revision: trash.data.data.revision,
+        ...(extended && action.item.originalState === 'enabled' ? { confirmUnknownCompatibility: true as const } : {}) }, request.key);
     }
     if (!inventory.data) throw new Error('扩展列表版本已失效，请刷新并重新确认。');
-    return api.mutateAddon(serverId!, action.item.id, action.action, { revision: inventory.data.data.revision }, request.key);
+    return api.mutateAddon(serverId!, action.item.id, action.action, { revision: inventory.data.data.revision,
+      ...(extended && action.action === 'enable' ? { confirmUnknownCompatibility: true as const } : {}) }, request.key);
   }, retry: false });
-  const addonItems = useMemo(() => inventory.data?.data.items.map(toAddonView) ?? [], [inventory.data]);
-  const trashItems = useMemo(() => trash.data?.data.items.map(toTrashView) ?? [], [trash.data]);
+  const addonItems = useMemo(() => inventory.data?.data.items.map(item => ({ ...toAddonView(item),
+    ...(extended ? { name: item.filename, loaderLabel: `${server?.server.type.toUpperCase()} Mod` } : {}) })) ?? [], [inventory.data, extended, server?.server.type]);
+  const trashItems = useMemo(() => trash.data?.data.items.map(item => ({ ...toTrashView(item),
+    ...(extended ? { name: item.filename, loaderLabel: `${server?.server.type.toUpperCase()} Mod` } : {}) })) ?? [], [trash.data, extended, server?.server.type]);
 
   useEffect(() => {
     if (!operationId && safeOperationId(activeOperation)) setOperationId(activeOperation);
@@ -174,7 +195,7 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
     }
     if (!terminal(operation.state) || terminalHandled.current.has(operation.id)) return;
     terminalHandled.current.add(operation.id);
-    void Promise.all([inventory.refetch(), trash.refetch(), status.refetch()]).then(([listResult, trashResult, statusResult]) => {
+    void Promise.all([inventory.refetch({ cancelRefetch: false }), trash.refetch({ cancelRefetch: false }), status.refetch({ cancelRefetch: false })]).then(([listResult, trashResult, statusResult]) => {
       const needsRecovery = operation.state === 'interrupted' || operation.error?.code?.includes('RECOVERY_REQUIRED') || statusResult.data?.data.status.recoveryRequired;
       if (needsRecovery) {
         setOperationState({ kind: 'recovery-required', operation, message: '操作中断或需要恢复核验。文件和保护证据由后端保留；禁止重试其他扩展变更。' });
@@ -193,11 +214,11 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
       }
       void client.invalidateQueries({ queryKey: ['servers'] });
     });
-  }, [operation, operationId, serverId, inventory, trash, status, client, pendingAction]);
+  }, [operation, operationId, serverId, inventory, trash, status, client, pendingAction, lifecycleOnly]);
 
   const recoveryRequired = recovery || uploadUnknown || operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown';
   const blockedReason = recoveryRequired ? '恢复状态需要核验，扩展变更已锁定。'
-    : activeOperation ? '当前实例有其他操作正在进行。'
+    : externalBusy ? '正在上传或安装，请等待操作结果。' : activeOperation ? '当前实例有其他操作正在进行。'
       : !statusFresh ? '服务器状态尚未确认，请刷新后再操作。'
         : current?.status.state !== 'stopped' ? '请先在 Servers 页面明确停止服务端；扩展操作不会自动停服。'
           : current.status.ownership !== 'none' ? '服务端进程所有权尚未确认。'
@@ -205,7 +226,9 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
               : !inventoryFresh ? '扩展列表刷新完成前不能确认或提交变更。' : '';
   const mutationBusy = recoveryRequired || actionMutation.isPending || operationState.kind === 'submitting' || operationState.kind === 'accepted' ||
     operationState.kind === 'running';
-  const uploadBusy = upload.isPending || mutationBusy || Boolean(confirmation);
+  const uploadBusy = externalBusy || upload.isPending || mutationBusy || Boolean(confirmation);
+  useEffect(() => { onLifecycleBusy?.(mutationBusy || Boolean(confirmation) || lifecycleOnly && trash.isFetching);
+    return () => onLifecycleBusy?.(false); }, [onLifecycleBusy, mutationBusy, confirmation, lifecycleOnly, trash.isFetching]);
   const uploadAdmissionBlocked = uploadBusy || uploadUnknown || recoveryRequired || Boolean(activeOperation);
 
   function selectFile(file?: File) {
@@ -248,14 +271,16 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
     <EmptyState title="此实例不支持 Mods / Plugins" description={`${server.server.type.toUpperCase()} 实例没有已开放的 Paper 插件或 Fabric 模组能力。`} /></div>;
 
   return <div className="page-stack addons-page">
-    <PageHeading eyebrow="ADDON MANAGEMENT" title={title} description={`${server.server.name} · ${server.server.type.toUpperCase()} · ${server.server.minecraftVersion ?? '版本未知'}`}
-      aside={<button className="button button--secondary" onClick={() => void refreshAll()} disabled={inventory.isFetching || trash.isFetching || status.isFetching}><RefreshCw size={16} aria-hidden="true" />刷新状态</button>} />
+    {lifecycleOnly ? <div className="addon-section-heading"><h2>模组生命周期管理</h2><button className="button button--secondary"
+      onClick={() => void refreshAll()} disabled={inventory.isFetching || trash.isFetching || status.isFetching}>刷新操作状态</button></div>
+      : <PageHeading eyebrow="ADDON MANAGEMENT" title={title} description={`${server.server.name} · ${server.server.type.toUpperCase()} · ${server.server.minecraftVersion ?? '版本未知'}`}
+      aside={<button className="button button--secondary" onClick={() => void refreshAll()} disabled={inventory.isFetching || trash.isFetching || status.isFetching}><RefreshCw size={16} aria-hidden="true" />刷新状态</button>} />}
     {recoveryRequired ? <section className="addon-banner addon-banner--danger" role="alert"><strong>需要恢复核验，变更已锁定</strong><p>保留旧操作和证据。这里只能刷新状态，不能重试或开始新的扩展变更。</p></section> : null}
     {blockedReason && !recoveryRequired ? <section className="addon-banner" role="status">{blockedReason}</section> : null}
     {restartRequired ? <section className="addon-banner addon-banner--restart" role="status"><strong>Restart required</strong><p>扩展变更已完成，需要重启才能生效。管理器不会自动重启服务器。</p>
       <a className="button button--secondary" href={`/servers?server=${encodeURIComponent(serverId!)}`}>前往 Servers 手动重启</a></section> : null}
 
-    <section className="panel addon-upload">
+    {!lifecycleOnly ? <section className="panel addon-upload">
       <div className="addon-section-heading"><div><span className="eyebrow">VALIDATED STAGING</span><h2>上传 .jar</h2></div><Upload size={20} aria-hidden="true" /></div>
       <p className="muted">上传后由后端检查 JAR 结构和扩展元数据。校验通过才可安装；上传不会自动安装、停服或重启。</p>
       <div className={`addon-dropzone ${dropActive ? 'addon-dropzone--active' : ''}`} aria-disabled={uploadAdmissionBlocked} onDragEnter={(event) => { event.preventDefault(); if (!uploadAdmissionBlocked && !uploadInFlight.current && !submissionInFlight.current) setDropActive(true); }}
@@ -275,9 +300,9 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
         <button className="button button--primary" disabled={!mutationReady || mutationBusy || uploadUnknown} title={blockedReason || undefined}
           onClick={() => requestAction({ action: 'install', item: staged })}>安装扩展</button>
       </article> : null}
-    </section>
+    </section> : null}
 
-    <section className="panel page-stack"><div className="addon-section-heading"><div><span className="eyebrow">CURRENT INVENTORY</span><h2>已安装扩展</h2></div><span className="count-badge">{inventoryFresh ? addonItems.length : '—'}</span></div>
+    <section className="panel page-stack"><div className="addon-section-heading"><div><span className="eyebrow">CURRENT INVENTORY</span><h2>{lifecycleOnly ? '已保存模组的管理操作' : '已安装扩展'}</h2></div><span className="count-badge">{inventoryFresh ? addonItems.length : '—'}</span></div>
       {inventory.isPending && !inventory.data ? <p role="status">正在读取扩展列表…</p> : inventory.isError ? <ErrorState description={`无法确认当前扩展状态：${errorMessage(inventory.error)}。旧列表不会显示为当前状态。`} retry={() => void inventory.refetch()} />
         : !inventory.data ? <EmptyState title="扩展状态不可用" description="尚未取得后端确认的扩展清单。" /> : !inventoryFresh ? <p role="status">正在刷新；缓存内容暂不显示为当前状态。</p>
           : addonItems.length === 0 ? <EmptyState title="没有已安装扩展" description="后端确认当前启用与禁用目录中没有 JAR。暂存文件不会显示为已安装。" icon={<Boxes size={24} />} />
@@ -301,6 +326,7 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
 
     {operationId || operationState.kind === 'failed' || operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown' ? <section className={`addon-banner ${operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown' || operationState.kind === 'failed' ? 'addon-banner--danger' : ''}`}
       role={operationState.kind === 'failed' || operationState.kind === 'recovery-required' || operationState.kind === 'outcome-unknown' ? 'alert' : 'status'} aria-live="polite">
+      {operationId ? <p>操作编号：{operationId}</p> : null}
       <strong>{operationState.kind === 'accepted' ? '请求已受理，尚未确认完成' : operationState.kind === 'running' ? '扩展操作进行中' : operationState.kind === 'succeeded' ? '操作完成，列表已刷新' : operationState.kind === 'failed' ? '扩展操作失败' : operationState.kind === 'recovery-required' ? '操作需要恢复核验' : operationState.kind === 'outcome-unknown' ? '请求结果未确认' : '正在读取操作结果'}</strong>
       {operation ? <p>{operation.step} · {operation.progress === null ? '进度未知' : `${operation.progress}%`}{operation.result?.restartRequired ? ' · 需要重启才能生效' : ''}</p> : null}
       {operation?.error ? <p>{operation.error.code}: {operation.error.message}</p> : null}
@@ -308,7 +334,10 @@ function ManagedAddonsPage({ server }: { server?: ServerSummary | undefined }) {
       {operationQuery.isError ? <p role="alert">无法读取操作结果，当前状态未确认；不要重复提交。<button className="button button--secondary" onClick={() => void operationQuery.refetch()}>刷新操作</button></p> : null}
     </section> : null}
     {actionMutation.isError && operationState.kind === 'idle' ? <p role="alert" className="inline-warning">{errorMessage(actionMutation.error)}</p> : null}
-    {confirmation ? <ActionConfirmation target={confirmation} busy={actionMutation.isPending} onCancel={() => { setConfirmation(null); setOperationState({ kind: 'idle' }); }} onConfirm={() => {
+    {confirmation ? <ActionConfirmation target={confirmation} busy={actionMutation.isPending}
+      loaderLabel={extended ? server.server.type.toUpperCase() : undefined}
+      acknowledgementRequired={extended && (confirmation.action === 'enable' || confirmation.action === 'restore' && confirmation.item.originalState === 'enabled')}
+      onCancel={() => { setConfirmation(null); setOperationState({ kind: 'idle' }); }} onConfirm={() => {
       if (!serverId || !mutationReady || recoveryRequired || submissionInFlight.current || uploadInFlight.current || actionMutation.isPending) return;
       submissionInFlight.current = true;
       const next = { action: confirmation, key: crypto.randomUUID() } satisfies PendingAction;

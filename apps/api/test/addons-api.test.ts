@@ -51,7 +51,8 @@ it.each(["forge", "neoforge"] as const)("serves registered %s inventory read-onl
     // Inert upload is now available only after registered execution identity verification.
     expect(mutations[0]!.statusCode).toBe(409); expect(mutations[0]!.json().error.code).toBe('ADDON_ADAPTER_UNTRUSTED');
     expect(mutations[1]!.statusCode).toBe(409); expect(mutations[1]!.json().error.code).toBe('ADDON_ADAPTER_UNTRUSTED');
-    expect(mutations[2]!.statusCode).toBe(501);
+    expect(mutations[2]!.statusCode).toBe(409);
+    expect(mutations[2]!.json().error.code).toBe('ADDON_ADAPTER_UNTRUSTED');
     expect(await readFile(path.join(root, "mods", "sample.jar"))).toEqual(addonZip("fabric.mod.json", JSON.stringify({ schemaVersion: 1, id: "sample", name: "Not a Forge claim", version: "1" })));
     expect((await readdir(root)).sort()).toEqual(["mods"]); expect(await readdir(path.join(root, "mods"))).toEqual(["sample.jar"]);
     expect((await readdir(manager)).sort()).toEqual(managerBefore);

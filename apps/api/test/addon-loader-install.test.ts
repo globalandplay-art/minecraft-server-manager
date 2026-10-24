@@ -7,6 +7,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { LocalMinecraftServerAdapter } from '../src/adapters/contract.js';
 import { AdapterRegistry } from '../src/adapters/registry.js';
 import { AddonInstallService } from '../src/services/addon-install-service.js';
+import { AddonLifecycleService } from '../src/services/addon-lifecycle-service.js';
 import { AddonUploadService } from '../src/services/addon-upload-service.js';
 import { AddonInventory } from '../src/services/addon-inventory.js';
 import { BackupService } from '../src/services/backup-service.js';
@@ -188,6 +189,53 @@ it.each(loaders.flatMap(loader => (['paper', 'fabric', null] as const).map(repla
     expect((await f.journal.scan()).records).toEqual(originalJournal.records);
     expect(await readFile(path.join(f.serverRoot, 'mods/incoming.jar'))).toEqual(f.bytes);
   });
+it.each(loaders)('%s keeps a committed install gated if its persisted compatibility confirmation is missing', async loader => {
+  const f = await fixture(loader), operation = await f.service.install('test', f.request, randomUUID());
+  expect((await settle(f, operation.id)).state).toBe('succeeded');
+  const record = (await f.journal.scan()).records.find(row => row.intent.operationId === operation.id)!;
+  const { confirmUnknownCompatibility, ...unconfirmed } = record.intent.addonInstall!;
+  expect(confirmUnknownCompatibility).toBe(true);
+  const legacy = { ...record, intent: { ...record.intent, addonInstall: unconfirmed } };
+  const journalFile = path.join(f.managerRoot, 'transactions', `test.${record.transactionId}.json`);
+  await writeFile(journalFile, JSON.stringify(legacy));
+  const journal = new TransactionJournalStore(f.managerRoot); await journal.initialize();
+  const scan = await journal.scan(); expect(scan.issues).toEqual([]);
+  const operations = new OperationService(f.store, clock, journal), capture = vi.fn(async () => f.identity);
+  const service = new AddonInstallService(f.registry, operations, journal, new BackupService(f.registry, operations, journal, f.managerRoot, clock),
+    f.uploads, f.inventory, f.managerRoot, clock, undefined, capture);
+  await service.reconcileStartup(); await operations.initialize();
+  expect(capture).not.toHaveBeenCalled();
+  expect(operations.getServerState('test').recoveryRequired).toBe(true);
+  expect(operations.get(operation.id)).toMatchObject({ id: operation.id, state: 'interrupted', step: 'physical-recovery-required',
+    error: { code: 'RECOVERY_REQUIRED' } });
+  expect((await journal.scan()).records.find(row => row.transactionId === record.transactionId)).toEqual(legacy);
+  expect(await readFile(path.join(f.serverRoot, 'mods/incoming.jar'))).toEqual(f.bytes);
+});
+it.each(loaders)('%s preserves an installed payload through lifecycle moves and a complete manager restart', async loader => {
+  const f = await fixture(loader), installed = await f.service.install('test', f.request, randomUUID());
+  expect((await settle(f, installed.id)).state).toBe('succeeded');
+  const lifecycle = new AddonLifecycleService(f.registry, f.operations, f.journal, f.backups, f.inventory, f.managerRoot, clock, undefined, f.capture);
+  for (const action of ['disable', 'enable', 'trash'] as const) {
+    const list = await f.inventory.read('test', f.serverRoot, loader), item = list.items[0]!;
+    const op = await lifecycle.mutate('test', item.id, action, list.revision, randomUUID(), action === 'enable' ? true : undefined);
+    expect((await settle(f, op.id)).state).toBe('succeeded');
+  }
+  const trash = await lifecycle.listTrash('test');
+  expect(trash.items[0]?.declaredMetadata).toMatchObject({ loader, mods: [{ id: 'incoming_mod' }] });
+  await expect(lifecycle.restore('test', trash.items[0]!.id, trash.revision, randomUUID())).rejects.toMatchObject({ code: 'ADDON_COMPATIBILITY_CONFIRMATION_REQUIRED' });
+  const restored = await lifecycle.restore('test', trash.items[0]!.id, trash.revision, randomUUID(), true);
+  expect((await settle(f, restored.id)).state).toBe('succeeded');
+  const journal = new TransactionJournalStore(f.managerRoot); await journal.initialize();
+  const operations = new OperationService(f.store, clock, journal), backups = new BackupService(f.registry, operations, journal, f.managerRoot, clock);
+  const reopenedLifecycle = new AddonLifecycleService(f.registry, operations, journal, backups, f.inventory, f.managerRoot, clock, undefined, f.capture);
+  const reopenedInstall = new AddonInstallService(f.registry, operations, journal, backups, f.uploads, f.inventory, f.managerRoot, clock, undefined, f.capture);
+  await reopenedLifecycle.reconcileStartup(); await reopenedInstall.reconcileStartup(); await operations.initialize();
+  expect(operations.getServerState('test').recoveryRequired).toBe(false);
+  expect(operations.get(installed.id)?.state).toBe('succeeded');
+  expect((await reopenedLifecycle.listTrash('test')).items).toHaveLength(0);
+  expect(await readFile(path.join(f.serverRoot, 'mods/incoming.jar'))).toEqual(f.bytes);
+  expect((await journal.scan()).issues).toEqual([]);
+});
 it('refuses identity drift after target publication but before consumption/commit', async () => {
   const f = await fixture('forge', async point => { if (point === 'before-commit') f.capture.mockResolvedValue({ ...f.identity,
     launchPlanSha256: '0'.repeat(64), identitySha256: 'f'.repeat(64) }); });
@@ -197,3 +245,21 @@ it('refuses identity drift after target publication but before consumption/commi
   expect(await readdir(path.join(f.managerRoot, 'addon-uploads', f.upload.id))).not.toContain('consumed.json');
   expect(await readFile(path.join(f.serverRoot, 'mods/incoming.jar'))).toEqual(f.bytes);
 });
+
+it.each(['before-move', 'destination-installed', 'before-commit'] as const)(
+  'NeoForge lifecycle keeps fresh injected identity checks at %s despite pure metadata reuse', async point => {
+    const f = await fixture('neoforge'), installed = await f.service.install('test', f.request, randomUUID());
+    expect((await settle(f, installed.id)).state).toBe('succeeded');
+    const lifecycle = new AddonLifecycleService(f.registry, f.operations, f.journal, f.backups, f.inventory, f.managerRoot, clock,
+      async reached => { if (reached === point) f.capture.mockResolvedValue({ ...f.identity, identitySha256: '0'.repeat(64) }); }, f.capture);
+    const list = await f.inventory.read('test', f.serverRoot, 'neoforge');
+    const operation = await lifecycle.mutate('test', list.items[0]!.id, 'disable', list.revision, randomUUID());
+    expect((await settle(f, operation.id)).state).toBe('interrupted');
+    expect(f.operations.getServerState('test').recoveryRequired).toBe(true);
+    const journal = (await f.journal.scan()).records.find(record => record.intent.operationId === operation.id)!;
+    expect(journal.state).toBe('recovery-required'); expect(journal.checkpoints.some(entry => entry.name === 'committed')).toBe(false);
+    const origin = path.join(f.serverRoot, 'mods/incoming.jar'), destination = path.join(f.serverRoot, 'disabled-mods/incoming.jar');
+    expect(await readFile(point === 'before-commit' ? destination : origin)).toEqual(f.bytes);
+    if (point === 'before-move') await expect(readFile(destination)).rejects.toMatchObject({ code: 'ENOENT' });
+    if (point === 'destination-installed') expect(await readFile(destination)).toEqual(f.bytes);
+  });

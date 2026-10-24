@@ -303,7 +303,8 @@ export class ServerService {
         canBackup && this.activeWorldState?.snapshot?.(serverId)?.state === "active" ? available() :
           unavailable(blockedReason ?? "world-state-unavailable"),
       addonChanges: (() => {
-        const supported = (server.type === "paper" && capabilities.plugins) || (server.type === "fabric" && capabilities.mods);
+        const supported = (server.type === "paper" && capabilities.plugins) ||
+          (["fabric", "forge", "neoforge"].includes(server.type) && capabilities.mods);
         const reason = !supported ? "capability-unsupported"
           : !this.addonChangesEnabled ? "feature-not-implemented"
             : status.recoveryRequired ? "recovery-required"

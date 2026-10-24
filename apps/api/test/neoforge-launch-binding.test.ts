@@ -1,14 +1,16 @@
-import { mkdtemp, rm, writeFile, readFile, link, rename } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, link, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import * as privateFiles from '../src/services/properties-private-file.js';
+import * as directories from '../src/services/backup-identity.js';
 import { assertNeoForgeEnvironment, captureNeoForgeLaunchBinding, createScopedNeoForgeBindingReader } from '../src/services/neoforge-launch-binding.js';
 import { neoForgeLaunchFixture } from './helpers/neoforge-launch.js';
 import { launchZip } from './helpers/launch-zip.js';
 import { detectServer } from '../src/services/detection-service.js';
 
 const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.restoreAllMocks(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'lt-neo-')); roots.push(root);
   return { root, ...await neoForgeLaunchFixture(root) };
@@ -99,4 +101,82 @@ it('detection fails closed after a warm reader observes invalid current bytes', 
   expect((await detectServer(input, read)).type).toBe('neoforge');
   await writeFile(f.universal, 'invalid current artifact');
   expect((await detectServer(input, read)).type).toBe('unknown');
+});
+
+it('bounds proof reads to four while retaining every first and final file read', async () => {
+  const f = await fixture(), original = privateFiles.readPrivatePropertiesFile;
+  let active = 0, peak = 0, reads = 0;
+  vi.spyOn(privateFiles, 'readPrivatePropertiesFile').mockImplementation(async (...args) => {
+    reads++; peak = Math.max(peak, ++active);
+    try { return await original(...args); } finally { active--; }
+  });
+  await captureNeoForgeLaunchBinding(f.root, f.anchor);
+  expect(reads).toBe(140); expect(peak).toBe(4); expect(active).toBe(0);
+});
+
+it('drains an already started batch on failure without launching the next batch', async () => {
+  const f = await fixture(), original = privateFiles.readPrivatePropertiesFile;
+  const blocked = path.join(f.root, f.classpath[0]!), failed = path.join(f.root, f.classpath[1]!);
+  let release!: () => void, active = 0, jarReads = 0, settled = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.spyOn(privateFiles, 'readPrivatePropertiesFile').mockImplementation(async (...args) => {
+    const [file] = args;
+    if (!file.endsWith('.jar')) return original(...args);
+    active++; jarReads++;
+    try {
+      if (file === blocked) await gate;
+      if (file === failed) throw new Error('controlled-proof-failure');
+      return await original(...args);
+    } finally { active--; }
+  });
+  const proof = captureNeoForgeLaunchBinding(f.root, f.anchor).then(() => { settled = true; return null; }, error => { settled = true; return error; });
+  try {
+    await vi.waitFor(() => expect(jarReads).toBe(4));
+    expect(settled).toBe(false); release();
+    expect(await proof).toMatchObject({ message: 'controlled-proof-failure' });
+    expect(jarReads).toBe(4); expect(active).toBe(0);
+  } finally { release(); await proof; }
+});
+
+it('rejects bytes changed between the first and final read even with warm metadata', async () => {
+  const f = await fixture(), scoped = createScopedNeoForgeBindingReader(), target = path.join(f.root, f.classpath[0]!);
+  await scoped(f.root, f.anchor);
+  const original = privateFiles.readPrivatePropertiesFile; let visits = 0;
+  vi.spyOn(privateFiles, 'readPrivatePropertiesFile').mockImplementation(async (...args) => {
+    if (args[0] === target && ++visits === 2) await writeFile(target, 'changed-after-first-proof');
+    return original(...args);
+  });
+  await expect(scoped(f.root, f.anchor)).rejects.toThrow();
+  expect(visits).toBe(2); scoped.dispose();
+});
+
+it('rejects a parent directory replaced before the final directory proof', async () => {
+  const f = await fixture(), target = path.dirname(path.join(f.root, f.classpath[0]!));
+  const original = directories.backupDirectoryIdentity; let visits = 0;
+  vi.spyOn(directories, 'backupDirectoryIdentity').mockImplementation(async (...args) => {
+    if (args[0] === target && ++visits === 2) { await rename(target, target + '.preserved'); await mkdir(target); }
+    return original(...args);
+  });
+  await expect(captureNeoForgeLaunchBinding(f.root, f.anchor)).rejects.toThrow();
+  expect(visits).toBe(2);
+});
+
+it('retains the512MiB aggregate admission limit and stops further batches', async () => {
+  const f = await fixture(), scoped = createScopedNeoForgeBindingReader();
+  await scoped(f.root, f.anchor);
+  const original = privateFiles.readPrivatePropertiesFile; let jarReads = 0;
+  vi.spyOn(privateFiles, 'readPrivatePropertiesFile').mockImplementation(async (...args) => {
+    const result = await original(...args);
+    if (!args[0].endsWith('.jar')) return result;
+    jarReads++;
+    // Synthetic reader size exercises aggregate admission without allocating
+    // or writing >512MiB. Warm pure facts retain the actual fixture checksum.
+    const bytes = Buffer.from(result.bytes);
+    Object.defineProperty(bytes, 'length', { value: 64 * 1024 ** 2 });
+    return { ...result, bytes };
+  });
+  try {
+    await expect(scoped(f.root, f.anchor)).rejects.toThrow();
+    expect(jarReads).toBe(12);
+  } finally { scoped.dispose(); }
 });

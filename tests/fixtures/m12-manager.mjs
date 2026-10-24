@@ -40,6 +40,17 @@ const manager = path.join(root, 'manager'), adapters = await createLocalAdapters
 const journal = new TransactionJournalStore(manager);
 const operationStore = new JsonOperationStore(manager);
 if (timingEnabled) {
+  const append = journal.appendCheckpoint.bind(journal), setState = journal.setState.bind(journal);
+  journal.appendCheckpoint = async (...args) => {
+    const result = await append(...args);
+    recordTiming(`journal-${args[2].name}`, { id: result.intent.operationId, serverId: result.intent.serverId, kind: 'addon-change', state: 'running' });
+    return result;
+  };
+  journal.setState = async (...args) => {
+    const result = await setState(...args);
+    recordTiming(`journal-state-${args[2]}`, { id: result.intent.operationId, serverId: result.intent.serverId, kind: 'addon-change', state: 'running' });
+    return result;
+  };
   const save = operationStore.save.bind(operationStore);
   operationStore.save = async record => {
     recordTiming('store-save-begin', record.operation);
@@ -58,18 +69,29 @@ try { app = buildApp({ mode: 'local', managerRoot: manager, adapters, localRunti
   operationStore, backupSchedulerTimers: false });
 } finally { if (timingEnabled) OperationService.prototype.subscribe = originalSubscribe; }
 app.addHook('onResponse', async (request, reply) => { if (requests.length < 3000) requests.push({ method: request.method, path: request.url.split('?')[0], status: reply.statusCode }); });
+if (timingEnabled) app.addHook('onSend', (request, _reply, payload, done) => {
+  try {
+    if (request.method === 'GET' && /^\/api\/v1\/operations\/[0-9a-f-]{36}$/u.test(request.url) &&
+      typeof payload === 'string' && Buffer.byteLength(payload) <= 65536) {
+      recordTiming('operation-api-serialized', JSON.parse(payload).data);
+    }
+  } catch { timingOverflow = true; }
+  done(null, payload);
+});
 await app.listen({ host: '127.0.0.1', port: 8080 }); process.send({ type: 'ready', mode: 'local', pid: process.pid });
 process.on('message', async message => {
   if (message !== 'close') return;
   try {
-    const items = (await app.inject({ method: 'GET', url: '/api/v1/servers', headers: { host: '127.0.0.1:8080' } })).json().data.items;
-    assert(items.every(item => item.status.state === 'stopped' && item.status.ownership === 'none' && !item.status.activeOperationId), 'CLEANUP_BLOCKED: stop owned Minecraft first');
+    if (app.managerRecovery.available) {
+      const items = (await app.inject({ method: 'GET', url: '/api/v1/servers', headers: { host: '127.0.0.1:8080' } })).json().data.items;
+      assert(items.every(item => item.status.state === 'stopped' && item.status.ownership === 'none' && !item.status.activeOperationId), 'CLEANUP_BLOCKED: stop owned Minecraft first');
+    } else assert(children.every(child => child.closed), 'CLEANUP_BLOCKED: owned child during startup');
     await app.close();
     for (const [index, row] of children.entries()) for (const stream of ['stdout', 'stderr']) await writeFile(path.join(root, `java-${process.pid}-${index}-${stream}.log`), row[stream]);
     let timingWriteFailed = false;
     if (timingEnabled) try { await writeFile(path.join(root, `manager-${process.pid}-timing.json`), JSON.stringify({ clock: 'manager-node-performance', overflow: timingOverflow, events: timingEvents }, null, 2), { flag: 'wx' }); }
     catch { timingWriteFailed = true; }
-    process.send({ type: 'closed', pid: process.pid, requests, launchAttempts, children: children.map(({ stdout, stderr, ...row }) => row),
+    process.send({ type: 'closed', pid: process.pid, requests, launchAttempts, recoveryStages: app.managerRecovery.stages, children: children.map(({ stdout, stderr, ...row }) => row),
       ...(timingEnabled ? { timingWriteFailed } : {}) }); process.disconnect();
   } catch { process.send({ type: 'close-blocked' }); }
 });

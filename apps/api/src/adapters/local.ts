@@ -41,7 +41,7 @@ export class LocalJavaAdapter implements LocalMinecraftServerAdapter {
 
   async getCapabilities(): Promise<Capabilities> {
     return {
-      mods: this.plan.serverInfo.type === "fabric",
+      mods: ['fabric', 'forge', 'neoforge'].includes(this.plan.serverInfo.type),
       plugins: this.plan.serverInfo.type === "paper",
       rcon: true,
       console: true,

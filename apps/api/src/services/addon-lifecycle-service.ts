@@ -1,15 +1,20 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { link, lstat, mkdir, open, readdir, realpath, stat, unlink } from "node:fs/promises";
 import path from "node:path";
-import type { Operation } from "@mcsm/contracts";
+import type { Operation, DeclaredModMetadata } from "@mcsm/contracts";
 import type { RuntimeOperationContext } from "../infra/runtime-contract.js";
 import type { AdapterRegistry } from "../adapters/registry.js";
 import type { Clock } from "../clock.js";
 import { backupDirectoryIdentity } from "./backup-identity.js";
 import type { BackupService } from "./backup-service.js";
 import { DomainError } from "./domain-errors.js";
-import { ADDON_LIMITS, AddonInventory, addonProfile, safeAddonFilename } from "./addon-inventory.js";
-import { captureAddonAdapterIdentity, type AddonAdapterIdentity } from "./addon-adapter-identity.js";
+import { ADDON_LIMITS, AddonInventory, addonLifecycleProfile, safeAddonFilename } from "./addon-inventory.js";
+import { parseAddonUploadMetadata } from './addon-upload-metadata.js';
+import { readAddonJarMetadata } from './addon-jar-metadata.js';
+import { assertAddonInstallAdmission } from './addon-install-policy.js';
+import { resolveAddonSuccessors, verifyAddonSuccessorEndpoint } from './addon-successor-chain.js';
+import type { RecoveryMeasure } from './manager-startup-recovery.js';
+import { captureAddonAdapterIdentity, createAddonInstallIdentityScope, type AddonAdapterIdentity, type AddonIdentityScope } from "./addon-adapter-identity.js";
 import type { OperationService } from "./operation-service.js";
 import type { TransactionJournalRecord, TransactionJournalStore } from "./transaction-journal.js";
 import { readPrivatePropertiesFile } from "./properties-private-file.js";
@@ -118,9 +123,10 @@ export class AddonLifecycleService {
     this.managerRoot = path.resolve(managerRoot);
   }
 
-  async listTrash(serverId: string, ownerOperationId?: string, preflight = false) {
+  async listTrash(serverId: string, ownerOperationId?: string, preflight = false, check = () => {}) {
+    check();
     if (!ownerOperationId && !preflight) {
-      try { return await this.operations.runReadAdmission(serverId, () => this.#listTrash(serverId)); }
+      try { return await this.operations.runReadAdmission(serverId, () => this.#listTrash(serverId, check)); }
       catch (error) {
         if (error instanceof DomainError && error.code === "OPERATION_CONFLICT") {
           throw new DomainError(409, "ADDON_LIFECYCLE_BUSY", "扩展状态操作正在进行，请稍后重试", "addon-lifecycle-busy");
@@ -129,13 +135,15 @@ export class AddonLifecycleService {
       }
     }
     if (ownerOperationId && this.operations.getServerState(serverId).activeOperationId !== ownerOperationId) throw denied();
-    return this.#listTrash(serverId);
+    return this.#listTrash(serverId, check);
   }
 
-  async #listTrash(serverId: string) {
-    const adapter = this.#adapter(serverId), profile = addonProfile(adapter.plan.serverInfo.type);
+  async #listTrash(serverId: string, check = () => {}) {
+    const adapter = this.#adapter(serverId), profile = addonLifecycleProfile(adapter.plan.serverInfo.type);
+    const verifiedRestoredMembers = new Set<string>();
     if (!profile) throw new DomainError(501, "ADDON_UNSUPPORTED", "回收区仅支持已验证的 Paper/Fabric", "addon-profile-unsupported");
     const identity = await this.captureIdentity(adapter);
+    check();
     try {
     const base = path.join(adapter.plan.rootPath, "trash", "addons", serverId);
     const journalScan = await this.journal.scan();
@@ -152,7 +160,8 @@ export class AddonLifecycleService {
     }
     const items: { id: string; addonId: string; kind: "mod" | "plugin"; filename: string; originalState: "enabled" | "disabled";
       sizeBytes: number; sha256: string; name: string | null; version: string | null; loader: "fabric" | "paper" | null;
-      compatibility: "unknown"; minecraftConstraint: string[] | null; metadataStatus: "parsed" | "invalid" | "missing"; createdAt: string; restoreAllowed: true }[] = [];
+      compatibility: "unknown"; minecraftConstraint: string[] | null; metadataStatus: "parsed" | "invalid" | "missing";
+      declaredMetadata?: DeclaredModMetadata; createdAt: string; restoreAllowed: true }[] = [];
     if (await pathExists(base)) {
       await directoryIdentity(path.dirname(path.dirname(base)));
       const baseIdentity = await directoryIdentity(base);
@@ -160,6 +169,7 @@ export class AddonLifecycleService {
       if (names.length > ADDON_LIMITS.files) throw denied();
       const seen = new Set<string>();
       for (const id of names.sort()) {
+        check();
         if (!uuid.test(id) || seen.has(id)) throw denied(); seen.add(id);
         const entry = path.join(base, id), entryId = await directoryIdentity(entry);
         const children = (await readdir(entry)).sort();
@@ -184,16 +194,22 @@ export class AddonLifecycleService {
         await this.#assertTrashJournal(receipt);
         if (children.includes("restored.json")) {
           if (children.includes("payload.jar")) throw denied();
-          await this.#assertRestoredJournal(adapter, receipt);
+          await this.#assertRestoredJournal(adapter, receipt, identity, verifiedRestoredMembers, check);
           continue;
         }
         if (!children.includes("payload.jar")) throw denied();
         const payload = await fileAt(path.join(entry, "payload.jar"));
         if (payload.sha256 !== receipt.sha256 || payload.physicalIdentity !== receipt.physicalIdentity || payload.sizeBytes !== receipt.sizeBytes) throw denied();
+        let declaredMetadata: DeclaredModMetadata | undefined;
+        const type = this.#extended(adapter);
+        if (type) try {
+          const parsed = parseAddonUploadMetadata(readAddonJarMetadata(payload.bytes), type);
+          if (parsed && 'declaredMetadata' in parsed) declaredMetadata = parsed.declaredMetadata;
+        } catch { /* Damaged declarations cannot activate; disabled restore stays available. */ }
         items.push({ id, addonId: receipt.addonId, kind: receipt.kind, filename: receipt.filename, originalState: receipt.originalState,
           sizeBytes: receipt.sizeBytes, sha256: receipt.sha256, name: receipt.name, version: receipt.version, loader: receipt.loader,
           compatibility: "unknown", minecraftConstraint: receipt.minecraftConstraint, metadataStatus: receipt.metadataStatus,
-          createdAt: receipt.createdAt, restoreAllowed: true });
+          ...(declaredMetadata ? { declaredMetadata } : {}), createdAt: receipt.createdAt, restoreAllowed: true });
       }
       if (await directoryIdentity(base) !== baseIdentity) throw denied();
     }
@@ -205,31 +221,33 @@ export class AddonLifecycleService {
     }
   }
 
-  async mutate(serverId: string, addonId: string, action: "disable" | "enable" | "trash", revision: string, key: string): Promise<Operation> {
-    return this.#mutate(serverId, addonId, action, revision, key);
+  async mutate(serverId: string, addonId: string, action: "disable" | "enable" | "trash", revision: string, key: string, confirmUnknownCompatibility?: true): Promise<Operation> {
+    return this.#mutate(serverId, addonId, action, revision, key, confirmUnknownCompatibility);
   }
-  async restore(serverId: string, trashId: string, revision: string, key: string): Promise<Operation> {
+  async restore(serverId: string, trashId: string, revision: string, key: string, confirmUnknownCompatibility?: true): Promise<Operation> {
     if (!uuid.test(trashId)) throw new DomainError(400, "VALIDATION_ERROR", "回收区标识无效", "invalid-addon-trash-id");
-    return this.#mutate(serverId, trashId, "restore", revision, key);
+    return this.#mutate(serverId, trashId, "restore", revision, key, confirmUnknownCompatibility);
   }
 
-  async #mutate(serverId: string, id: string, action: Action, revision: string, key: string) {
+  async #mutate(serverId: string, id: string, action: Action, revision: string, key: string, confirmUnknownCompatibility?: true) {
     if ((!hashPattern.test(id) && action !== "restore") || (action === "restore" && !uuid.test(id)) || !hashPattern.test(revision) || !uuid.test(key)) {
       throw new DomainError(400, "VALIDATION_ERROR", "扩展状态变更确认无效", "invalid-addon-lifecycle-request");
     }
     let approved: AddonAdapterIdentity | undefined;
     let approvedItem: Item | undefined;
     let approvedReceipt: Receipt | undefined;
-    const request = { id, action, revision };
+    const request = { id, action, revision, ...(confirmUnknownCompatibility === true ? { confirmUnknownCompatibility: true as const } : {}) };
     return this.operations.requestBackup(serverId, key, JSON.stringify(request), async (context) => {
       if (!approved) throw conflict();
-      await this.#execute(serverId, id, action, revision, approved, approvedItem, approvedReceipt, context);
+      await this.#execute(serverId, id, action, revision, approved, approvedItem, approvedReceipt, context, confirmUnknownCompatibility);
     }, async () => {
-      const adapter = this.#adapter(serverId), profile = addonProfile(adapter.plan.serverInfo.type);
+      const adapter = this.#adapter(serverId), profile = addonLifecycleProfile(adapter.plan.serverInfo.type);
       if (!profile) throw new DomainError(501, "ADDON_UNSUPPORTED", "仅支持已验证的 Paper/Fabric 扩展", "addon-profile-unsupported");
       await this.#requireStopped(adapter);
       approved = await this.captureIdentity(adapter);
       if (!approved.addonRootIdentity) throw new DomainError(409, "ADDON_ROOT_UNAVAILABLE", "扩展目录身份无法核验", "addon-root-unavailable");
+      if (this.#extended(adapter) && !approved.disabledAddonRootIdentity) throw new DomainError(409, 'ADDON_DISABLED_ROOT_UNAVAILABLE',
+        '请先准备独立的 disabled-mods 目录并重新登记身份；本操作不会隐式更改目录绑定', 'addon-disabled-root-unavailable');
       if (action === "restore") {
         const trash = await this.listTrash(serverId, undefined, true);
         if (trash.revision !== revision) throw conflict();
@@ -239,6 +257,8 @@ export class AddonLifecycleService {
         }
         const receipt = await this.#readReceipt(adapter, id, approved);
         approvedReceipt = receipt;
+        if (receipt.originalState === 'enabled') await this.#activation(adapter,
+          path.join(this.#trashBase(adapter, serverId), id, 'payload.jar'), undefined, confirmUnknownCompatibility);
       } else {
         // Revalidate retained trash evidence before every later addon mutation.
         await this.listTrash(serverId, undefined, true);
@@ -250,6 +270,7 @@ export class AddonLifecycleService {
           throw new DomainError(409, "ADDON_STATE_CONFLICT", "扩展当前状态不支持此操作", "addon-state-conflict");
         }
         approvedItem = item;
+        if (action === 'enable') await this.#activation(adapter, path.join(adapter.plan.rootPath, profile.disabled, item.filename), item.id, confirmUnknownCompatibility);
       }
     }, "addon-change");
   }
@@ -266,6 +287,60 @@ export class AddonLifecycleService {
       throw new DomainError(409, "SERVER_MUST_BE_STOPPED", "扩展变更要求服务器已停止且无其他操作或恢复锁", "addon-lifecycle-not-admitted");
     }
   }
+  #extended(adapter: NonNullable<ReturnType<AdapterRegistry['getLocal']>>) {
+    const type = adapter.plan.serverInfo.type;
+    return type === 'forge' || type === 'neoforge' ? type : null;
+  }
+
+  async #activation(adapter: NonNullable<ReturnType<AdapterRegistry['getLocal']>>, source: string,
+    excludedAddonId: string | undefined, confirmation?: true) {
+    const type = this.#extended(adapter); if (!type) return;
+    if (confirmation !== true) throw new DomainError(428, 'ADDON_COMPATIBILITY_CONFIRMATION_REQUIRED',
+      '模组版本、依赖和第三方代码风险未验证；启用前需要明确确认', 'addon-compatibility-unverified');
+    const file = await fileAt(source);
+    let metadata: ReturnType<typeof parseAddonUploadMetadata>;
+    try { metadata = parseAddonUploadMetadata(readAddonJarMetadata(file.bytes), type); }
+    catch { throw new DomainError(409, 'ADDON_METADATA_INVALID', '模组声明无法安全识别，不允许启用', 'addon-metadata-invalid'); }
+    if (!metadata) throw new DomainError(409, 'ADDON_METADATA_INVALID', '缺少匹配加载器的有效模组声明', 'addon-metadata-invalid');
+    const listing = await this.inventory.read(adapter.serverId, adapter.plan.rootPath, type);
+    assertAddonInstallAdmission(type, metadata, { ...listing,
+      items: listing.items.filter(item => !(item.id === excludedAddonId && item.state === 'disabled')) }, confirmation);
+  }
+
+  async #predecessor(adapter: NonNullable<ReturnType<AdapterRegistry['getLocal']>>, identity: AddonAdapterIdentity,
+    physical: { physicalIdentity: string; sha256: string }, source: string): Promise<string | null> {
+    const scan = await this.journal.scan();
+    if (scan.issues.some(issue => issue.serverId === null || issue.serverId === adapter.serverId)) throw denied();
+    const candidates = scan.records.filter(record => {
+      if (record.intent.serverId !== adapter.serverId || record.state === 'rolled-back') return false;
+      const life = record.intent.addonLifecycle, install = record.intent.addonInstall;
+      const published = [...record.checkpoints].reverse().find(point => point.name === 'before-publication')?.details;
+      return life ? life.sourcePhysicalIdentity === physical.physicalIdentity && life.sourceSha256 === physical.sha256
+        : Boolean(install && published?.filesystemIdentity === physical.physicalIdentity && install.uploadSha256 === physical.sha256);
+    });
+    if (candidates.length === 0) return null;
+    const proof = resolveAddonSuccessors(scan.records, candidates[0]!, identity);
+    const members = new Set(proof.records.map(record => record.transactionId));
+    if (candidates.some(record => !members.has(record.transactionId))) throw denied();
+    const verified = await verifyAddonSuccessorEndpoint(proof, identity, adapter.plan.rootPath, this.backups);
+    if (normalized(verified.target) !== normalized(source)) throw denied();
+    return proof.records.at(-1)!.transactionId;
+  }
+
+  async #liveBoundary(adapter: NonNullable<ReturnType<AdapterRegistry['getLocal']>>, approved: AddonAdapterIdentity,
+    context: RuntimeOperationContext, scope?: AddonIdentityScope) {
+    if (!this.#extended(adapter)) return;
+    const owner = () => {
+      const operation = this.operations.get(context.operationId);
+      if (context.signal.aborted || this.registry.getLocal(adapter.serverId) !== adapter || !operation ||
+        operation.serverId !== adapter.serverId || operation.kind !== 'addon-change' || operation.state !== 'running' ||
+        this.operations.getServerState(adapter.serverId).activeOperationId !== context.operationId) throw denied();
+    };
+    owner(); await this.#requireStopped(adapter, context.operationId); owner();
+    if (JSON.stringify(await (scope ? scope.capture(adapter, this.captureIdentity) : this.captureIdentity(adapter))) !== JSON.stringify(approved)) throw denied();
+    owner(); await this.#requireStopped(adapter, context.operationId); owner();
+  }
+
   #trashBase(adapter: NonNullable<ReturnType<AdapterRegistry["getLocal"]>>, serverId: string) { return path.join(adapter.plan.rootPath, "trash", "addons", serverId); }
   async #readReceipt(adapter: NonNullable<ReturnType<AdapterRegistry["getLocal"]>>, trashId: string, identity: AddonAdapterIdentity): Promise<Receipt> {
     const base = this.#trashBase(adapter, adapter.serverId), entry = path.join(base, trashId);
@@ -293,10 +368,13 @@ export class AddonLifecycleService {
       lifecycle.metadataLoader !== receipt.loader || lifecycle.metadataStatus !== receipt.metadataStatus ||
       JSON.stringify(lifecycle.minecraftConstraint) !== JSON.stringify(receipt.minecraftConstraint)) throw denied();
     const guard = await this.backups.privateSnapshot(receipt.serverId, lifecycle.guardBackupId);
-    if (!guard.pinned || guard.checksumSha256 !== lifecycle.guardChecksum || guard.serverType !== (receipt.kind === "plugin" ? "paper" : "fabric")) throw denied();
+    if (!guard.pinned || guard.checksumSha256 !== lifecycle.guardChecksum ||
+      guard.serverType !== this.registry.getLocal(receipt.serverId)?.plan.serverInfo.type) throw denied();
   }
 
-  async #assertRestoredJournal(adapter: NonNullable<ReturnType<AdapterRegistry["getLocal"]>>, receipt: Receipt): Promise<void> {
+  async #assertRestoredJournal(adapter: NonNullable<ReturnType<AdapterRegistry["getLocal"]>>, receipt: Receipt,
+    capturedIdentity?: AddonAdapterIdentity, verifiedMembers?: Set<string>, check = () => {}): Promise<void> {
+    check();
     const entry = path.join(this.#trashBase(adapter, receipt.serverId), receipt.id);
     const marker = await readPrivatePropertiesFile(path.join(entry, "restored.json"), 16 * 1024);
     const value: unknown = JSON.parse(marker.bytes.toString("utf8"));
@@ -310,7 +388,7 @@ export class AddonLifecycleService {
     const scan = await this.journal.scan();
     const restore = scan.records.find((record) => record.intent.operationId === v.operationId && record.intent.addonLifecycle?.action === "restore" && record.state === "committed");
     const lifecycle = restore?.intent.addonLifecycle;
-    const profile = addonProfile(adapter.plan.serverInfo.type);
+    const profile = addonLifecycleProfile(adapter.plan.serverInfo.type);
     const recordedTarget = restore?.intent.paths.find((entry) => entry.role === "target" && entry.namespace === "server")?.relativePath;
     const expectedRestoreTarget = `${v.targetState === "enabled" ? profile?.enabled : profile?.disabled}/${receipt.filename}`;
     if (!restore || !lifecycle || scan.issues.some((issue) => issue.serverId === receipt.serverId) || lifecycle.trashId !== receipt.id ||
@@ -319,6 +397,20 @@ export class AddonLifecycleService {
       lifecycle.rootIdentity !== receipt.rootIdentity || lifecycle.adapterIdentitySha256 !== receipt.adapterIdentitySha256 ||
       lifecycle.addonRootIdentity !== receipt.addonRootIdentity || !profile || profile.kind !== receipt.kind ||
       recordedTarget !== expectedRestoreTarget || lifecycle.targetDirectoryIdentity !== await directoryIdentity(path.dirname(path.join(adapter.plan.rootPath, ...recordedTarget.split("/"))))) throw denied();
+    if (this.#extended(adapter)) {
+      if (verifiedMembers?.has(restore.transactionId)) return;
+      const identity = capturedIdentity ?? await this.captureIdentity(adapter);
+      const proof = resolveAddonSuccessors(scan.records, restore, identity);
+      await verifyAddonSuccessorEndpoint(proof, identity, adapter.plan.rootPath, this.backups, check);
+      if (proof.terminal.state === 'trashed') {
+        const terminal = proof.records.at(-1)!.intent.addonLifecycle;
+        if (!terminal?.trashId) throw denied();
+        const current = await this.#readReceipt(adapter, terminal.trashId, identity);
+        await this.#assertTrashJournal(current);
+      }
+      for (const member of proof.records) verifiedMembers?.add(member.transactionId);
+      return;
+    }
     const restoreTargetRelative = `${v.targetState === "enabled" ? profile.enabled : profile.disabled}/${receipt.filename}`;
     const restoreTarget = path.join(adapter.plan.rootPath, ...restoreTargetRelative.split("/"));
     if (await pathExists(restoreTarget)) {
@@ -377,13 +469,24 @@ export class AddonLifecycleService {
   }
 
   async #execute(serverId: string, id: string, action: Action, revision: string, approved: AddonAdapterIdentity,
-    item: Item | undefined, oldReceipt: Receipt | undefined, context: RuntimeOperationContext) {
+    item: Item | undefined, oldReceipt: Receipt | undefined, context: RuntimeOperationContext, confirmUnknownCompatibility?: true) {
     let record: TransactionJournalRecord | undefined;
+    let scope: AddonIdentityScope | undefined;
     try {
-      const adapter = this.#adapter(serverId), profile = addonProfile(adapter.plan.serverInfo.type);
+      const adapter = this.#adapter(serverId), profile = addonLifecycleProfile(adapter.plan.serverInfo.type);
       if (!profile) throw denied();
       await this.#requireStopped(adapter, context.operationId);
-      const identity = await this.captureIdentity(adapter);
+      if (adapter.plan.serverInfo.type === 'neoforge') scope = createAddonInstallIdentityScope(adapter, approved, async () => {
+        const owner = () => {
+          const operation = this.operations.get(context.operationId);
+          if (context.signal.aborted || this.registry.getLocal(serverId) !== adapter || !operation || operation.serverId !== serverId ||
+            operation.kind !== 'addon-change' || operation.state !== 'running' ||
+            this.operations.getServerState(serverId).activeOperationId !== context.operationId) throw denied();
+        };
+        owner(); await this.#requireStopped(adapter, context.operationId); owner();
+      });
+      const capture = () => scope ? scope.capture(adapter, this.captureIdentity) : this.captureIdentity(adapter);
+      const identity = await capture();
       if (JSON.stringify(identity) !== JSON.stringify(approved) || !identity.addonRootIdentity) throw conflict();
       let sourceState: State, targetState: State, filename: string, addonId: string, source: string, sourceDir: { path: string; identity: string };
       let trashId: string | null = null, expectedSha: string, expectedPhysical: string, originalItem: Item | undefined;
@@ -413,15 +516,16 @@ export class AddonLifecycleService {
       const from = await fileAt(source);
       if (from.sha256 !== expectedSha || from.physicalIdentity !== expectedPhysical) throw denied();
       if (await directoryIdentity(sourceDir.path) !== sourceDir.identity) throw denied();
+      if (targetState === 'enabled') await this.#activation(adapter, source, action === 'enable' ? addonId : undefined, confirmUnknownCompatibility);
 
       await context.onStep("creating-protection-backup");
-      const guard = await this.backups.createAddonProtectionSnapshot(context, serverId, profile.kind === "plugin" ? "paper" : "fabric");
+      const guard = await this.backups.createAddonProtectionSnapshot(context, serverId, this.#extended(adapter) ?? (profile.kind === "plugin" ? "paper" : "fabric"));
       const manifest = await this.backups.privateSnapshot(serverId, guard.id);
       const rootEntries = (await readdir(adapter.plan.rootPath)).sort();
       if (!manifest.pinned || manifest.serverId !== serverId || manifest.serverType !== identity.serverType ||
         manifest.minecraftVersion !== identity.minecraftVersion || manifest.checksumSha256 !== guard.checksumSha256 ||
         JSON.stringify([...manifest.includedRoots].sort()) !== JSON.stringify(rootEntries)) throw denied();
-      const currentAdapterIdentity = await this.captureIdentity(adapter);
+      const currentAdapterIdentity = await capture();
       if (JSON.stringify(currentAdapterIdentity) !== JSON.stringify(approved)) throw conflict();
 
       const root = path.resolve(adapter.plan.rootPath);
@@ -469,12 +573,16 @@ export class AddonLifecycleService {
       };
       await requireTargetCapacity();
       if (action === "restore" && !oldReceipt) throw denied();
+      const type = this.#extended(adapter);
+      const predecessorTransactionId = type ? await this.#predecessor(adapter, identity, from, source) : null;
       record = await this.journal.createIntent({ operationId: context.operationId, serverId, kind: "addon-lifecycle", scope: "server-snapshot",
         resourceId: trashId ?? addonId, allowStop: false, originalState: "stopped", createdAt: this.clock.now().toISOString(),
         paths: [{ role: "source", namespace: "server", relativePath: path.relative(root, source).split(path.sep).join("/") },
           { role: "target", namespace: "server", relativePath: path.relative(root, target).split(path.sep).join("/") },
           { role: "rollback", namespace: "manager", relativePath: `backups/${serverId}/${guard.id}` }],
-        addonLifecycle: { rootIdentity: approved.rootIdentity, adapterIdentitySha256: approved.identitySha256, addonRootIdentity: approved.addonRootIdentity!,
+        addonLifecycle: { ...(type ? { serverType: type, predecessorTransactionId,
+            ...(targetState === 'enabled' ? { confirmUnknownCompatibility: true as const } : {}) } : {}),
+          rootIdentity: approved.rootIdentity, adapterIdentitySha256: approved.identitySha256, addonRootIdentity: approved.addonRootIdentity!,
           kind: profile.kind, action, addonId, filename, sourceState, targetState, sourceDirectoryIdentity: sourceDir.identity,
           targetDirectoryIdentity: targetDirectory.identity, sourcePhysicalIdentity: from.physicalIdentity, sourceSha256: from.sha256,
           metadataName: oldReceipt?.name ?? originalItem?.name ?? null, metadataVersion: oldReceipt?.version ?? originalItem?.version ?? null,
@@ -486,13 +594,15 @@ export class AddonLifecycleService {
       await this.#checkpoint(record, "source-verified", from);
       await this.#checkpoint(record, "before-move", from);
       await requireTargetCapacity();
+      if (targetState === 'enabled') await this.#activation(adapter, source, action === 'enable' ? addonId : undefined, confirmUnknownCompatibility);
+      const [sourceParent, targetParent] = await Promise.all([stat(sourceDir.path), stat(targetDirectory.path)]);
+      if (sourceParent.dev !== targetParent.dev) throw denied();
+      await this.#liveBoundary(adapter, approved, context, scope);
       const sourceImmediatelyBeforeMove = await fileAt(source);
       if (sourceImmediatelyBeforeMove.physicalIdentity !== from.physicalIdentity || sourceImmediatelyBeforeMove.sha256 !== from.sha256 ||
         await directoryIdentity(root) !== approved.rootIdentity || await directoryIdentity(sourceDir.path) !== sourceDir.identity ||
         await directoryIdentity(targetDirectory.path) !== targetDirectory.identity || await pathExists(target) ||
         !contained(root, source) || !contained(root, target)) throw denied();
-      const [sourceParent, targetParent] = await Promise.all([stat(sourceDir.path), stat(targetDirectory.path)]);
-      if (sourceParent.dev !== targetParent.dev) throw denied();
       try { await link(source, target); } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new DomainError(409, "ADDON_TARGET_CONFLICT", "目标位置已存在；不会覆盖", "addon-target-conflict");
         throw error;
@@ -504,6 +614,7 @@ export class AddonLifecycleService {
         await directoryIdentity(root) !== approved.rootIdentity || await directoryIdentity(sourceDir.path) !== sourceDir.identity ||
         await directoryIdentity(targetDirectory.path) !== targetDirectory.identity) throw denied();
       await this.#checkpoint(record, "destination-installed", linkedTarget);
+      await this.#liveBoundary(adapter, approved, context, scope);
       const checkBeforeUnlink = await fileAt(source, ADDON_LIMITS.jarBytes, 2);
       if (checkBeforeUnlink.physicalIdentity !== from.physicalIdentity || (await fileAt(target, ADDON_LIMITS.jarBytes, 2)).physicalIdentity !== from.physicalIdentity ||
         await directoryIdentity(root) !== approved.rootIdentity || await directoryIdentity(sourceDir.path) !== sourceDir.identity ||
@@ -536,11 +647,12 @@ export class AddonLifecycleService {
       }
       await this.#checkpoint(record, "before-commit", installed);
       const finalFile = await fileAt(target);
-      const currentIdentity = await this.captureIdentity(adapter);
+      const currentIdentity = await capture();
       if (finalFile.physicalIdentity !== from.physicalIdentity || finalFile.sha256 !== from.sha256 ||
         JSON.stringify(currentIdentity) !== JSON.stringify(approved) || (await this.backups.privateSnapshot(serverId, guard.id)).checksumSha256 !== guard.checksumSha256) throw denied();
       await this.#checkpoint(record, "before-publication", finalFile, undefined, false);
       await this.#checkpoint(record, "committed", finalFile, undefined, false);
+      await this.#liveBoundary(adapter, approved, context, scope);
       await this.journal.setState(serverId, record.transactionId, "committed", this.clock.now().toISOString());
       await this.inject?.("committed"); await this.inject?.("before-publication");
       const published = await fileAt(target);
@@ -552,21 +664,36 @@ export class AddonLifecycleService {
       }
       if (record) throw denied();
       throw error;
-    }
+    } finally { scope?.dispose(); }
   }
 
-  async reconcileStartup() {
+  async reconcileStartup(check = () => {}, measure: RecoveryMeasure = (_phase, action) => action()) {
+    check();
     const scan = await this.journal.scan();
     const outcomes = new Map((await this.operations.storedOutcomes()).map((operation) => [operation.id, operation]));
     for (const record of scan.records) {
+      check();
       const lifecycle = record.intent.addonLifecycle;
       if (!lifecycle || !["active", "recovery-required", "committed", "rolled-back"].includes(record.state) ||
         scan.issues.some((issue) => issue.serverId === record.intent.serverId)) continue;
       const priorOutcome = outcomes.get(record.intent.operationId);
+      const adapterType = this.registry.getLocal(record.intent.serverId)?.plan.serverInfo.type;
+      const extended = lifecycle.serverType !== undefined || adapterType === 'forge' || adapterType === 'neoforge';
+      if (extended && (lifecycle.serverType !== adapterType || lifecycle.predecessorTransactionId === undefined ||
+        lifecycle.targetState === 'enabled' && lifecycle.confirmUnknownCompatibility !== true)) {
+        this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId); continue;
+      }
+      // Verify completed extended histories after pending leaf moves have settled.
+      if (extended && record.state === 'committed') continue;
+      if (extended) {
+        // New-loader interruption recovery is deliberately observation-only.
+        // Do not unlink either name or manufacture a receipt/terminal outcome.
+        this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId); continue;
+      }
       if ((record.state === "committed" && priorOutcome?.state === "succeeded") ||
         (record.state === "rolled-back" && priorOutcome?.state === "failed" && priorOutcome.error?.code === "ADDON_LIFECYCLE_NOT_APPLIED")) continue;
       try {
-        const adapter = this.#adapter(record.intent.serverId), profile = addonProfile(adapter.plan.serverInfo.type);
+        const adapter = this.#adapter(record.intent.serverId), profile = addonLifecycleProfile(adapter.plan.serverInfo.type);
         if (!profile || profile.kind !== lifecycle.kind) throw denied();
         await this.#requireStopped(adapter);
         const identity = await this.captureIdentity(adapter);
@@ -588,15 +715,15 @@ export class AddonLifecycleService {
           const untouched = await fileAt(source);
           if (untouched.physicalIdentity !== lifecycle.sourcePhysicalIdentity || untouched.sha256 !== lifecycle.sourceSha256 || record.state === "committed") throw denied();
           // Durable intent exists, but the unique physical layout proves the move never began.
-          await this.journal.setState(record.intent.serverId, record.transactionId, "rolled-back", this.clock.now().toISOString());
-          this.operations.confirmPhysicalTransaction(record.intent.operationId);
+          check(); await this.journal.setState(record.intent.serverId, record.transactionId, "rolled-back", this.clock.now().toISOString());
+          check(); this.operations.confirmPhysicalTransaction(record.intent.operationId);
           continue;
         }
         if (sourceExists && targetExists) {
           const [a, b] = await Promise.all([fileAt(source, ADDON_LIMITS.jarBytes, 2), fileAt(target, ADDON_LIMITS.jarBytes, 2)]);
           if (a.physicalIdentity !== lifecycle.sourcePhysicalIdentity || b.physicalIdentity !== lifecycle.sourcePhysicalIdentity || a.sha256 !== lifecycle.sourceSha256 || b.sha256 !== lifecycle.sourceSha256) throw denied();
           // Complete the already-published same-inode move. No content is deleted; this only removes the source hardlink.
-          await unlink(source); await syncDirectory(sourceParent); await syncDirectory(targetParent);
+          check(); await unlink(source); await syncDirectory(sourceParent); await syncDirectory(targetParent);
         }
         const targetFile = targetExists || sourceExists ? await fileAt(target) : null;
         if (!targetFile || targetFile.physicalIdentity !== lifecycle.sourcePhysicalIdentity || targetFile.sha256 !== lifecycle.sourceSha256) throw denied();
@@ -612,7 +739,7 @@ export class AddonLifecycleService {
           if (JSON.stringify(entryNames) !== JSON.stringify(hasReceipt ? ["payload.jar", "receipt.json"] : ["payload.jar"])) throw denied();
           if (!hasReceipt) {
             if (record.state === "committed") throw denied();
-            await exclusiveJson(receiptPath, expectedReceipt); await syncDirectory(entry);
+            check(); await exclusiveJson(receiptPath, expectedReceipt); await syncDirectory(entry);
           } else {
             const receiptFile = await readPrivatePropertiesFile(receiptPath, 16 * 1024), receiptValue: unknown = JSON.parse(receiptFile.bytes.toString("utf8"));
             if (!validReceipt(receiptValue, record.intent.serverId, lifecycle.trashId!) || JSON.stringify(receiptValue) !== JSON.stringify(expectedReceipt)) throw denied();
@@ -627,24 +754,47 @@ export class AddonLifecycleService {
           if (JSON.stringify(trashNames) !== JSON.stringify(hasMarker ? ["receipt.json", "restored.json"] : ["receipt.json"])) throw denied();
           if (!hasMarker) {
             if (record.state === "committed") throw denied();
-            await exclusiveJson(markerPath, marker);
+            check(); await exclusiveJson(markerPath, marker);
           } else {
             const markerFile = await readPrivatePropertiesFile(markerPath, 16 * 1024), markerValue: unknown = JSON.parse(markerFile.bytes.toString("utf8"));
             if (JSON.stringify(markerValue) !== JSON.stringify(marker)) throw denied();
           }
           await syncDirectory(sourceParent);
         }
-        if (record.state !== "committed") await this.journal.setState(record.intent.serverId, record.transactionId, "committed", this.clock.now().toISOString());
-        this.operations.confirmPhysicalTransaction(record.intent.operationId);
+        check(); if (record.state !== "committed") await this.journal.setState(record.intent.serverId, record.transactionId, "committed", this.clock.now().toISOString());
+        check(); this.operations.confirmPhysicalTransaction(record.intent.operationId);
       } catch {
         this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId);
       }
     }
-    const trashServers = new Set(scan.records.filter((record) => record.intent.addonLifecycle?.action === "trash" && record.state === "committed")
+    const settled = await this.journal.scan();
+    const verifiedMembers = new Set<string>();
+    for (const record of settled.records) {
+      check();
+      if (!record.intent.addonLifecycle?.serverType || record.state !== 'committed' || verifiedMembers.has(record.transactionId)) continue;
+      try {
+        if (settled.issues.some(issue => issue.serverId === null || issue.serverId === record.intent.serverId)) throw denied();
+        const adapter = this.#adapter(record.intent.serverId); await this.#requireStopped(adapter);
+        const identity = await measure('lifecycle-dependency-identity', () => this.captureIdentity(adapter)), proof = resolveAddonSuccessors(settled.records, record, identity);
+        await measure('lifecycle-successor-chain', () => verifyAddonSuccessorEndpoint(proof, identity, adapter.plan.rootPath, this.backups, check));
+        if (proof.terminal.state === 'trashed') {
+          const leaf = proof.records.at(-1)!.intent.addonLifecycle;
+          if (!leaf?.trashId) throw denied();
+          await this.#assertTrashJournal(await this.#readReceipt(adapter, leaf.trashId, identity));
+        }
+        for (const member of proof.records) if (member.intent.addonLifecycle) {
+          check();
+          this.operations.confirmPhysicalTransaction(member.intent.operationId);
+          verifiedMembers.add(member.transactionId);
+        }
+      } catch { this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId); }
+    }
+    const trashServers = new Set(settled.records.filter((record) => record.intent.addonLifecycle?.action === "trash" && record.state === "committed")
       .map((record) => record.intent.serverId));
     for (const serverId of trashServers) {
-      try { await this.listTrash(serverId); }
+      check(); try { await measure('lifecycle-trash-proof', () => this.listTrash(serverId, undefined, false, check)); }
       catch { this.operations.requireRecovery([serverId]); }
     }
+    check();
   }
 }

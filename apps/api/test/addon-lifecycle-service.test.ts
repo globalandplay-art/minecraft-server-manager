@@ -38,7 +38,7 @@ afterEach(async () => {
   if (blocked.size) throw new Error("CLEANUP_BLOCKED");
 });
 
-async function fixture(initial: "enabled" | "disabled" = "enabled", interrupt?: string, serverType: "paper" | "fabric" = "paper", cleanupGate?: FixtureCleanupGate) {
+async function fixture(initial: "enabled" | "disabled" = "enabled", interrupt?: string, serverType: "paper" | "fabric" | "forge" | "neoforge" = "paper", cleanupGate?: FixtureCleanupGate) {
   const parent = await mkdtemp(path.join(tmpdir(), "mcsm-addon-lifecycle-")); roots.push(parent);
   if (cleanupGate) rootGates.set(parent, cleanupGate);
   const serverRoot = path.join(parent, "server"), managerRoot = path.join(parent, "manager");
@@ -49,7 +49,9 @@ async function fixture(initial: "enabled" | "disabled" = "enabled", interrupt?: 
   await writeFile(path.join(serverRoot, "server.properties"), "level-name=world\n");
   await writeFile(path.join(serverRoot, "eula.txt"), "eula=true\n"); await writeFile(path.join(serverRoot, serverType === "paper" ? "paper.jar" : "fabric-server-launch.jar"), "server launcher fixture");
   await writeFile(path.join(serverRoot, "world", "level.dat"), "world marker must remain unchanged");
-  const bytes = serverType === "paper" ? addonZip("plugin.yml", "name: LifecyclePlugin\nversion: '1.0'\nmain: example.LifecyclePlugin\n") :
+  const bytes = serverType === 'forge' || serverType === 'neoforge'
+    ? addonZip(serverType === 'forge' ? 'META-INF/mods.toml' : 'META-INF/neoforge.mods.toml', 'modLoader="javafml"\n[[mods]]\nmodId="lifecycle_mod"\nversion="1.0"\n')
+    : serverType === "paper" ? addonZip("plugin.yml", "name: LifecyclePlugin\nversion: '1.0'\nmain: example.LifecyclePlugin\n") :
     addonZip("fabric.mod.json", JSON.stringify({ schemaVersion: 1, id: "lifecycle_mod", name: "Lifecycle Mod", version: "1.0", environment: "server" }));
   const originalFolder = initial === "enabled" ? enabledFolder : disabledFolder;
   await writeFile(path.join(serverRoot, originalFolder, "lifecycle.jar"), bytes);
@@ -62,8 +64,16 @@ async function fixture(initial: "enabled" | "disabled" = "enabled", interrupt?: 
   const backups = new BackupService(registry, operations, journal, managerRoot, clock);
   const identity: AddonAdapterIdentity = { schemaVersion: 1, serverId: adapter.serverId, serverType, minecraftVersion: "26.2", javaMajor: 25,
     requiredJavaMajor: 25, rootIdentity: await backupDirectoryIdentity(serverRoot), addonRootIdentity: await backupDirectoryIdentity(path.join(serverRoot, enabledFolder)),
-    launchJarIdentity: "a".repeat(64), launchJarSha256: "b".repeat(64), identitySha256: "c".repeat(64) };
+    launchJarIdentity: "a".repeat(64), launchJarSha256: "b".repeat(64), identitySha256: "c".repeat(64),
+    ...(serverType === 'forge' || serverType === 'neoforge'
+      ? { disabledAddonRootIdentity: await backupDirectoryIdentity(path.join(serverRoot, disabledFolder)) } : {}) };
   const captureIdentity = vi.fn(async () => identity), inventory = new AddonInventory();
+  // The injected verifier supplies synthetic files; bind its registration as the
+  // production operation scope requires, without bypassing any live capture.
+  Object.assign(adapter, { getRegisteredExecutionIdentity: () => ({ rootIdentity: identity.rootIdentity,
+    launcherIdentity: identity.launchJarIdentity, launcherSha256: identity.launchJarSha256,
+    javaIdentity: 'd'.repeat(64), javaSha256: 'e'.repeat(64),
+    ...(serverType === 'neoforge' ? { neoforgeExecutionSha256: 'f'.repeat(64) } : {}) }) });
   let activeInterrupt = interrupt, checkpointHook: ((point: string) => Promise<void>) | undefined;
   const inject = async (point: string) => { await checkpointHook?.(point); if (point === activeInterrupt) throw new Error(`synthetic interruption at ${point}`); };
   const service = new AddonLifecycleService(registry, operations, journal, backups, inventory, managerRoot, clock, inject, captureIdentity);
@@ -91,6 +101,85 @@ async function run(f: Awaited<ReturnType<typeof fixture>>, action: "disable" | "
   return { operation: await settle(f, op.id), op };
 }
 
+it.each(['forge', 'neoforge'] as const)('%s requires independent activation confirmation and excludes only its own disabled entry', async loader => {
+  const f = await fixture('disabled', undefined, loader), listing = await f.inventory.read(f.adapter.serverId, f.serverRoot, loader);
+  const item = listing.items[0]!;
+  await expect(f.service.mutate(f.adapter.serverId, item.id, 'enable', listing.revision, randomUUID())).rejects.toMatchObject({ code: 'ADDON_COMPATIBILITY_CONFIRMATION_REQUIRED' });
+  expect((await f.journal.scan()).records).toHaveLength(0);
+  const op = await f.service.mutate(f.adapter.serverId, item.id, 'enable', listing.revision, randomUUID(), true);
+  expect((await settle(f, op.id)).state).toBe('succeeded');
+  expect(await readFile(path.join(f.serverRoot, 'mods/lifecycle.jar'))).toEqual(f.bytes);
+});
+it.each(['forge', 'neoforge'] as const)('%s refuses activation with another file declaring the same mod ID', async loader => {
+  const f = await fixture('disabled', undefined, loader); await writeFile(path.join(f.serverRoot, 'mods/duplicate.jar'), f.bytes);
+  const listing = await f.inventory.read(f.adapter.serverId, f.serverRoot, loader), item = listing.items.find(row => row.state === 'disabled')!;
+  await expect(f.service.mutate(f.adapter.serverId, item.id, 'enable', listing.revision, randomUUID(), true)).rejects.toMatchObject({ code: 'ADDON_MOD_ID_CONFLICT' });
+  expect((await f.journal.scan()).records).toHaveLength(0);
+  expect(await readFile(path.join(f.serverRoot, 'disabled-mods/lifecycle.jar'))).toEqual(f.bytes);
+});
+it.each(['before-move', 'destination-installed'] as const)('new-loader refuses identity drift at %s without removing its source', async point => {
+  const f = await fixture('enabled', undefined, 'neoforge');
+  f.setHook(async reached => { if (reached === point) f.captureIdentity.mockResolvedValue({ ...f.identity, identitySha256: 'f'.repeat(64) }); });
+  const listing = await f.inventory.read(f.adapter.serverId, f.serverRoot, 'neoforge');
+  const op = await f.service.mutate(f.adapter.serverId, listing.items[0]!.id, 'disable', listing.revision, randomUUID());
+  expect((await settle(f, op.id)).state).toBe('interrupted');
+  expect(f.operations.getServerState(f.adapter.serverId).recoveryRequired).toBe(true);
+  expect(await readFile(path.join(f.serverRoot, 'mods/lifecycle.jar'))).toEqual(f.bytes);
+  if (point === 'before-move') await expect(readFile(path.join(f.serverRoot, 'disabled-mods/lifecycle.jar'))).rejects.toMatchObject({ code: 'ENOENT' });
+  else {
+    expect(await readFile(path.join(f.serverRoot, 'disabled-mods/lifecycle.jar'))).toEqual(f.bytes);
+    expect((await stat(path.join(f.serverRoot, 'mods/lifecycle.jar'))).nlink).toBe(2);
+  }
+});
+it.each(['before-move', 'destination-installed'] as const)('new-loader refuses a running-state transition at %s', async point => {
+  const f = await fixture('enabled', undefined, 'forge'), getStatus = f.adapter.getStatus.bind(f.adapter);
+  f.setHook(async reached => { if (reached === point) vi.spyOn(f.adapter, 'getStatus').mockImplementation(async () => ({ ...await getStatus(), state: 'running' })); });
+  const listing = await f.inventory.read(f.adapter.serverId, f.serverRoot, 'forge');
+  const op = await f.service.mutate(f.adapter.serverId, listing.items[0]!.id, 'disable', listing.revision, randomUUID());
+  expect((await settle(f, op.id)).state).toBe('interrupted');
+  expect(f.operations.getServerState(f.adapter.serverId).recoveryRequired).toBe(true);
+  expect(await readFile(path.join(f.serverRoot, 'mods/lifecycle.jar'))).toEqual(f.bytes);
+  if (point === 'before-move') await expect(readFile(path.join(f.serverRoot, 'disabled-mods/lifecycle.jar'))).rejects.toMatchObject({ code: 'ENOENT' });
+  else expect((await stat(path.join(f.serverRoot, 'mods/lifecycle.jar'))).nlink).toBe(2);
+});
+it('new-loader startup preserves interrupted double-link evidence without automatic writes', async () => {
+  const f = await fixture('enabled', 'destination-installed', 'neoforge'), listing = await f.inventory.read(f.adapter.serverId, f.serverRoot, 'neoforge');
+  const op = await f.service.mutate(f.adapter.serverId, listing.items[0]!.id, 'disable', listing.revision, randomUUID());
+  expect((await settle(f, op.id)).state).toBe('interrupted');
+  const journal = new TransactionJournalStore(f.managerRoot); await journal.initialize();
+  const before = await journal.scan(), operations = new OperationService(new JsonOperationStore(f.managerRoot), clock, journal);
+  const service = new AddonLifecycleService(f.registry, operations, journal, new BackupService(f.registry, operations, journal, f.managerRoot, clock),
+    f.inventory, f.managerRoot, clock, undefined, f.captureIdentity);
+  await service.reconcileStartup(); await operations.initialize();
+  expect(operations.getServerState(f.adapter.serverId).recoveryRequired).toBe(true);
+  expect((await stat(path.join(f.serverRoot, 'mods/lifecycle.jar'))).nlink).toBe(2);
+  expect((await stat(path.join(f.serverRoot, 'disabled-mods/lifecycle.jar'))).nlink).toBe(2);
+  expect((await journal.scan()).records).toEqual(before.records);
+});
+
+it('refuses a trash junction substituted during an awaited complete identity check', async () => {
+  const f = await fixture('enabled', undefined, 'neoforge');
+  const outside = path.join(f.parent, 'outside'); await mkdir(outside);
+  let armed = false, changed = false;
+  f.setHook(async point => { if (point === 'before-move') armed = true; });
+  f.captureIdentity.mockImplementation(async () => {
+    if (armed && !changed) {
+      changed = true;
+      const parent = path.join(f.serverRoot, 'trash/addons', f.adapter.serverId);
+      const entries = await readdir(parent); expect(entries).toHaveLength(1);
+      const entry = path.join(parent, entries[0]!);
+      await rename(entry, path.join(parent, 'preserved-entry'));
+      await symlink(outside, entry, process.platform === 'win32' ? 'junction' : 'dir');
+    }
+    return f.identity;
+  });
+  const listing = await f.inventory.read(f.adapter.serverId, f.serverRoot, 'neoforge');
+  const op = await f.service.mutate(f.adapter.serverId, listing.items[0]!.id, 'trash', listing.revision, randomUUID());
+  expect((await settle(f, op.id)).state).toBe('interrupted'); expect(changed).toBe(true);
+  expect(await readdir(outside)).toEqual([]);
+  expect(await readFile(path.join(f.serverRoot, 'mods/lifecycle.jar'))).toEqual(f.bytes);
+  expect(f.operations.getServerState(f.adapter.serverId).recoveryRequired).toBe(true);
+});
 it.each(["count", "bytes"] as const)("refuses Restore exceeding inventory %s without consuming trash", async (limit) => {
   const f = await fixture();
   const original = (await f.inventory.read(f.adapter.serverId, f.serverRoot, "paper")).items[0]!;

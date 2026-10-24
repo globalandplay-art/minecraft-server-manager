@@ -50,13 +50,15 @@ export class OperationService {
     this.#clock = clock;
   }
 
-  async initialize(): Promise<void> {
+  async initialize(check = () => {}): Promise<void> {
+    check();
     await this.#store.initialize();
     const [stored, transactionScan] = await Promise.all([
       this.#store.list(),
       this.transactionRecovery?.initialize()
     ]);
     const now = this.#clock.now();
+    check();
     for (const record of transactionScan?.records ?? []) if (["active", "recovery-required"].includes(record.state)) {
       this.#addRecovery(record.intent.serverId, `journal:${record.intent.operationId}`);
     }
@@ -85,6 +87,7 @@ export class OperationService {
       if (!established && !this.#verifiedTerminalOperations.has(record.intent.operationId)) this.requireTransactionRecovery(record.intent.serverId, record.intent.operationId);
     }
     for (const record of stored) {
+      check();
       let current = record;
       // A command receipt is not a world transaction. Until a dedicated controller
       // verifies its outcome, even a saved success must remain fail-closed on restart.
@@ -118,7 +121,7 @@ export class OperationService {
             : { code: "RECOVERY_REQUIRED", message: "管理器重启中断了操作，需要人工检查" }
         };
         current = { ...record, operation: interrupted };
-        await this.#store.save(current);
+        check(); await this.#store.save(current); check();
         if (!terminal && interrupted.kind !== "backup-export") this.#addRecovery(interrupted.serverId, `operation:${interrupted.id}`);
       }
       if (

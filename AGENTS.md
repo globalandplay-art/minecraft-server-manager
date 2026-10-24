@@ -1,5 +1,17 @@
 # Project instructions
 
+## M3 review exception — user approved 2026-10-24
+
+For the current M3 work only: engineering defaults to GPT-6.1 Sol Medium;
+complex/security/transaction/concurrency work uses GPT-6.1 Sol High. Independent
+code review, advanced safety Gate and final independent evidence acceptance
+all require an independent GPT-6.1 Sol High reviewer. Astra is not required for
+M3. If Sol High is unavailable, leave its Gate PENDING; do not substitute a
+different model. This explicit exception supersedes conflicting M3 routing
+below, preserves every safety/test Gate and prior review attribution, and does
+not change other stages. No writer self-signoff; no Final PASS with open P1/P2.
+P7 remains STOPPED; no Git upload is authorized by this policy change.
+
 ## Operating goal and model routing
 
 Minimize total token/allowance through final PASS while preserving every
@@ -48,6 +60,23 @@ Settings is a configuration-file editor. Reuse LC1.1 discovery and protected sav
 Use tiered validation: focused checks for small changes, affected-module checks for integration, and full regression/lint/typecheck/build at stage delivery. Preserve existing failures and evidence; never obtain PASS by deleting checks, weakening assertions or changing timeouts. Do not rerun unchanged failed legacy stress tests without a specific new authorization. Git commit/push/PR, system/network changes, non-test Minecraft instances/worlds and force-cleaning uncertain legacy fixtures still require separate authorization. The standing test-instance authorization below is already granted and must not trigger repeated approval requests.
 
 ## Standing Vanilla 26.3 test-instance authorization (2026-10-21)
+
+### Additional fresh Forge/NeoForge test authorization (2026-10-24)
+
+The user expressly authorized full M3 real Minecraft testing in newly created
+fresh UUID isolated Forge/NeoForge copies from previously verified sources.
+Reverify source identity, version, Java, complete dependency closure and owned
+process/target mapping before execution. Original sources and other user
+servers/worlds remain untouched. Within the new copies, configuration/RCON,
+test mods and lifecycle, test worlds, restarts, failure injection/recovery,
+multi-instance tests and cleanup of confirmed owned resources are authorized
+without repeated approval. Preserve protective backups and recovery evidence
+before destructive tests. Do not newly accept an unapproved EULA or change
+Windows/system/network/firewall/environment settings. P7 remains STOPPED;
+Git commit/push/PR/merge still needs separate authorization. Record exact test
+roots and outcomes; engineering, browser and real loading evidence stay distinct.
+This adds bounded test-copy permission; it does not transfer the Vanilla grant
+to arbitrary pre-existing Forge/NeoForge servers.
 
 “用户已授权 Codex 对 LT 中已注册的 Minecraft Java Vanilla 26.3 测试服务端执行完整的本地读取、修改、删除、启停、控制台及实际功能测试操作，无需逐次确认。”
 

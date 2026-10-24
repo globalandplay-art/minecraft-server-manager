@@ -17,8 +17,8 @@ describe("LocalJavaAdapter addon capabilities", () => {
     ["fabric", true, false],
     ["vanilla", false, false],
     ["unknown", false, false],
-    ["forge", false, false],
-    ["neoforge", false, false]
+    ["forge", true, false],
+    ["neoforge", true, false]
   ] as const)("exposes only the addon capability for trusted type %s", async (type, mods, plugins) => {
     await expect(adapterFor(type).getCapabilities()).resolves.toMatchObject({ mods, plugins });
   });

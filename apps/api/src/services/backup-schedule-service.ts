@@ -114,9 +114,11 @@ export class BackupScheduleService {
       return this.public(record);
     }));
   }
-  async initialize(): Promise<void> {
+  async initialize(check = () => {}): Promise<void> {
+    check();
     await this.serialize(async () => {
       for (const adapter of this.registry.list()) {
+        check();
         if (this.registry.getLocal(adapter.serverId)?.plan.serverInfo.type !== "vanilla") continue;
         try {
           const record = await this.load(adapter.serverId);
@@ -128,10 +130,11 @@ export class BackupScheduleService {
             run.code = run.state === "interrupted" ? "SCHEDULE_INTERRUPTED" : null;
             changed = true;
           }
-          if (changed) await this.save(record);
+          check(); if (changed) await this.save(record); check();
         } catch { /* Isolate corrupt plans: GET remains 409; lifecycle/recovery APIs stay reachable. */ }
       }
     });
+    check();
   }
   start(): void {
     if (this.#timer || this.#closed) return;

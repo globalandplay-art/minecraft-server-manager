@@ -32,7 +32,7 @@ function createAdapter(initialStatus: ServerStatus, type: ServerType = "vanilla"
     },
     getServerInfo: async () => adapter.plan.serverInfo,
     getCapabilities: async () => ({
-      mods: type === "fabric", plugins: type === "paper", rcon: false, console: true,
+      mods: ["fabric", "forge", "neoforge"].includes(type), plugins: type === "paper", rcon: false, console: true,
       backup: type === "vanilla", worlds: type === "vanilla", properties: false
     }),
     getStatus: async () => status,
@@ -130,6 +130,20 @@ describe("ServerService lifecycle no-op contract", () => {
     const fixture = createAdapter({ ...status(state, ownership), recoveryRequired }, "paper");
     const service = await createService(fixture.adapter, new MemoryOperationStore(), undefined, true);
     expect((await service.get("local-test")).readiness.addonChanges).toEqual({ allowed: false, reason });
+  });
+
+  it.each(["forge", "neoforge"] as const)("exposes %s addon readiness with the existing state and recovery gates", async type => {
+    const fixture = createAdapter(status("stopped", "none"), type);
+    const service = await createService(fixture.adapter, new MemoryOperationStore(), undefined, true);
+    expect((await service.get("local-test")).readiness.addonChanges).toEqual({ allowed: true, reason: null });
+    for (const next of [status("running", "managed"), status("unknown", "unknown"), { ...status("stopped", "none"), recoveryRequired: true }]) {
+      fixture.setStatus(next);
+      expect((await service.get("local-test")).readiness.addonChanges.allowed).toBe(false);
+    }
+    fixture.setStatus(status("stopped", "none"));
+    expect((await (await createService(fixture.adapter)).get("local-test")).readiness.addonChanges.reason).toBe("feature-not-implemented");
+    fixture.adapter.getCapabilities = async () => ({ mods: false, plugins: false, rcon: false, console: true, backup: false, worlds: false, properties: false });
+    expect((await service.get("local-test")).readiness.addonChanges.reason).toBe("capability-unsupported");
   });
 
   it("reflects backup readiness only for safe stopped or managed Vanilla instances", async () => {

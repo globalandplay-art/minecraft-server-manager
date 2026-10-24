@@ -56,7 +56,7 @@ export function registerAddonLifecycleRoutes(app: FastifyInstance, service: Addo
     }, async (request, reply) => {
       if (!service) throw new DomainError(501, "ADDON_UNSUPPORTED", "扩展生命周期事务不可用", "addon-lifecycle-unavailable");
       const operation = await service.mutate(request.params.serverId, request.params.addonId, action,
-        request.body.revision, requireIdempotencyKey(request.headers["idempotency-key"]));
+        request.body.revision, requireIdempotencyKey(request.headers["idempotency-key"]), request.body.confirmUnknownCompatibility);
       reply.header("Cache-Control", "no-store");
       return reply.code(202).send({ data: { operation }, meta: responseMeta(request.id, clock, mode) });
     });
@@ -68,7 +68,7 @@ export function registerAddonLifecycleRoutes(app: FastifyInstance, service: Addo
   }, async (request, reply) => {
     if (!service) throw new DomainError(501, "ADDON_UNSUPPORTED", "扩展生命周期事务不可用", "addon-lifecycle-unavailable");
     const operation = await service.restore(request.params.serverId, request.params.trashId,
-      request.body.revision, requireIdempotencyKey(request.headers["idempotency-key"]));
+      request.body.revision, requireIdempotencyKey(request.headers["idempotency-key"]), request.body.confirmUnknownCompatibility);
     reply.header("Cache-Control", "no-store");
     return reply.code(202).send({ data: { operation }, meta: responseMeta(request.id, clock, mode) });
   });

@@ -1,3 +1,193 @@
+# 2026-10-25 M3 revised final decision — R1/R2 accepted, BLOCKED
+
+The user's final-signoff instruction now accepts ONLY R1 (precise partial Neo
+native-probe DEBUG event loss) and R2 (recorded historical startup tick slowdown,
+root UNKNOWN). Both are ACCEPTED_RESIDUAL_RISK, not product fixes or universal
+log/performance exceptions. Previous pending notes below are historical.
+
+Final candidate audit:33 frozen files unchanged; capability-test delta matches;
+no unexpected changed code beyond the two separately reviewed diagnostic tools.
+Valid API2834/Web243/Contracts28, static/build and three-width browser evidence
+is reused. No product/classifier/test/source changes or Minecraft/test rerun.
+Independent Sol High: P1/P2/P3=0; R1=ACCEPT; R2=ACCEPT;
+UNRESOLVED_REQUIRED_GATES=4; REVISED_FINAL_GATE=BLOCKED.
+A Perflib/SystemReport32, C discovery18, D controlled marker3, E1 no-TTY6
+remain59 classified entries without an approved M3 nonblocking disposition.
+M1's prior Perflib postponement is not transferred to M3. No additional waiver.
+Original Neo business/modLifecycle PASS, strict/overall BLOCKED remain intact;
+Forge six real phases pass but its original overall/replay failure is preserved.
+M3 is NOT marked complete; next stage/EXE packaging/P7 are not started.
+See [final acceptance decision](./M3_FINAL_ACCEPTANCE_2026-10-25.md).
+No commit/push/PR/merge. Remaining work is the four specific Gate dispositions.
+
+# 2026-10-25 M3 targeted diagnostics complete — risk decision pending
+
+No new feature or product/dependency/classifier change. Real targeted coverage:
+normal fixed logging PASS via offline supplement (original JFR-export failure
+report remains BLOCKED); fixed FML constructor/crash path PASS; one warm early
+JFR observation PASS with no reproduced lag.53 Tick periods=4 bootstrap zeros+
+49 positive averages; no worst-single-tick or sustained-performance claim.
+Historical Tick root cause remains UNKNOWN / NOT REPRODUCED.
+
+Non-Minecraft standalone control v2 PASS: identical verified artifacts/original
+FML XML reproduce exactly two native availability/DebugFile failures without LT;
+post-failure fixed ERROR/FATAL causes still persist. This establishes the precise
+upstream interaction; native DEBUG event loss remains an explicit known risk.
+Control v1 URI fixture failure preserved; one file:/// correction, no timeout or
+assertion weakening. No more Minecraft starts or diagnostic retries planned.
+Independent Sol High source/evidence reviews P1/P2/P3=0 for completed scopes.
+Bounded B/E2 dispositions and earlier A/C/D/E1 proposals are NOT ACTIVE and
+PENDING USER APPROVAL. Original strict Gate and M3 FINAL remain BLOCKED.
+Applicable unchanged-candidate API2834/Web243/Contracts28/static/build retained;
+no unrelated full regression or old native experiment repeated.
+See [targeted evidence and risk boundaries](./M3_TARGETED_DIAGNOSTICS_2026-10-24.md).
+P7 STOPPED; no commit/push/PR/merge.
+
+# 2026-10-25 M3 targeted diagnostics checkpoint
+
+No new feature or product/classifier change. Three targeted Minecraft starts
+completed: normal logs/60s sampling (offline JFR export overflow preserved),
+fixed fatal constructor path PASS, single warm early-JFR observation PASS.
+Normal log coverage is confirmed separately by offline supplement; original
+failed harness report is not rewritten. Warm JFR covers Done+3s with no lag;
+53 period averages contain4 bootstrap zero values and49 positive values.
+Historical lag remains NOT REPRODUCED / cause UNKNOWN, not performance PASS.
+Independent Sol High evidence review P1/P2/P3=0 for those bounded conclusions.
+Standalone non-Minecraft Log4j/Netty control source is prepared, execution/review
+PENDING. No additional Minecraft launch or seven-lifecycle rerun is planned.
+M3 and original strict Gate remain BLOCKED; no risk waiver is active.
+See [targeted evidence](./M3_TARGETED_DIAGNOSTICS_2026-10-24.md).
+P7 STOPPED. No commit/push/PR/merge.
+
+# 2026-10-24 M3 final diagnostics and fresh API result
+
+New single API v2 run:2834/2834 PASS,157/157 files, exit0,680.87s.
+Original2832 PASS/2 FAIL and focused6 PASS remain separate historical records.
+Three deferred LC2 native experiment files remain explicitly excluded, not PASS.
+Unchanged frozen candidate: Web243, Contracts28, lint/typecheck/build PASS reused.
+No product/classifier/dependency/system changes and no new Minecraft launch.
+
+Strict logs and whole M3 remain BLOCKED. Perflib and no-TTY are observed
+environment limitations; marker warning is a bounded controlled artifact;
+service-discovery TLS timeout leaves online auth unverified; DebugFile events
+are actually missing and full causality/diagnostic coverage remain unresolved;
+short tick lag lacks trustworthy attribution. No generic allowance or risk
+acceptance is active. Independent diagnostics review P1/P2/P3=0 after count
+correction; final independent integration review completed P1/P2/P3=0; no Final release is recommended while B/E2 remain unresolved.
+See [final diagnostics](./M3_FINAL_DIAGNOSTICS_2026-10-24.md).
+P7 STOPPED. No commit/push/PR/merge. Historical strict runs are not rewritten.
+
+# 2026-10-24 M3 final acceptance checkpoint
+
+NeoForge fresh run m2-loaders-real-1afb966b-8a8a-4bc3-8343-ff5b12de9f9d:
+business/modLifecycle PASS, six actual load/omission scenes, seven tracked Java
+children normal exit0/null; finalStopped/helpersClosed/portsReleased/sourceInputsUnchanged
+true. Strict diagnostics BLOCKED/overall exit1. Perflib, NeoForge DebugFile
+appender failures, service-discovery TLS timeout and remaining warnings are
+separate unresolved diagnostic Gate items; no classifier/system changes.
+Formal browser360/768/1440 PASS and durable Manager worker rebuild PASS.
+
+Final broad API:2832 PASS/2 FAIL, exit1 (157 files). Both failures were stale
+Forge/NeoForge mods=false expectations. Only those two test expectations were
+corrected to the existing production mods=true contract; focused6 PASS/exit0.
+Original broad failure log is preserved; no claim of a new2834-PASS full run.
+Exactly three explicitly deferred LC2 native experiment files were excluded;
+these are not PASS. Final Web243 PASS, contracts28 PASS, lint/typecheck/build
+PASS, git diff --check PASS (all exit0). Original33 frozen files unchanged;
+additional test-only delta fingerprint saved separately. Independent Sol High
+delta/source/evidence review P1/P2/P3=0; strict Gate remains BLOCKED.
+
+No further Minecraft rerun, no uncertain fixture cleanup, no commit/push/PR.
+P7 STOPPED. Whole M3 FINAL remains BLOCKED. Next: bounded read-only triage of
+NeoForge logging artifact and host diagnostics, then decide individual fixes or
+strictly evidenced diagnostic rules; do not blanket-allow errors or rewrite runs.
+See [NeoForge acceptance](./M3_NEOFORGE_REAL_2026-10-24.md).
+
+# 2026-10-24 M3 restore deadline attempt2
+
+Fixed-width4 fresh-proof I/O candidate implemented after read-only phase
+attribution and independent Sol High design review. Both passes/limits/digest
+order remain. Binding93 targeted tests plus updated quota-file36PASS; full
+same-physical-fixture binding equality confirmed. Source review P1/P2/P3=0.
+Formal360 PASS (m12-real-92214e67-2246-42e4-a476-f5ccd18225e6), including
+original30000ms restore and actual persistent Manager worker rebuild. Formal
+768/1440 also PASS (m12-real-4f0947b2-7914-4956-ad70-fc2eb3c93736), with
+original30000ms, real persistent replay and clean Manager shutdown. All3
+widths verified; final independent Sol High source/evidence review P1/P2/P3=0
+closes the startup replay and restore browser blockers for this tested scope.
+Affected API133PASS, latest binding36PASS, typecheck/lint/build/diffPASS.
+No M3 FINAL PASS:
+real NeoForge loading/frozen stage regression remain outstanding. No third
+repair was used. New evidence is in
+[bounded binding record](./M3_BOUNDED_BINDING_2026-10-24.md); all previous
+failures remain. P7 STOPPED; no old CommandStore experiment or Git upload.
+
+# 2026-10-24 M3 two-blocker candidate update (previous checkpoint)
+
+`M3-STARTUP-RECONCILIATION-DEADLINE-001`: bounded pending-admission candidate
+implemented; actual preserved Forge proof passed in39475ms while Fastify ready
+in657ms and instance API stayed503 until verified. No global timeout extension.
+Cancellation/monotonic-deadline/close-join checks and scheduler-after-ready
+were independently reviewed (Sol High source P1/P2/P3=0). Fresh durable replay
+acceptance is still required; the narrow historical-proof run uses memory
+operation projection and leaves historical receipts unchanged.
+
+`M3-RESTORE-UI-DEADLINE-001`: new diagnosis CONFIRMED backend transaction itself
+took35714ms. Failure trace preserved under m12-real-659fd7b2-3828-477f-8b36-355c542bf10c.
+Minimal repair attempt1 reuses operation-scoped pure NeoForge metadata facts
+without caching physical evidence; related142 tests pass in batches after
+correcting a fixture missing registration. Post-repair diagnostic backend
+31687ms still fails original30000ms visible-success check; fix not complete.
+Formal360 failed earlier at installation30000ms with TraceSAVED; no restore
+or768/1440 formal PASS. Both failed runs closed owned Managers, zero Minecraft,
+sources unchanged/ports released. No second speculative repair. Narrow the
+remaining repeated fresh-proof cost before selecting another change; do not
+weaken checks or raise deadlines. Latest candidate is not a stage PASS.
+No M3 FINAL PASS, no wider classifier rule, no old LC2 experiment rerun.
+
+# 2026-10-24 M3-F integration follow-up (historical checkpoint)
+
+Current MUST_FIX before M3 FINAL:
+
+- `M3-STARTUP-RECONCILIATION-DEADLINE-001`: Forge's six actual marker scenes
+  passed, but final same-process reconstruction failed with
+  `FST_ERR_HOOK_TIMEOUT` in app.ts onReady. A separate read-only profile proves
+  fullchain + consumed proof alone exceeded the default 10s hook budget.
+  Root conflict CONFIRMED; exact original-hook internal timing UNKNOWN. No
+  repair attempt (0), no timeout extension or skipped identity checks. A bounded
+  explicit startup architecture decision is needed; no repeated real run.
+- `M3-RESTORE-UI-DEADLINE-001`: latest real HTTP 360px restore backend succeeded
+  in about28.48s, but final visible success missed unchanged30000ms. Exact extra
+  terminal verification/UI segment UNKNOWN (no failure trace). No repair
+  attempt (0), no speculative rerun; 768/1440 and final broad API still pending.
+  This is not the historical already-repaired install deadline issue.
+
+Complete Web243/runtime39/focusedUI41 and static/build checks pass. Review's
+source-only zero findings does not close either observed integration blocker.
+NeoForge real marker lifecycle remains NOT RUN. All seven Forge/Vanilla test
+children stopped normally, ports released, originals unchanged. Strict Perflib/
+JVM diagnostic BLOCKED is retained independently. See the linked M3-F record
+for exact run IDs, errors, evidence and scope; no M3 FINAL PASS is asserted.
+
+Missing-consent restart tests have now been added (27 PASS at that checkpoint).
+Forge/NeoForge lifecycle implementation and its committed-successor recovery
+proof are under final validation; do not treat the old unimplemented status as
+the latest code state. Final M3 status remains IN PROGRESS.
+
+New browser findings: duplicate query keys and StrictMode abort/restart collided
+with unchanged backend scan/read locks. Two local UI repairs and a 39-test
+checkpoint established single delayed reads; the next run reached upload 201
+and installation 202/verified bytes after correcting upload/read admission.
+That run then exposed stale status timestamps after repeated unchanged runtime
+probes. A minimal timestamp/stream-snapshot correction passed 39 runtime tests.
+Independent review also required a shared fresh install proof to avoid competing
+query/raw scans; cached and pending cases pass in the 41-test UI candidate.
+Independent Sol High delta: P1/P2/P3=0. Final browser and stage evidence pending.
+
+History is retained in [M3-F record](./M3_LOADER_LIFECYCLE_2026-10-24.md).
+Old LC2 native stress failures remain DEFERRED and are not rerun or relabeled.
+No generic diagnostic allowlist, larger timeout or weaker assertion is used.
+
 # 2026-10-24 M3-INSTALL-RECONCILE-REGISTRY-001 — P2 fixed
 
 Independent integrated review confirmed historical extended-loader installation

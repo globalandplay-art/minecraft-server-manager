@@ -8,6 +8,8 @@ import { backupDirectoryIdentity } from "./backup-identity.js";
 import type { BackupService } from "./backup-service.js";
 import { DomainError } from "./domain-errors.js";
 import { ADDON_LIMITS, AddonInventory, addonOpaqueId, addonInstallProfile } from "./addon-inventory.js";
+import { resolveAddonSuccessors, verifyAddonSuccessorEndpoint } from './addon-successor-chain.js';
+import type { RecoveryMeasure } from './manager-startup-recovery.js';
 import { assertAddonInstallAdmission } from "./addon-install-policy.js";
 import { captureAddonAdapterIdentity, createAddonInstallIdentityScope, type AddonAdapterIdentity, type AddonIdentityScope } from "./addon-adapter-identity.js";
 import type { OperationService } from "./operation-service.js";
@@ -261,10 +263,12 @@ export class AddonInstallService {
     }
   }
 
-  async reconcileStartup(): Promise<void> {
+  async reconcileStartup(check = () => {}, measure: RecoveryMeasure = (_phase, action) => action()): Promise<void> {
+    check();
     const scan = await this.journal.scan();
     const outcomes = new Map((await this.operations.storedOutcomes()).map((operation) => [operation.id, operation]));
     for (const record of scan.records) {
+      check();
       const install = record.intent.addonInstall;
       if (!install || !["active", "recovery-required", "committed", "rolled-back"].includes(record.state) ||
         scan.issues.some((issue) => issue.serverId === record.intent.serverId)) continue;
@@ -285,21 +289,23 @@ export class AddonInstallService {
         const adapter = this.registry.getLocal(record.intent.serverId);
         if (!adapter) { preserveRollbackGate(); continue; }
         await this.requireStopped(adapter);
-        const identity = await this.captureIdentity(adapter);
+        const identity = await measure('install-dependency-identity', () => this.captureIdentity(adapter));
         if (identity.rootIdentity !== install.rootIdentity || identity.identitySha256 !== install.adapterIdentitySha256 ||
           identity.addonRootIdentity !== install.addonRootIdentity) { preserveRollbackGate(); continue; }
         const target = path.join(adapter.plan.rootPath, install.kind === "mod" ? "mods" : "plugins", install.filename);
-        const guard = await this.backups.privateSnapshot(record.intent.serverId, install.guardBackupId);
+        const guard = await measure('install-original-guard', () => this.backups.privateSnapshot(record.intent.serverId, install.guardBackupId));
         if (!guard.pinned || guard.checksumSha256 !== install.guardChecksum) { preserveRollbackGate(); continue; }
         if (record.state === "committed") {
-          const file = await readPrivatePropertiesFile(target, 64 * 1024 * 1024);
+          const file = extendedLoader
+            ? (await measure('install-successor-chain', () => verifyAddonSuccessorEndpoint(resolveAddonSuccessors(scan.records, record, identity), identity, adapter.plan.rootPath, this.backups, check))).file
+            : await readPrivatePropertiesFile(target, 64 * 1024 * 1024);
           const verified = [...record.checkpoints].reverse().find((point) => point.name === "before-publication")?.details;
           if (file.checksum !== install.uploadSha256 || !verified || verified.checksumSha256 !== file.checksum ||
             verified.filesystemIdentity !== file.physicalIdentity ||
-            !(await this.uploads.verifyConsumed(record.intent.serverId, install.uploadId, install.uploadRevision, install.kind, record.intent.operationId))) {
+            !(await measure('install-consumed-proof', () => this.uploads.verifyConsumed(record.intent.serverId, install.uploadId, install.uploadRevision, install.kind, record.intent.operationId)))) {
             preserveRollbackGate(); continue;
           }
-          this.operations.confirmPhysicalTransaction(record.intent.operationId);
+          check(); this.operations.confirmPhysicalTransaction(record.intent.operationId);
           continue;
         }
 
@@ -322,12 +328,13 @@ export class AddonInstallService {
         } else {
           try { await lstat(workspace); preserveRollbackGate(); continue; } catch (error) { if (!isMissing(error)) throw error; }
         }
-        await this.journal.setState(record.intent.serverId, record.transactionId, "rolled-back", this.clock.now().toISOString());
-        this.operations.confirmPhysicalTransaction(record.intent.operationId);
+        check(); await this.journal.setState(record.intent.serverId, record.transactionId, "rolled-back", this.clock.now().toISOString());
+        check(); this.operations.confirmPhysicalTransaction(record.intent.operationId);
       } catch {
         preserveRollbackGate();
         // OperationService retains the unresolved transaction recovery gate.
       }
     }
+    check();
   }
 }

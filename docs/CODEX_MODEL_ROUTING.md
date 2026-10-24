@@ -1,5 +1,16 @@
 # Codex Operating Goal and Model Routing
 
+## M3-only explicit user exception (2026-10-24)
+
+M3 engineering: GPT-6.1 Sol Medium; complex/security/transaction/concurrency
+work: GPT-6.1 Sol High. Independent code Review, advanced safety Gate and final
+independent evidence acceptance: independent GPT-6.1 Sol High, not the writer.
+M3 no longer requires Astra. Sol High unavailable means PENDING, never a silent
+model substitution. This user-approved exception supersedes only conflicting
+M3/Addons routing for current M3; all other phases and historical signatures
+remain unchanged. Safety, test coverage and acceptance gates are unchanged;
+open P1/P2 prohibit Final PASS. P7 stays STOPPED; commit/push remain unauthorized.
+
 ## Standing real-test authorization (2026-10-21)
 
 The user has granted full local operation of the currently registered Vanilla 26.3 **test** instance `vanilla-26-3`, including files/worlds/configuration/RCON/Console/owned-process lifecycle and repeated actual functional tests. Do not request per-operation approval within that verified boundary. Prefer existing LT interfaces and backups when practical; direct test-instance diagnosis is allowed. AGENTS.md and [the authorization record](./TEST_INSTANCE_AUTHORIZATION_2026-10-21.md) define the target and retained boundaries. Earlier general real-server approval language does not override this grant. Product safety checks, truthful acceptance, protection of other instances, stopped P7 remote work and separate Git/system/network authorization remain in force.

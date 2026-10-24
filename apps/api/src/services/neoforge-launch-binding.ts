@@ -44,6 +44,16 @@ type ContentRole = 'game' | 'universal' | 'loader' | 'ordinary';
 type ContentFacts = { readonly indexNames: readonly string[] };
 type ContentCache = { readonly entries: Map<string, ContentFacts>; retainedBytes: number };
 
+/** Drain the current bounded batch before failure; never leave proof I/O behind. */
+async function proofBatches<T, R>(items: readonly T[], read: (item: T) => Promise<R>, merge: (result: R) => void) {
+  for (let offset = 0; offset < items.length; offset += 4) {
+    const results = await Promise.allSettled(items.slice(offset, offset + 4).map(read));
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
+    for (const result of results) if (result.status === 'fulfilled') merge(result.value);
+  }
+}
+
 /** Pure facts about bytes only. No filesystem identity, ownership or absence proof is cached. */
 async function inspectContent(bytes: Buffer, role: ContentRole, productionClasspath: boolean): Promise<ContentFacts> {
   if (productionClasspath) await assertProductionClasspath(bytes);
@@ -115,9 +125,11 @@ async function captureBinding(root: string, anchor: string, cache?: ContentCache
   for (const relative of relatives) {
     if (!/^libraries\/[a-zA-Z0-9_+./-]+\.jar$/u.test(relative) || relative.split('/').some(part => !part || part === '.' || part === '..')) throw denied();
     await parents(relative);
+  }
+  // Preserve parent/file/INDEX digest order. At most four64MiB input buffers
+  // are live, plus ZIP parsing overhead;512MiB remains the admission byte sum.
+  await proofBatches(relatives, async relative => {
     const file = await readPrivatePropertiesFile(path.join(root, relative), 64 * 1024 ** 2);
-    total += file.bytes.length;
-    if (total > 512 * 1024 ** 2) throw denied();
     const role: ContentRole = relative === game ? 'game' : relative === universal ? 'universal' : relative === loader ? 'loader' : 'ordinary';
     const productionClasspath = classpath.includes(relative);
     const key = `${role}:${productionClasspath}:${file.checksum}`;
@@ -131,17 +143,25 @@ async function captureBinding(root: string, anchor: string, cache?: ContentCache
       }
     }
     // Resolve INDEX names against this file's current location; absence is always fresh.
+    const absentNames: string[] = [];
     for (const name of facts.indexNames) {
       const target = path.posix.join(path.posix.dirname(relative), name);
-      if (!relatives.includes(target)) { await absent(target); absentTargets.add(target); }
+      if (!relatives.includes(target)) { await absent(target); absentNames.push(target); }
     }
-    files.push({ relative, identity: file.identity, checksum: file.checksum });
-  }
-  for (const [relative, identity] of directories) if (await backupDirectoryIdentity(path.join(root, relative)) !== identity) throw denied();
-  for (const file of files) {
+    return { relative, identity: file.identity, checksum: file.checksum, size: file.bytes.length, absentNames };
+  }, file => {
+    total += file.size;
+    if (total > 512 * 1024 ** 2) throw denied();
+    files.push({ relative: file.relative, identity: file.identity, checksum: file.checksum });
+    for (const target of file.absentNames) absentTargets.add(target);
+  });
+  await proofBatches([...directories], async ([relative, identity]) => {
+    if (await backupDirectoryIdentity(path.join(root, relative)) !== identity) throw denied();
+  }, () => {});
+  await proofBatches(files, async file => {
     const current = await readPrivatePropertiesFile(path.join(root, file.relative), 64 * 1024 ** 2);
     if (current.identity !== file.identity || current.checksum !== file.checksum) throw denied();
-  }
+  }, () => {});
   for (const [file, before] of [[anchor, batch], [path.join(root, argsFile), descriptor]] as const) {
     const current = await readPrivatePropertiesFile(file, 65536);
     if (current.identity !== before.identity || current.checksum !== before.checksum) throw denied();

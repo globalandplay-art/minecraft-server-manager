@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AddonTrashResponse, AddonsResponse, AddonUploadResponse, LifecycleActionResponse, Operation, ServerResponse, ServersResponse } from '@mcsm/contracts';
 import { api, ApiClientError } from '../api';
 import { AddonsPage } from './Addons';
+import { ModInstallPanel } from './ModInstallPanel';
 
 type TrashRecord = AddonTrashResponse['data']['items'][number];
 
@@ -64,6 +65,43 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('P5.4 addon management UI', () => {
+  it.each(['cached', 'pending'] as const)('uses a fresh shared installation proof with %s inventory', async mode => {
+    const stage = stagedModResponse('neoforge').data, onInstalled = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    client.setQueryData(['addons', 'test'], { meta, data: { items: [], revision, writeSupported: true } });
+    const fresh = { meta, data: { items: [{ ...addon('mod'), filename: stage.filename, sha256: stage.checksumSha256 }], revision, writeSupported: true } };
+    let finish!: (value: AddonsResponse) => void;
+    if (mode === 'pending') vi.mocked(api.addons).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    else vi.mocked(api.addons).mockResolvedValue(fresh);
+    if (mode === 'pending') void client.fetchQuery({ queryKey: ['addons', 'test'], queryFn: () => api.addons('test'), staleTime: 0 });
+    vi.mocked(api.server).mockResolvedValue({ meta, data: summary('neoforge') });
+    vi.mocked(api.operation).mockResolvedValue({ meta, data: operation('succeeded') });
+    render(<QueryClientProvider client={client}><ModInstallPanel serverId="test" serverName="Test" stage={stage} revision={revision}
+      inventoryFresh locked={false} onBusy={vi.fn()} onUnknown={vi.fn()} onInstalled={onInstalled} /></QueryClientProvider>);
+    const button = screen.getByRole('button', { name: '安装已校验模组' });
+    await waitFor(() => expect(button).toBeEnabled()); fireEvent.click(button);
+    fireEvent.click(screen.getByRole('checkbox')); fireEvent.click(screen.getByRole('button', { name: '确认安装' }));
+    await waitFor(() => expect(api.operation).toHaveBeenCalled());
+    if (mode === 'pending') { expect(onInstalled).not.toHaveBeenCalled(); await act(async () => { finish(fresh); }); }
+    await waitFor(() => expect(onInstalled).toHaveBeenCalledTimes(1));
+    expect(api.addons).toHaveBeenCalledTimes(1);
+  });
+  it('shares delayed new-loader reads through StrictMode without consuming abort signals', async () => {
+    const server = summary('neoforge'); server.capabilities.mods = true;
+    let finishInventory!: (value: AddonsResponse) => void;
+    let finishTrash!: (value: AddonTrashResponse) => void;
+    vi.mocked(api.server).mockResolvedValue({ meta, data: server });
+    vi.mocked(api.addons).mockImplementation(() => new Promise(resolve => { finishInventory = resolve; }));
+    vi.mocked(api.addonTrash).mockImplementation(() => new Promise(resolve => { finishTrash = resolve; }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(<StrictMode><QueryClientProvider client={client}><AddonsPage server={server} /></QueryClientProvider></StrictMode>);
+    await waitFor(() => { expect(api.addons).toHaveBeenCalledTimes(1); expect(api.addonTrash).toHaveBeenCalledTimes(1); });
+    expect(api.addons).toHaveBeenCalledWith('test'); expect(api.addonTrash).toHaveBeenCalledWith('test');
+    expect(screen.getByLabelText('选择模组 JAR')).toBeDisabled();
+    await act(async () => { finishInventory(addonsResponse()); finishTrash(trashResponse()); });
+    expect(api.addons).toHaveBeenCalledTimes(1); expect(api.addonTrash).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByLabelText('选择模组 JAR')).toBeEnabled());
+  });
   it('requires stopped-instance state and explicit unknown-compatibility acknowledgement before installing', async () => {
     const server = summary('neoforge'), listing = { meta, data: { items: [], revision, writeSupported: false, installSupported: true } };
     vi.mocked(api.addons).mockResolvedValue(listing); vi.mocked(api.server).mockResolvedValue({ meta, data: server });
@@ -98,6 +136,22 @@ describe('P5.4 addon management UI', () => {
     expect(await screen.findByText(/安装状态需要检查.*操作：operation-42/)).toBeInTheDocument();
     expect(screen.getByLabelText('选择模组 JAR')).toBeDisabled(); expect(screen.getByRole('button', { name: '安装已校验模组' })).toBeDisabled();
     expect(api.installAddon).toHaveBeenCalledTimes(1);
+  });
+  it.each(['forge', 'neoforge'] as const)('enables %s only after explicit compatibility acknowledgement and never repeats a lost response', async type => {
+    const server = summary(type); server.capabilities.mods = true;
+    vi.mocked(api.server).mockResolvedValue({ meta, data: server });
+    vi.mocked(api.addons).mockResolvedValue({ meta, data: { items: [{ ...addon('mod', 'disabled'), loader: null }], revision, writeSupported: true } });
+    vi.mocked(api.mutateAddon).mockRejectedValue(new ApiClientError('response lost', 'network'));
+    show(server);
+    const enable = await screen.findByRole('button', { name: '启用' });
+    expect(api.addons).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(enable).toBeEnabled()); fireEvent.click(enable);
+    const confirm = screen.getByRole('button', { name: '确认操作' }); expect(confirm).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox')); expect(confirm).toBeEnabled(); fireEvent.click(confirm);
+    await waitFor(() => expect(api.mutateAddon).toHaveBeenCalledTimes(1));
+    expect(api.mutateAddon).toHaveBeenCalledWith('test', 'b'.repeat(64), 'enable', { revision, confirmUnknownCompatibility: true }, expect.any(String));
+    await waitFor(() => expect(screen.getByText('请求结果未确认')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '启用' })).toBeDisabled(); expect(api.mutateAddon).toHaveBeenCalledTimes(1);
   });
   it.each(['forge', 'neoforge'] as const)('uploads %s into inert staging once, without changing installed mods or offering install', async type => {
     vi.mocked(api.uploadAddon).mockResolvedValue(stagedModResponse(type));
@@ -406,6 +460,18 @@ describe('P5.4 addon management UI', () => {
     expect(screen.getByRole('button', { name: '禁用' })).toBeDisabled();
   });
 
+  it.each(['query-failed', 'interrupted'] as const)('retains the lifecycle operation number after %s without resubmission', async failure => {
+    if (failure === 'query-failed') vi.mocked(api.operation).mockRejectedValue(new ApiClientError('operation unavailable', 'http', 400, 'OPERATION_UNAVAILABLE'));
+    else vi.mocked(api.operation).mockResolvedValue({ meta, data: operation('interrupted') });
+    show(); await screen.findByRole('heading', { name: 'Test Addon' });
+    fireEvent.click(screen.getByRole('button', { name: '禁用' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认操作' }));
+    expect(await screen.findByText('操作编号：operation-42')).toBeInTheDocument();
+    await screen.findByText(failure === 'query-failed' ? /无法读取操作结果/ : '操作需要恢复核验');
+    expect(screen.getByRole('button', { name: '禁用' })).toBeDisabled();
+    expect(api.mutateAddon).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a succeeded receipt unconfirmed when status refresh fails, then reconciles on explicit refresh', async () => {
     vi.mocked(api.operation).mockImplementation(async () => {
       vi.mocked(api.server).mockRejectedValue(new ApiClientError('status unavailable', 'network'));
@@ -416,6 +482,7 @@ describe('P5.4 addon management UI', () => {
     fireEvent.click(screen.getByRole('button', { name: '禁用' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认操作' }));
     await screen.findByText('操作已结束，但当前列表或服务器状态未确认；请刷新状态，不要重复提交。');
+    expect(screen.getByText('操作编号：operation-42')).toBeInTheDocument();
     expect(screen.queryByText('操作完成，列表已刷新')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '禁用' })).toBeDisabled();
     vi.mocked(api.server).mockResolvedValue({ meta, data: summary() } as ServerResponse);

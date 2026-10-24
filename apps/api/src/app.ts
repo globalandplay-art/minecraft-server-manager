@@ -57,6 +57,7 @@ import { BackupService } from "./services/backup-service.js";
 import { AddonUploadService } from "./services/addon-upload-service.js";
 import { AddonInstallService } from "./services/addon-install-service.js";
 import { AddonInventory } from "./services/addon-inventory.js";
+import { ManagerStartupRecovery } from "./services/manager-startup-recovery.js";
 import { AddonLifecycleService } from "./services/addon-lifecycle-service.js";
 import { BackupExportService } from "./services/backup-export-service.js";
 import { WorldInventoryService } from "./services/world-inventory-service.js";
@@ -132,8 +133,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     errorHandler: (_error, socket) => { socket.terminate(); }
   });
   const registry = new AdapterRegistry(adapters);
+  const managerRecovery = new ManagerStartupRecovery();
   let closing = false;
-  app.addHook('preClose', async () => { closing = true; });
+  app.addHook('preClose', async () => { closing = true; await managerRecovery.close(); });
   const operations = new OperationService(
     options.operationStore ?? new MemoryOperationStore(),
     clock,
@@ -159,6 +161,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.addHook("onRequest", installLocalRequestGuard(clock, mode,
     options.authentication?.observeLocalGuardDenial.bind(options.authentication)));
   options.authentication?.install(app, clock, mode);
+  app.addHook('onRequest', async (request, reply) => {
+    const pathname = request.url.split('?')[0];
+    if (!managerRecovery.available && !pathname?.startsWith('/api/v1/auth/')) {
+      return reply.code(503).send(errorResponse(request.id, clock,
+        managerRecovery.state === 'failed' ? 'MANAGER_RECOVERY_REQUIRED' : 'MANAGER_RECOVERY_PENDING',
+        '管理器正在核验启动恢复状态，实例操作尚未开放', mode));
+    }
+  });
   const whitelistMembers = options.whitelistMembers?.(operations);
   const whitelist = new WhitelistService(registry, operations, clock, whitelistMembers);
   registerWhitelistRoutes(app, whitelist, clock, mode, options.authentication,
@@ -172,15 +182,24 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
   app.addHook("onReady", async () => {
     await accessOperations.initialize();
-    await options.transactionJournal?.initialize();
-    await restores?.reconcileStartup();
-    await worldCreates?.reconcileStartup();
-    await worldImports?.reconcileStartup();
-    const archiveWorlds = await worldArchives?.reconcileStartup();
-    await properties?.reconcileStartup();
-    await addonInstalls?.reconcileStartup();
-    await addonLifecycle?.reconcileStartup();
-    await operations.initialize();
+    const initialScan = await managerRecovery.stage('transaction-scan', async () => options.transactionJournal?.initialize());
+    if (initialScan?.issues.some(issue => !issue.serverId)) throw new Error('MANAGER_RECOVERY_UNATTRIBUTED_JOURNAL');
+    const deferred = initialScan?.records.some(record => record.intent.addonLifecycle?.serverType ||
+      record.intent.addonInstall?.confirmUnknownCompatibility === true ||
+      (record.intent.addonInstall || record.intent.addonLifecycle) && ['forge', 'neoforge'].includes(registry.getLocal(record.intent.serverId)?.plan.serverInfo.type ?? '')) ?? false;
+    const phase = managerRecovery.stage.bind(managerRecovery);
+    // Preserve legacy recovery order and its original synchronous startup path.
+    await phase('restore-reconcile', async () => { await restores?.reconcileStartup(); });
+    await phase('world-create-reconcile', async () => { await worldCreates?.reconcileStartup(); });
+    await phase('world-import-reconcile', async () => { await worldImports?.reconcileStartup(); });
+    const archiveWorlds = await phase('world-archive-reconcile', async () => worldArchives?.reconcileStartup());
+    await phase('properties-reconcile', async () => { await properties?.reconcileStartup(); });
+    if (deferred && whitelistMembers) throw new Error('MANAGER_RECOVERY_UNCANCELLABLE_EXTENSION');
+    const initialize = async () => {
+    managerRecovery.check();
+    await phase('addon-install-reconcile', async () => { await addonInstalls?.reconcileStartup(managerRecovery.check, phase); });
+    await phase('addon-lifecycle-reconcile', async () => { await addonLifecycle?.reconcileStartup(managerRecovery.check, phase); });
+    await phase('operation-state-publication', () => operations.initialize(managerRecovery.check));
     try { await whitelistMembers?.initialize(); }
     catch {
       whitelistMembers?.close();
@@ -194,12 +213,25 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const importWorlds = new Map((scan?.records ?? []).filter((r) => r.intent.worldImport && ["active","recovery-required"].includes(r.state))
       .map((r) => [r.intent.serverId,[r.intent.worldImport!.previousName,r.intent.worldImport!.nextName]] as const));
     const archiveServers = new Set((scan?.records ?? []).filter((r) => r.intent.worldArchive).map((r) => r.intent.serverId));
-    operations.requireRecovery(await options.activeWorldState?.initialize(restoreWorlds,importWorlds,archiveWorlds,archiveServers) ?? []);
-    await backupSchedules?.initialize();
-    if (options.backupSchedulerTimers !== false) backupSchedules?.start();
-    backupRetention?.start();
+    operations.requireRecovery(await phase('active-world-state', async () => options.activeWorldState?.initialize(restoreWorlds,importWorlds,archiveWorlds,archiveServers,managerRecovery.check) ?? []));
+    await phase('schedule-state', async () => { await backupSchedules?.initialize(managerRecovery.check); });
+    managerRecovery.check();
+    };
+    const task = managerRecovery.start(initialize, deferred);
+    void task.then(async () => {
+      if (!managerRecovery.available || closing) return;
+      try {
+        if (options.backupSchedulerTimers !== false) backupSchedules?.start();
+        backupRetention?.start();
+      } catch {
+        managerRecovery.fail();
+        await Promise.all([backupRetention?.close(), backupSchedules?.close()]);
+      }
+    }).catch(() => { managerRecovery.fail(); });
+    if (!deferred) { await task; await managerRecovery.wait(); }
   });
   app.addHook("onClose", async () => {
+    await managerRecovery.close();
     whitelistMembers?.close();
     await Promise.all([backupRetention?.close(), backupSchedules?.close()]);
     streams.close();
@@ -346,5 +378,5 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       .send(errorResponse(request.id, clock, "INTERNAL_ERROR", "服务器处理请求时发生错误", mode));
   });
 
-  return app;
+  return Object.assign(app, { managerRecovery });
 }

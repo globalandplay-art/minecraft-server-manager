@@ -518,7 +518,7 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     // first consumer, so run the same authoritative process/status probe used
     // by REST before exposing the initial stream snapshot.
     await this.snapshot();
-    return this.stream.snapshot();
+    return { ...this.stream.snapshot(), status: this.status };
   }
 
   async replayStream(streamId: string, afterSequence: number): Promise<RuntimeStreamReplay> {
@@ -799,7 +799,12 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       previous.activeOperationId === operationId &&
       previous.recoveryRequired === recoveryRequired &&
       previous.source === source
-    ) return;
+    ) {
+      // A repeated authoritative observation is fresh even without a transition.
+      // Do not emit duplicate transition events merely to refresh its timestamp.
+      this.status = this.makeStatus(state, ownership, operationId, recoveryRequired, source);
+      return;
+    }
     this.status = this.makeStatus(state, ownership, operationId, recoveryRequired, source);
     this.stream.publish({ type: "status", status: this.status });
   }

@@ -13,7 +13,14 @@ import { addonZip } from '../../apps/api/test/helpers/addon-zip.ts';
 assert.equal(process.platform, 'win32');
 assert.equal(process.env.LT_M21_REGISTRATION_BROWSER, '1');
 const installMods = process.env.LT_M3_PROTECTED_INSTALL === '1';
+const lifecycleMods = process.env.LT_M3_LIFECYCLE_BROWSER === '1';
+const widthSetting = process.env.LT_M3_BROWSER_WIDTHS;
+assert(widthSetting === undefined || widthSetting === '360' || widthSetting === '768,1440');
+const widths = widthSetting ? widthSetting.split(',').map(Number) : [360, 768, 1440];
+assert(!lifecycleMods || installMods, 'lifecycle acceptance requires protected installation');
 const timingEnabled = process.env.LT_M3_COMPLETION_TIMING === '1';
+const restoreSetup = process.env.LT_M3_RESTORE_SETUP_ONLY === '1';
+assert(!restoreSetup || timingEnabled && lifecycleMods && widthSetting === '360', 'restore setup is diagnostic-only');
 assert(!timingEnabled || installMods, 'completion timing requires the protected install fixture');
 const stagingMods = process.env.LT_M3_VALIDATION_STAGING === '1' || installMods;
 const readonlyMods = process.env.LT_M3_READONLY_INVENTORY === '1' || stagingMods;
@@ -79,9 +86,9 @@ function timing(phase, details = {}) {
 function timingRequest(request) {
   const url = new URL(request.url());
   if (url.hostname !== '127.0.0.1' || !['3000', '8080'].includes(url.port)) return;
-  const server = /^\/api\/v1\/servers\/(neo-(?:360|768|1440))(\/addons(?:\/install)?)?$/u.exec(url.pathname);
-  if (server && request.method() === (server[2] === '/addons/install' ? 'POST' : 'GET')) {
-    return { family: server[2] === '/addons/install' ? 'install' : server[2] === '/addons' ? 'addons' : 'server', serverId: server[1] };
+  const server = /^\/api\/v1\/servers\/(neo-(?:360|768|1440))(\/addons(?:\/[a-z0-9-]+)*)?$/u.exec(url.pathname);
+  if (server && ['GET', 'POST'].includes(request.method())) {
+    return { family: request.method() === 'POST' ? 'mutation' : server[2] ? 'addons' : 'server', serverId: server[1], action: url.pathname.split('/').at(-1) };
   }
   const operation = /^\/api\/v1\/operations\/([0-9a-f-]{36})$/u.exec(url.pathname);
   if (operation && request.method() === 'GET') return { family: 'operation', operationId: operation[1] };
@@ -94,7 +101,7 @@ function observeTimingPage(observedPage) {
     let info;
     try { info = timingRequest(response.request()); if (!info) return; timing('http-response-observed', { ...info, status: response.status() }); }
     catch { timingDrops++; return; }
-    if (!((info.family === 'operation' && response.status() === 200) || (info.family === 'install' && response.status() === 202))) return;
+    if (!((info.family === 'operation' && response.status() === 200) || (info.family === 'mutation' && response.status() === 202))) return;
     if (timingPending.size >= 32) { timingDrops++; return; }
     // These two fixed production endpoints have contract/store-bounded operation bodies.
     // No extra request, no raw body/header logging, and no awaited observation on the UI path.
@@ -103,7 +110,7 @@ function observeTimingPage(observedPage) {
       if (declared !== undefined && (!/^[0-9]+$/u.test(declared) || Number(declared) > 65536)) { timingDrops++; return; }
       const body = await response.body(); if (body.length > 65536) { timingDrops++; return; }
       const decoded = JSON.parse(body.toString('utf8')).data;
-      const op = info.family === 'install' ? decoded.operation : decoded;
+      const op = info.family === 'mutation' ? decoded.operation : decoded;
       if (!/^[0-9a-f-]{36}$/u.test(op.id) || !/^neo-(360|768|1440)$/u.test(op.serverId) || op.kind !== 'addon-change' ||
         !['queued', 'running', 'succeeded', 'failed', 'interrupted'].includes(op.state) ||
         (info.operationId && op.id !== info.operationId) || (info.serverId && op.serverId !== info.serverId)) { timingDrops++; return; }
@@ -113,6 +120,16 @@ function observeTimingPage(observedPage) {
   });
 }
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function awaitDiagnosticSetup(serverId, operationId) {
+  const deadline = performance.now() + 180000;
+  for (;;) {
+    const response = await page.request.get(`http://127.0.0.1:8080/api/v1/operations/${operationId}`);
+    assert.equal(response.status(), 200); const operation = (await response.json()).data;
+    assert.equal(operation.serverId, serverId);
+    if (['succeeded', 'failed', 'interrupted'].includes(operation.state)) { assert.equal(operation.state, 'succeeded'); return; }
+    assert(performance.now() < deadline, 'diagnostic-setup-operation-deadline'); await sleep(300);
+  }
+}
 async function startManager() {
   worker = spawn(process.execPath, ['--import', 'tsx', 'tests/fixtures/m12-manager.mjs'], { cwd: workspace, env: { ...process.env, LT_M12_ROOT: root, LT_M12_FORBID_MINECRAFT: '1' }, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe', 'ipc'] });
   const owned = worker, output = []; owned.stdout.on('data', chunk => { if (output.length < 1000) output.push(chunk.toString()); }); owned.stderr.on('data', chunk => { if (output.length < 1000) output.push(chunk.toString()); });
@@ -122,6 +139,14 @@ async function startManager() {
     owned.once('exit', () => { clearTimeout(deadline); reject(new Error('manager-exited-before-ready')); });
     owned.on('message', message => { if (message.type === 'ready') { clearTimeout(deadline); startedManagers++; resolve(); } });
   });
+  // Transport readiness does not imply instance recovery readiness.
+  const recoveryDeadline = performance.now() + 120000;
+  for (;;) {
+    const response = await fetch('http://127.0.0.1:8080/api/v1/health');
+    if (response.status === 200) break;
+    assert.equal(response.status, 503); assert.equal((await response.json()).error.code, 'MANAGER_RECOVERY_PENDING');
+    assert(performance.now() < recoveryDeadline, 'manager-recovery-deadline'); await sleep(100);
+  }
 }
 async function stopManager() {
   const owned = worker;
@@ -175,7 +200,7 @@ try {
   for (const stream of ['stdout', 'stderr']) vite[stream].on('data', chunk => { if (frontend.length < 1000) frontend.push(chunk.toString()); });
   for (let attempt = 0;; attempt++) { try { if ((await fetch('http://127.0.0.1:3000')).ok) break; } catch { /* owned startup */ } assert(attempt < 100); await sleep(100); }
   browser = await chromium.launch({ channel: 'chrome', headless: true });
-  for (const width of [360, 768, 1440]) {
+  for (const width of widths) {
     context = await browser.newContext({ viewport: { width, height: 950 } }); page = await context.newPage();
     observeTimingPage(page);
     await context.tracing.start({ screenshots: true, snapshots: true });
@@ -197,7 +222,7 @@ try {
       const listed = page.waitForResponse(response => response.url().endsWith(`/servers/${id}/addons`) && response.request().method() === 'GET');
       await page.goto(`http://127.0.0.1:3000/addons?server=${id}`);
       const listingResponse = await listed; assert.equal(listingResponse.status(), 200);
-      const listing = (await listingResponse.json()).data; assert.equal(listing.writeSupported, false); assert.equal(listing.items.length, 2);
+      const listing = (await listingResponse.json()).data; assert.equal(listing.writeSupported, true); assert.equal(listing.items.length, 2);
       assert(listing.items.every(item => item.loader === null && item.name === null && item.compatibility === 'unknown' && item.declaredMetadata?.mods.length === 2));
       for (const item of listing.items) assert.deepEqual(item.declaredMetadata.mods[0].dependencies, [{ id: 'minecraft', versionRange: '[26.3,27)', requirement: 'required', side: 'SERVER' }]);
       await expect(page.getByRole('heading', { name: modFilename, exact: true })).toBeVisible();
@@ -207,11 +232,12 @@ try {
       await expect(page.getByText('声明版本：未展开：${file.jarVersion}', { exact: true })).toHaveCount(2);
       await expect(page.getByText(/minecraft · 声明范围：\[26.3,27\)/)).toHaveCount(2);
       await expect(page.getByLabel('选择模组 JAR')).toBeVisible();
-      await expect(page.getByRole('button', { name: /安装|禁用|启用|回收/ })).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: '已保存模组的管理操作' })).toBeVisible();
       if (stagingMods) {
         const uploaded = page.waitForResponse(response => response.url().endsWith(`/servers/${id}/addons/uploads`) && response.request().method() === 'POST');
+        await expect(page.getByLabel('选择模组 JAR')).toBeEnabled({ timeout: 30000 });
         await page.getByLabel('选择模组 JAR').setInputFiles({ name: 'validated-multiple.jar', mimeType: 'application/java-archive', buffer: incomingBytes });
-        const response = await uploaded; assert.equal(response.status(), 201);
+        const response = await uploaded; assert.equal(response.status(), 201, `upload:${(await response.json()).error?.code ?? response.status()}`);
         const stage = (await response.json()).data;
         assert.equal(stage.loader, 'neoforge'); assert.equal(stage.compatibility, 'unknown'); assert.equal(stage.executionAvailable, false);
         assert.equal(stage.name, null); assert.equal(stage.version, null); assert.equal(stage.declaredMetadata.mods.length, 2);
@@ -239,7 +265,12 @@ try {
           report.acceptedInstalls.push({ serverId: id, operationId });
           timing('accepted-observed', { serverId: id, operationId });
           timing('ui-assert-start', { serverId: id, operationId });
-          try {
+          if (restoreSetup) {
+            // Prepare the restore experiment using bounded status reads. This
+            // is not an installation UI Gate or a replacement for its 30s test.
+            report.installationUIAcceptance = 'NOT_RUN_DIAGNOSTIC_SETUP';
+            await awaitDiagnosticSetup(id, operationId);
+          } else try {
             await expect(page.getByText('安装文件已核验，需要之后手动启动或重启才会加载。管理器未自动启动服务器。')).toBeVisible({ timeout: 30000 });
             timing('ui-assert-passed', { serverId: id, operationId });
           } catch (error) { timing('ui-assert-failed', { serverId: id, operationId }); throw error; }
@@ -248,6 +279,40 @@ try {
           assert.equal(JSON.parse(await readFile(path.join(stageRoot, 'consumed.json'), 'utf8')).operationId, operationId);
           report.installs.push({ serverId: id, operationId, result: 'PASS', checksum: sha(incomingBytes) });
           await filesPreserved(); await page.screenshot({ path: path.join(root, `installed-mods-${width}.png`), fullPage: true });
+          if (lifecycleMods) {
+            const management = page.getByRole('article', { name: 'validated-multiple.jar 管理操作', exact: true });
+            const actions = ['disable', 'enable', 'trash', 'restore'];
+            for (const action of actions) {
+              if (action === 'restore') {
+                await page.locator('.addon-trash-entry').filter({ hasText: 'validated-multiple.jar' }).getByRole('button', { name: '恢复', exact: true }).click();
+              } else {
+                await management.getByRole('button', { name: action === 'disable' ? '禁用' : action === 'enable' ? '启用' : '移到回收区', exact: true }).click();
+              }
+              const dialog = page.getByRole('alertdialog');
+              if (action === 'enable' || action === 'restore') {
+                await expect(dialog.getByRole('button', { name: '确认操作' })).toBeDisabled();
+                await dialog.getByRole('checkbox').check();
+                await expect(dialog.getByLabel('本次操作的模组声明')).toContainText('javafml');
+              }
+              const responsePromise = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith(`/${action}`));
+              await dialog.getByRole('button', { name: '确认操作' }).click();
+              const response = await responsePromise; assert.equal(response.status(), 202);
+              const operationId = (await response.json()).data.operation.id;
+              report.acceptedInstalls.push({ serverId: id, operationId });
+              timing('lifecycle-accepted', { serverId: id, operationId, action });
+              timing('lifecycle-ui-assert-start', { serverId: id, operationId, action });
+              if (restoreSetup && action !== 'restore') await awaitDiagnosticSetup(id, operationId);
+              else try {
+                await expect(page.getByText('操作完成，列表已刷新', { exact: true })).toBeVisible({ timeout: 30000 });
+                timing('lifecycle-ui-assert-passed', { serverId: id, operationId, action });
+              } catch (error) { timing('lifecycle-ui-assert-failed', { serverId: id, operationId, action }); throw error; }
+              const operation = await page.request.get(`http://127.0.0.1:8080/api/v1/operations/${operationId}`);
+              assert.equal(operation.status(), 200); assert.equal((await operation.json()).data.state, 'succeeded');
+              if (action !== 'trash') assert.equal(sha(await readFile(path.join(target, action === 'disable' ? 'disabled-mods/validated-multiple.jar' : 'mods/validated-multiple.jar'))), sha(incomingBytes));
+              (report.lifecycle ??= []).push({ width, action, operationId, result: 'PASS' });
+            }
+            await page.screenshot({ path: path.join(root, `lifecycle-mods-${width}.png`), fullPage: true });
+          }
         }
       }
       await page.getByLabel('搜索文件名、模组名称或标识').fill('second_mod'); await expect(page.getByRole('heading', { name: modFilename, exact: true })).toBeVisible();
@@ -294,7 +359,7 @@ try {
   report.result = 'PASS';
 } catch (error) { report.errorCode = error.code ?? 'NO_EXPLICIT_ERROR_CODE'; report.error = String(error.message); await page?.screenshot({ path: path.join(root, 'failure.png'), fullPage: true }).catch(() => {}); }
 finally {
-  if (timingEnabled && context) {
+  if (context) {
     try { await context.tracing.stop({ path: path.join(root, 'completion-failure-trace.zip') }); report.failureTrace = 'SAVED'; }
     catch { report.failureTrace = 'SAVE_FAILED'; }
   }
@@ -313,8 +378,12 @@ finally {
   report.addonMutationRequests = report.managerSessions.flatMap(session => session.requests).filter(request => request.path.includes('/addons') && request.method !== 'GET').length;
   const addonWrites = report.managerSessions.flatMap(session => session.requests).filter(request => request.path.includes('/addons') && request.method !== 'GET');
   report.forbiddenAddonMutations = addonWrites.filter(request => !(stagingMods && request.method === 'POST' && request.path.endsWith('/addons/uploads') && request.status === 201) &&
-    !(installMods && request.method === 'POST' && request.path.endsWith('/addons/install') && request.status === 202)).length;
-  if (stagingMods ? report.staged.length !== 3 || addonWrites.length !== (installMods ? 6 : 3) || report.forbiddenAddonMutations !== 0 || (installMods && report.installs.length !== 3) : readonlyMods && report.addonMutationRequests !== 0) report.result = 'BLOCKED';
+    !(installMods && request.method === 'POST' && request.path.endsWith('/addons/install') && request.status === 202) &&
+    !(lifecycleMods && request.method === 'POST' && /\/(disable|enable|trash|restore)$/u.test(request.path) && request.status === 202)).length;
+  if (lifecycleMods) for (const action of ['disable', 'enable', 'trash', 'restore']) {
+    if (addonWrites.filter(request => request.path.endsWith(`/${action}`)).length !== widths.length) report.result = 'BLOCKED';
+  }
+  if (stagingMods ? report.staged.length !== widths.length || addonWrites.length !== widths.length * (lifecycleMods ? 6 : installMods ? 2 : 1) || report.forbiddenAddonMutations !== 0 || (installMods && report.installs.length !== widths.length) || (lifecycleMods && report.lifecycle?.length !== widths.length * 4) : readonlyMods && report.addonMutationRequests !== 0) report.result = 'BLOCKED';
   try { report.sourceInputsUnchanged = JSON.stringify(await neoForgeSourcePreflight()) === JSON.stringify(manifest) && sha(await readFile(path.join(source.root, source.jarFile))) === auth.observedJarSha256; }
   catch { report.sourceInputsUnchanged = false; report.sourceRecheckError = 'SOURCE_RECHECK_FAILED'; }
   try { await free(3000); await free(8080); report.portsReleased = true; } catch { report.portsReleased = false; }

@@ -940,11 +940,13 @@ export const addonTrashResponseSchema = strictObject({ data: strictObject({
     version: Type.Union([Type.String({ maxLength: 128 }), Type.Null()]), loader: Type.Union([Type.Literal("fabric"), Type.Literal("paper"), Type.Null()]),
     compatibility: Type.Literal("unknown"), minecraftConstraint: Type.Union([Type.Array(Type.String({ maxLength: 128 }), { maxItems: 16 }), Type.Null()]),
     metadataStatus: Type.Union([Type.Literal("parsed"), Type.Literal("invalid"), Type.Literal("missing")]),
+    declaredMetadata: Type.Optional(declaredModMetadataSchema),
     createdAt: timestampSchema, restoreAllowed: Type.Literal(true) }), { maxItems: 1000 }),
   revision: Type.String({ pattern: "^[a-f0-9]{64}$" })
 }), meta: responseMetaSchema });
 export type AddonTrashResponse = Static<typeof addonTrashResponseSchema>;
-export const addonLifecycleRequestSchema = strictObject({ revision: Type.String({ pattern: "^[a-f0-9]{64}$" }) });
+export const addonLifecycleRequestSchema = strictObject({ revision: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  confirmUnknownCompatibility: Type.Optional(Type.Literal(true)) });
 export type AddonLifecycleRequest = Static<typeof addonLifecycleRequestSchema>;
 const addonUploadCommon = {
   id: Type.String({ format: "uuid" }), kind: Type.Union([Type.Literal("mod"), Type.Literal("plugin")]),

@@ -31,7 +31,8 @@ export class ActiveWorldStateStore {
     this.#adapters = [...adapters];
   }
 
-  async initialize(restoreWorlds: ReadonlyMap<string, string> = new Map(), importWorlds: ReadonlyMap<string, readonly string[]> = new Map(), archivedWorlds: ReadonlyMap<string, string> = new Map(), archiveServers: ReadonlySet<string> = new Set()): Promise<ReadonlySet<string>> {
+  async initialize(restoreWorlds: ReadonlyMap<string, string> = new Map(), importWorlds: ReadonlyMap<string, readonly string[]> = new Map(), archivedWorlds: ReadonlyMap<string, string> = new Map(), archiveServers: ReadonlySet<string> = new Set(), check = () => {}): Promise<ReadonlySet<string>> {
+    check();
     const managerRoot = path.dirname(this.#directory);
     await mkdir(managerRoot, { recursive: true, mode: 0o700 });
     const managerInfo = await lstat(managerRoot);
@@ -41,7 +42,7 @@ export class ActiveWorldStateStore {
     const managerReal = await realpath(managerRoot);
     const normalized = (value: string) => process.platform === "win32" ? value.toLowerCase() : value;
     if (normalized(managerReal) !== normalized(managerRoot)) throw new Error("Active world manager root must be canonical");
-    await mkdir(this.#directory, { recursive: true, mode: 0o700 });
+    check(); await mkdir(this.#directory, { recursive: true, mode: 0o700 });
     const info = await lstat(this.#directory);
     const canonical = await realpath(this.#directory);
     if (!info.isDirectory() || info.isSymbolicLink() || normalized(canonical) !== normalized(this.#directory)) {
@@ -49,6 +50,7 @@ export class ActiveWorldStateStore {
     }
 
     for (const adapter of this.#adapters) {
+      check();
       if (adapter.plan.serverInfo.type !== "vanilla") continue;
       try {
         const props = parseProperties(await readBoundedRegularFile(
@@ -81,31 +83,31 @@ export class ActiveWorldStateStore {
         }
         if (existing === null) {
           if (archivedWorlds.has(adapter.serverId) || archiveServers.has(adapter.serverId)) throw new Error("Archived world state is missing");
-          await this.#write(file, expected);
+          check(); await this.#write(file, expected); check();
           existing = expected;
         } else if (existing.state === "none") {
           if (existing.worldId !== null || existing.levelName !== null || !existing.archiveTransactionId ||
               archivedWorlds.get(adapter.serverId) !== existing.archiveTransactionId) throw new Error("Unverified archived world state");
-          this.#states.set(adapter.serverId, existing);
+          check(); this.#states.set(adapter.serverId, existing);
           continue;
         } else if (importWorlds.get(adapter.serverId)?.includes(levelName) && importWorlds.get(adapter.serverId)?.includes(existing.levelName ?? "")) {
           // Only an owned unfinished import may have configuration/state between
           // checkpoints. OperationService keeps its recovery gate; do not infer success.
-          this.#states.set(adapter.serverId,existing);
+          check(); this.#states.set(adapter.serverId,existing);
           continue;
         } else if (existing.levelName !== expected.levelName || existing.worldId !== expected.worldId ||
           (existing.state === "active" && expected.state !== "active" && restoreWorlds.get(adapter.serverId) !== levelName)) {
           throw new Error("Active world identity does not match server configuration");
         } else if (existing.state === "pending-generation" && expected.state === "active") {
-          await this.#write(file, expected);
+          check(); await this.#write(file, expected); check();
           existing = expected;
         }
-        this.#states.set(adapter.serverId, existing);
+        check(); this.#states.set(adapter.serverId, existing);
       } catch {
         this.#recovery.add(adapter.serverId);
       }
     }
-    return new Set(this.#recovery);
+    check(); return new Set(this.#recovery);
   }
 
   /** Fresh instance only. Existing history must use normal startup reconciliation. */

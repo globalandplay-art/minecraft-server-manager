@@ -107,6 +107,9 @@ export interface TransactionIntent {
     readonly workspaceName: string;
   };
   readonly addonLifecycle?: {
+    readonly serverType?: "forge" | "neoforge";
+    readonly predecessorTransactionId?: string | null;
+    readonly confirmUnknownCompatibility?: true;
     readonly rootIdentity: string;
     readonly adapterIdentitySha256: string;
     readonly addonRootIdentity: string;
@@ -321,7 +324,13 @@ function validateIntent(value: unknown): value is TransactionIntent {
     const actions = ["disable", "enable", "trash", "restore"];
     if (value.kind !== "addon-lifecycle" || value.scope !== "server-snapshot" || value.allowStop !== false || value.originalState !== "stopped" ||
       value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldArchive !== undefined || value.propertiesWrite !== undefined || value.addonInstall !== undefined ||
-      !isObject(a) || !hasOnlyKeys(a, ["rootIdentity", "adapterIdentitySha256", "addonRootIdentity", "kind", "action", "addonId", "filename", "sourceState", "targetState", "sourceDirectoryIdentity", "targetDirectoryIdentity", "sourcePhysicalIdentity", "sourceSha256", "metadataName", "metadataVersion", "metadataLoader", "minecraftConstraint", "metadataStatus", "trashId", "guardBackupId", "guardChecksum"]) ||
+      !isObject(a) || !hasOnlyKeys(a, ["rootIdentity", "adapterIdentitySha256", "addonRootIdentity", "kind", "action", "addonId", "filename", "sourceState", "targetState", "sourceDirectoryIdentity", "targetDirectoryIdentity", "sourcePhysicalIdentity", "sourceSha256", "metadataName", "metadataVersion", "metadataLoader", "minecraftConstraint", "metadataStatus", "trashId", "guardBackupId", "guardChecksum", "serverType", "predecessorTransactionId", "confirmUnknownCompatibility"]) ||
+      (a.serverType !== undefined && a.serverType !== 'forge' && a.serverType !== 'neoforge') ||
+      (a.serverType === undefined && (a.predecessorTransactionId !== undefined || a.confirmUnknownCompatibility !== undefined)) ||
+      (a.serverType !== undefined && (a.kind !== 'mod' || a.metadataLoader !== null ||
+        (a.predecessorTransactionId !== null && !UUID.test(String(a.predecessorTransactionId))) ||
+        (a.targetState === 'enabled' && a.confirmUnknownCompatibility !== true))) ||
+      (a.confirmUnknownCompatibility !== undefined && a.confirmUnknownCompatibility !== true) ||
       ![a.rootIdentity, a.adapterIdentitySha256, a.addonRootIdentity, a.sourceDirectoryIdentity, a.targetDirectoryIdentity, a.sourcePhysicalIdentity, a.sourceSha256, a.guardChecksum].every((item) => typeof item === "string" && SHA256.test(item)) ||
       !["mod", "plugin"].includes(String(a.kind)) || !actions.includes(String(a.action)) || !states.includes(String(a.sourceState)) || !states.includes(String(a.targetState)) ||
       typeof a.addonId !== "string" || !SHA256.test(a.addonId) || typeof a.filename !== "string" || a.filename.length < 5 || a.filename.length > 200 ||
