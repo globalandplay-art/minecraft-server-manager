@@ -50,3 +50,11 @@ it('does not produce points from empty or unavailable history', () => {
   expect(performanceTrend([], 'cpu', null).count).toBe(0);
   expect(performanceTrend([sample(5, missing)], 'cpu', null).segments).toEqual([]);
 });
+it('supports genuine TPS/MSPT measurements while keeping unsupported samples as gaps', () => {
+  const row = sample(5);
+  row.metrics = { ...metrics, tps: { status: 'available', value: 19.75, source: 'plugin', sampledAt: at(5) }, mspt: { status: 'available', value: 18.5, source: 'plugin', sampledAt: at(5) } };
+  expect(performanceTrend([sample(0), row], 'tps', null).segments[0]![0]!.value).toBe(19.75);
+  expect(performanceTrend([sample(0), row], 'mspt', null).segments[0]![0]!.value).toBe(18.5);
+  expect(performanceTrend([sample(0)], 'tps', null).count).toBe(0);
+  expect(performanceTrend([sample(0)], 'mspt', null).count).toBe(0);
+});

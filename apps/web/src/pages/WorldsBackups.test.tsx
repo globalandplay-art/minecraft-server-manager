@@ -7,6 +7,8 @@ import { BackupsPage, WorldsPage } from './WorldsBackups';
 
 vi.mock('../api', async (load) => ({ ...(await load<typeof import('../api')>()), api: {
   worlds: vi.fn(), backups: vi.fn(), createBackup: vi.fn(), operation: vi.fn(), createBackupExport: vi.fn(), backupExport: vi.fn(),
+  worldLibrary: vi.fn(async () => ({ data: { serverId: 'vanilla-local', state: 'ready', reason: null,
+    revision: 'a'.repeat(64), activeWorldId: null, items: [], mutationsAvailable: false }, meta })),
   restoreHistory: vi.fn(async () => ({ data: { items: [] }, meta })),
   worldImportUploads: vi.fn(async () => ({ data: { items: [], occupiedSlots: 0, limit: 3 }, meta })),
   worldArchives: vi.fn(async () => ({ data:{ items:[] },meta })),

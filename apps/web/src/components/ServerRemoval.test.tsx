@@ -12,7 +12,7 @@ it('requires named confirmation and sends exactly one removal, never a file dele
   fireEvent.click(screen.getByRole('button', { name: '确认移除' })); fireEvent.click(screen.getByRole('button', { name: '正在移除…' }));
   expect(remove).toHaveBeenCalledTimes(1); expect(remove).toHaveBeenCalledWith('second');
   resolve({ data: { id: 'second', removed: true, filesPreserved: true, unloaded: true, restartRequired: false, unloadErrorCode: null }, meta: { requestId: 'test', generatedAt: new Date().toISOString(), mode: 'local' } });
-  await waitFor(() => expect(changed).toHaveBeenCalledWith('second', '已移除 Second 的 LT 登记，服务端文件完整保留。'));
+  await waitFor(() => expect(changed).toHaveBeenCalledWith('second', { key: 'removal.success', values: { name: 'Second' } }));
 });
 it('disables running-instance removal and reports a definite server rejection', async () => {
   const remove = vi.spyOn(api, 'registrationRemove').mockRejectedValue(new ApiClientError('先停服', 'http', 409, 'REGISTRATION_INSTANCE_ACTIVE'));

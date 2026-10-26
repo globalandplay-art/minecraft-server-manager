@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+import { i18n } from './i18n';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { HealthResponse, ServersResponse } from '@mcsm/contracts';
 import { Component, lazy, Suspense, useEffect, useState } from 'react';
@@ -24,9 +26,10 @@ const WhitelistPage = lazy(() => import('./pages/Whitelist').then((module) => ({
 const AddonsPage = lazy(() => import('./pages/Addons').then((module) => ({ default: module.AddonsPage })));
 
 function RouteLoading() {
+  useTranslation();
   return (
     <div className="page-stack" role="status" aria-live="polite">
-      <PageHeading eyebrow="LOADING" title="正在加载页面" description="页面资源正在准备，请稍候。" />
+      <PageHeading eyebrow={i18n.t('monitor.loading')} title={i18n.t('app.loadingTitle')} description={i18n.t('app.loadingDescription')} />
       <SkeletonMetrics />
     </div>
   );
@@ -43,8 +46,8 @@ export class RouteErrorBoundary extends Component<{ children: ReactNode }, { fai
     if (this.state.failed) {
       return (
         <div className="page-stack" role="alert">
-          <PageHeading eyebrow="PAGE ERROR" title="页面暂时无法加载" description="页面资源加载失败。请检查连接后刷新页面。" />
-          <div><button className="button button--secondary" type="button" onClick={() => window.location.reload()}>刷新页面</button></div>
+          <PageHeading eyebrow={i18n.t('monitor.pageError')} title={i18n.t('app.pageErrorTitle')} description={i18n.t('app.pageErrorDescription')} />
+          <div><button className="button button--secondary" type="button" onClick={() => window.location.reload()}>{i18n.t('app.reload')}</button></div>
         </div>
       );
     }
@@ -68,11 +71,12 @@ function useNow(active: boolean) {
 }
 
 export function InvalidSelection() {
+  useTranslation();
   return (
     <ErrorState
-      title="实例不存在 / 已移除"
-      description="链接中的实例 ID 不在当前服务器列表中。请选择一个仍然可用的实例。"
-      secondary={<Link className="button button--secondary" to="/servers">返回 Servers</Link>}
+      title={i18n.t('app.invalidInstance')}
+      description={i18n.t('app.invalidDescription')}
+      secondary={<Link className="button button--secondary" to="/servers">{i18n.t('app.backServers')}</Link>}
     />
   );
 }
@@ -96,6 +100,7 @@ function DashboardRoute({
   coreConnectionError: boolean;
   lifecycleFeature?: HealthResponse['data']['features']['lifecycle'] | undefined;
 }) {
+  useTranslation();
   const overviewQuery = useQuery({
     queryKey: ['overview', selectedId],
     queryFn: ({ signal }) => api.overview(selectedId!, signal),
@@ -109,26 +114,26 @@ function DashboardRoute({
   const forceStale = Boolean(overviewQuery.data && now - overviewQuery.dataUpdatedAt > 15_000);
 
   if (listLoading) {
-    return <div className="page-stack"><PageHeading eyebrow="OVERVIEW" title="Dashboard" description="正在读取实例目录与最新快照…" /><SkeletonMetrics /></div>;
+    return <div className="page-stack"><PageHeading eyebrow={i18n.t('monitor.overview')} title={i18n.t('nav.dashboard')} description={i18n.t('app.readingCatalog')} /><SkeletonMetrics /></div>;
   }
   if (listError && !selectedId) {
     return <ErrorState description={errorMessage(listError)} retry={retryList} />;
   }
   if (invalidSelection) return <InvalidSelection />;
   if (!selectedId) {
-    return <div className="page-stack">{mode === 'mock' ? <MockBanner /> : null}<PageHeading eyebrow="OVERVIEW" title="Dashboard" /><EmptyState title="没有可显示的服务器" description="当前实例列表为空。请前往 Servers 添加已有本地服务端。" /></div>;
+    return <div className="page-stack">{mode === 'mock' ? <MockBanner /> : null}<PageHeading eyebrow={i18n.t('monitor.overview')} title={i18n.t('nav.dashboard')} /><EmptyState title={i18n.t('app.noServers')} description={i18n.t('app.emptyServers')} /></div>;
   }
   if (overviewQuery.isPending) {
-    return <div className="page-stack">{mode === 'mock' ? <MockBanner /> : null}<PageHeading eyebrow="OVERVIEW" title="Dashboard" description="正在读取服务器快照…" /><SkeletonMetrics /></div>;
+    return <div className="page-stack">{mode === 'mock' ? <MockBanner /> : null}<PageHeading eyebrow={i18n.t('monitor.overview')} title={i18n.t('nav.dashboard')} description={i18n.t('app.readingSnapshot')} /><SkeletonMetrics /></div>;
   }
   if (overviewQuery.isError && !overviewQuery.data) {
     const isMissing = overviewQuery.error instanceof ApiClientError && overviewQuery.error.code === 'SERVER_NOT_FOUND';
     return (
       <ErrorState
-        title={isMissing ? '实例不存在 / 已移除' : overviewQuery.error instanceof ApiClientError && overviewQuery.error.kind === 'schema' ? '后端响应格式异常' : '无法读取 Dashboard'}
-        description={`${errorMessage(overviewQuery.error)}${overviewQuery.error instanceof ApiClientError && overviewQuery.error.requestId ? ` 请求 ID：${overviewQuery.error.requestId}` : ''}`}
+        title={isMissing ? i18n.t('app.invalidInstance') : overviewQuery.error instanceof ApiClientError && overviewQuery.error.kind === 'schema' ? i18n.t('app.invalidResponse') : i18n.t('app.dashboardError')}
+        description={`${errorMessage(overviewQuery.error)}${overviewQuery.error instanceof ApiClientError && overviewQuery.error.requestId ? ` ${i18n.t('app.requestId', { id: overviewQuery.error.requestId })}` : ''}`}
         retry={() => void overviewQuery.refetch()}
-        secondary={<Link className="button button--secondary" to="/servers">返回 Servers</Link>}
+        secondary={<Link className="button button--secondary" to="/servers">{i18n.t('app.backServers')}</Link>}
       />
     );
   }
@@ -153,6 +158,7 @@ function DashboardRoute({
 }
 
 export function App() {
+  useTranslation();
   const location = useLocation();
   const navigate = useNavigate(), queryClient = useQueryClient();
   const requestedId = new URLSearchParams(location.search).get('server') ?? undefined;
@@ -247,7 +253,7 @@ export function App() {
         } />
         <Route path="/servers" element={
           serversQuery.isPending
-            ? <div className="page-stack"><PageHeading eyebrow="INSTANCES" title="Servers" description="正在读取服务器列表…" /></div>
+            ? <div className="page-stack"><PageHeading eyebrow={i18n.t('monitor.instances')} title={i18n.t('nav.servers')} description={i18n.t('app.readingServers')} /></div>
             : serversQuery.isError && !serversQuery.data
               ? <ErrorState description={errorMessage(serversQuery.error)} retry={() => void serversQuery.refetch()} />
               : <Servers items={servers} mode={mode ?? 'local'} stale={serversStale} onRegistered={() => { void serversQuery.refetch(); }} onRemoved={removed} />

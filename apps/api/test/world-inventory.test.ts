@@ -15,6 +15,7 @@ import { registerWorldRoutes } from "../src/routes/worlds.js";
 import { DomainError } from "../src/services/domain-errors.js";
 import {
   inspectVanillaWorld,
+  readWorldMetadata,
   WorldInventoryService
 } from "../src/services/world-inventory-service.js";
 
@@ -94,6 +95,16 @@ async function fixture(properties: string, data = levelDat(1n, "1.21.1")): Promi
 }
 
 describe("Vanilla world inventory", () => {
+  it("observes DataVersion without coercing missing metadata or claiming compatibility", async () => {
+    const bytes = gzipSync(Buffer.concat([Buffer.from([10]), nbtString(""),
+      compoundTag("Data", [intTag("DataVersion", 123), compoundTag("Version", [stringTag("Name", "26.3")])]), Buffer.from([0])]));
+    const { world } = await fixture("level-name=world\n", bytes);
+    expect(await readWorldMetadata(world)).toEqual({ readable: true, version: "26.3", dataVersion: 123 });
+    await writeFile(path.join(world, "level.dat"), levelDat(1n, "26.3"));
+    expect(await readWorldMetadata(world)).toEqual({ readable: true, version: "26.3", dataVersion: null });
+    await writeFile(path.join(world, "level.dat"), Buffer.from("invalid NBT"));
+    expect(await readWorldMetadata(world)).toEqual({ readable: false, version: null, dataVersion: null });
+  });
   it("reads the actual 26.3 generated seed from separate saved data with exact int64 precision", async () => {
     const withoutSeed = gzipSync(Buffer.concat([Buffer.from([10]), nbtString(""),
       compoundTag("Data", [compoundTag("Version", [stringTag("Name", "26.3")])]), Buffer.from([0])]));

@@ -1,10 +1,39 @@
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { i18n } from '../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Operation, PropertiesResponse, ServersResponse } from '@mcsm/contracts';
 import { api, ApiClientError } from '../api';
 import { PropertiesPage } from './Properties';
+import { themeStore } from '../theme/store';
+
+it('appearance and language changes preserve configuration drafts without saving', async () => {
+  show();
+  const input = await screen.findByLabelText('服务器描述');
+  fireEvent.change(input, { target: { value: 'Unsaved draft / 未保存' } });
+  fireEvent.change(screen.getByLabelText('主题'), { target: { value: 'dark' } });
+  await act(async () => { await i18n.changeLanguage('ja'); });
+  const currentInput = screen.getByLabelText('サーバーの説明');
+  expect(currentInput).toBe(input);
+  expect(currentInput).toHaveValue('Unsaved draft / 未保存');
+  expect(themeStore.snapshot().theme).toBe('dark');
+  expect(api.saveProperties).not.toHaveBeenCalled();
+  act(() => themeStore.setPreference('system'));
+});
+
+it('keeps an actual property draft and sends no writes while changing language', async () => {
+  vi.mocked(api.properties).mockResolvedValue(discoveredSnapshot());
+  show();
+  fireEvent.change(await screen.findByLabelText('玩家对战'), { target: { value: 'false' } });
+  const reads = vi.mocked(api.properties).mock.calls.length;
+  await act(async () => { await i18n.changeLanguage('ja'); });
+  expect(screen.getByLabelText('プレイヤー同士の戦闘')).toHaveValue('false');
+  await act(async () => { await i18n.changeLanguage('en'); });
+  expect(screen.getByLabelText('Player versus player')).toHaveValue('false');
+  expect(api.properties).toHaveBeenCalledTimes(reads);
+  expect(api.saveProperties).not.toHaveBeenCalled();
+});
 
 vi.mock('../api', async (load) => {
   const actual = await load<typeof import('../api')>();

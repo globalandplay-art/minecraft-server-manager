@@ -1,12 +1,13 @@
 import type { ServersResponse } from '@mcsm/contracts';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authState } from '../authState';
 beforeEach(() => authState.legacy(authState.checking()));
 import { api } from '../api';
 import { ConsolePage } from './Console';
+import { i18n } from '../i18n';
 
 type ServerSummary = ServersResponse['data']['items'][number];
 const blocked = { allowed: false as const, reason: 'not-available' };
@@ -45,6 +46,46 @@ afterEach(() => {
 });
 
 describe('ConsolePage', () => {
+  it('switches language without losing drafts, rewriting raw output or reconnecting', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const command = vi.spyOn(api, 'command').mockResolvedValue({ data: { status: 'executed', transport: 'rcon', output: '原始 RCON / RAW <output>' }, meta: { requestId: 'locale', generatedAt: new Date().toISOString(), mode: 'local' } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><ConsolePage server={server} feature={{ implemented: true, phase: 2 }} /></QueryClientProvider>);
+    const socket = MockWebSocket.latest;
+    act(() => {
+      socket.message({ type: 'hello', streamId: 'locale', latestSequence: 1 });
+      socket.message({ type: 'snapshot', sequence: 1, status: server.status, logs: [{ id: 'raw', cursor: 'raw', timestamp: null, level: 'error', text: '原始日志 <log> / RAW', source: 'latest.log' }] });
+    });
+    const input = screen.getByRole('textbox', { name: 'Minecraft 命令' });
+    fireEvent.change(input, { target: { value: 'say 未保存 draft' } });
+    await act(async () => { await i18n.changeLanguage('en'); });
+    expect(screen.getByRole('textbox', { name: 'Minecraft command' })).toBe(input);
+    expect(input).toHaveValue('say 未保存 draft');
+    expect(MockWebSocket.latest).toBe(socket);
+    expect(screen.getByText('原始日志 <log> / RAW')).toBeVisible();
+    expect(command).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('原始 RCON / RAW <output>')).toBeVisible();
+    await act(async () => { await i18n.changeLanguage('ja'); });
+    expect(screen.getByText('RCON 実行済み')).toBeVisible();
+    expect(screen.getByText('原始 RCON / RAW <output>')).toBeVisible();
+    expect(command).toHaveBeenCalledExactlyOnceWith(server.server.id, 'say 未保存 draft');
+    expect(MockWebSocket.latest).toBe(socket);
+  });
+
+  it('updates an existing validation message without clearing or sending the invalid command', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const send = vi.spyOn(api, 'command');
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ConsolePage server={server} feature={{ implemented: true, phase: 2 }} /></QueryClientProvider>);
+    const input = screen.getByRole('textbox', { name: 'Minecraft 命令' });
+    fireEvent.change(input, { target: { value: 'x'.repeat(1025) } });
+    await userEvent.click(screen.getByRole('button', { name: '发送' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('命令不能超过 1024');
+    await act(async () => { await i18n.changeLanguage('en'); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Commands cannot exceed 1024 UTF-8 bytes.');
+    expect(input).toHaveValue('x'.repeat(1025)); expect(send).not.toHaveBeenCalled();
+  });
   it('将日志作为纯文本呈现，并区分 stdin submitted 与真实输出', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket);
     vi.spyOn(api, 'command').mockResolvedValue({

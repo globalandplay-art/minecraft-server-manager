@@ -1,3 +1,23 @@
+# 2026-10-25 Worlds V2 identity observation (IN PROGRESS)
+
+`GET /api/v1/servers/:serverId/world-library` is available for registered local
+Vanilla instances when the Manager has its active-state store and manager root.
+It uses the existing application Session/Origin guards and `Cache-Control:no-store`.
+No browser filesystem path is accepted. Mock/other layouts remain unavailable.
+
+Response `data`: serverId, state (`ready` / `inspection-required`), reason
+(`null` / `identity-unverified`), revision (SHA-256 / null), activeWorldId
+(opaque `worldv2-UUID` / null), items and `mutationsAvailable:false`.
+`ready` describes identity observation, **not** start/write/restore readiness.
+Entries expose worldId, levelName, present/retired state, legacy-observation/import
+origin, createdAt, legacySlotId and `legacyBackupAssociation:unverified`.
+Private directory identities, operation IDs and admission revisions are omitted.
+
+This separate DTO does not change legacy world IDs, BackupInfo manifests, restore
+or archive DTOs. There are no V2 import/activation/replacement mutation routes yet.
+Missing or uncertain evidence is inspection state rather than guessed association.
+See [implementation boundaries](./WORLDS_BACKUPS_V2_2026-10-25.md).
+
 # 2026-10-23 M3-E install candidate (delivery Gate BLOCKED)
 
 Existing install DTO additionally accepts optional literal
@@ -643,3 +663,33 @@ Success requires exact supported Vanilla command response, the same registered r
 GET /servers/:serverId/properties retains fields/revision/fieldRules and adds optional discovery metadata: registered server type/version; fixed server-properties file ID/source; opaque fileIdentity; bounded items and omittedCount. Items carry key/Chinese label/group/category, Java-decoded rawValue and display-inferred value/type, source/fileId, ruleStatus, editable/sensitive/duplicate flags, restartRequired(boolean or null), reason and description. Actual snapshot capabilities, not inferred types, determine fieldRules. Sensitive/unsafe values are withheld, not serialized as raw output. No client path or arbitrary config-file endpoint.
 
 PATCH contract and six-field allowlist remain unchanged. Missing, duplicate or unsafe targets reject with PROPERTIES_REVISION_CONFLICT before a journal intent. Existing revision/identity/CSRF/auth/idempotency/stopped/recovery checks remain. Discovery does not authorize remote switch changes or grant unknown-version writes. Revisions bind file identity too; identical-content replacement invalidates the prior revision.
+
+## Worlds V2 inactive library import (2026-10-25, partial delivery)
+
+All paths below use `/api/v1/servers/:serverId`, the registered local instance,
+existing access/Origin/CSRF guards and no client filesystem paths.
+
+- GET `/world-library`: immutable random lineage entries, activeWorldId,
+  opaque revision, inspection status and `mutationsAvailable`. The capability
+  only describes stopped Vanilla26.3 independent import; activation/replacement
+  and hot backup are not enabled by it. Legacy backup association is unverified.
+- POST `/world-library/import-plan`: strict `{name, uploadId}`. Revalidates the
+  uploaded world and current instance/lineage/version evidence; returns mode
+  `independent`, uploadRevision, libraryRevision, currentWorldId and
+  currentWorldRevision, plus executionAvailable, serverMustBeStopped=true and
+  changesActiveWorld=false. This creates no operation or installed directory.
+- POST `/world-library/import`: strict exact request fields `mode`, `name`,
+  `uploadId`, `uploadRevision`, `libraryRevision`, `currentWorldId`,
+  `currentWorldRevision`, with UUID `Idempotency-Key`. Mode must be `independent`.
+  Returns existing Operation response/202; acceptance is not installation success.
+  Operation kind is `world-library-import`. Same key/body returns the original
+  operation; changed body conflicts. Waiting admission rechecks authentication.
+  The durable schema9 intent fixes the chosen world ID before filesystem writes.
+
+Operation status uses the existing operation endpoint. A succeeded receipt alone
+is insufficient: reconciliation verifies physical installed contents and catalog
+binding. Unknown/interrupted outcomes retain evidence and block unsafe writes;
+startup never repeats installation automatically. Source uploads stay referenced.
+No automatic stop/start, active-world switch, old backup rebinding or recovery
+replay occurs. Browser folder selection is only bounded ZIP transport through
+the existing world-import upload endpoint; all server validation still applies.

@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+import { i18n } from '../i18n';
 import type { HealthResponse, Operation, OverviewResponse } from '@mcsm/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, LoaderCircle, Play, RotateCw, Square, XCircle } from 'lucide-react';
@@ -9,11 +11,8 @@ type Summary = OverviewResponse['data']['summary'];
 type FeatureState = HealthResponse['data']['features']['lifecycle'];
 type LifecycleAction = 'start' | 'stop' | 'restart';
 
-const actionLabels: Record<LifecycleAction, string> = {
-  start: '启动',
-  stop: '停止',
-  restart: '重启',
-};
+const actionKeys = { start: 'lifecycle.start', stop: 'lifecycle.stop', restart: 'lifecycle.restart' } as const;
+function actionLabel(action: string) { return Object.hasOwn(actionKeys, action) ? i18n.t(actionKeys[action as LifecycleAction]) : action; }
 
 function isActive(operation?: Operation | null) {
   return operation?.state === 'queued' || operation?.state === 'running';
@@ -76,16 +75,16 @@ function ConfirmActionDialog({
     }}>
       <div ref={dialogRef} className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="lifecycle-dialog-title" tabIndex={-1}>
         <span className="confirm-dialog__icon"><AlertTriangle size={22} /></span>
-        <h2 id="lifecycle-dialog-title">确认{actionLabels[action]}服务器</h2>
+        <h2 id="lifecycle-dialog-title">{i18n.t('lifecycle.confirmTitle', { action: actionLabel(action) })}</h2>
         <p>
           {action === 'restart'
-            ? '重启会先保存世界、停止服务器并断开在线玩家，再重新启动。启动完成前服务不可用。'
-            : '停止会保存世界并断开在线玩家。请等待 Operation 明确完成后再关闭管理器。'}
+            ? i18n.t('lifecycle.restartDescription')
+            : i18n.t('lifecycle.stopDescription')}
         </p>
         <div className="confirm-dialog__actions">
-          <button ref={cancelRef} className="button button--secondary" onClick={close} disabled={pending}>取消</button>
+          <button ref={cancelRef} className="button button--secondary" onClick={close} disabled={pending}>{i18n.t('lifecycle.cancel')}</button>
           <button className="button button--primary" onClick={confirm} disabled={pending}>
-            {pending ? <LoaderCircle className="spin" size={16} /> : null}确认{actionLabels[action]}
+            {pending ? <LoaderCircle className="spin" size={16} /> : null}{i18n.t('lifecycle.confirm', { action: actionLabel(action) })}
           </button>
         </div>
       </div>
@@ -102,20 +101,20 @@ function OperationPanel({ operation, queryError, retry }: { operation: Operation
       <div className="operation-panel__status">
         {active ? <LoaderCircle className="spin" size={18} /> : succeeded ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
         <div>
-          <strong>{succeeded ? '操作已完成' : failed ? '操作未完成' : queryError ? '操作进度未知' : '操作进行中'}</strong>
-          <span>{actionLabels[operation.kind as LifecycleAction] ?? operation.kind} · {operation.step}</span>
+          <strong>{succeeded ? i18n.t('lifecycle.completed') : failed ? i18n.t('lifecycle.incomplete') : queryError ? i18n.t('lifecycle.unknownProgress') : i18n.t('lifecycle.inProgress')}</strong>
+          <span>{actionLabel(operation.kind)} · {operation.step}</span>
         </div>
       </div>
       {operation.progress !== null ? (
-        <div className="operation-progress" aria-label={`实际进度 ${operation.progress}%`}>
+        <div className="operation-progress" aria-label={i18n.t('lifecycle.progress', { progress: operation.progress })}>
           <span style={{ width: `${operation.progress}%` }} />
         </div>
       ) : null}
       {operation.error ? <p className="operation-error">{operation.error.message}（{operation.error.code}）</p> : null}
       {queryError ? (
         <div className="operation-query-error">
-          <span>{errorMessage(queryError)} 当前结果未知，重试只会查询进度，不会再次执行操作。</span>
-          <button className="button button--secondary" onClick={retry}>重查进度</button>
+          <span>{errorMessage(queryError)} {i18n.t('lifecycle.queryUnknown')}</span>
+          <button className="button button--secondary" onClick={retry}>{i18n.t('lifecycle.queryAgain')}</button>
         </div>
       ) : null}
     </div>
@@ -134,6 +133,7 @@ export function LifecycleControls({
   stale?: boolean | undefined;
 }) {
   const queryClient = useQueryClient();
+  useTranslation();
   const [operation, setOperation] = useState<Operation | null>(null);
   const [confirmAction, setConfirmAction] = useState<'stop' | 'restart' | null>(null);
   const trackedId = operation?.id ?? summary.status.activeOperationId;
@@ -202,7 +202,7 @@ export function LifecycleControls({
   ];
 
   return (
-    <div className="server-actions" aria-label="服务器生命周期操作">
+    <div className="server-actions" aria-label={i18n.t('lifecycle.actions')}>
       <div>
         {actions.map(({ id, icon: Icon, ready }) => (
           <button
@@ -212,26 +212,26 @@ export function LifecycleControls({
             onClick={() => id === 'start' ? submit(id) : setConfirmAction(id)}
             aria-describedby={stale ? 'lifecycle-stale-reason' : available && !ready.allowed ? `lifecycle-${id}-reason` : undefined}
           >
-            <Icon size={15} />{actionLabels[id]}
+            <Icon size={15} />{actionLabel(id)}
           </button>
         ))}
       </div>
       <div className="lifecycle-reasons">
         {stale ? (
-          <p id="lifecycle-stale-reason">当前 Dashboard 快照已过期。请先刷新并取得最新状态，再执行生命周期操作。</p>
+          <p id="lifecycle-stale-reason">{i18n.t('lifecycle.stale')}</p>
         ) : !available ? (
-          <p>{mode === 'mock' ? 'Phase 2 接入本地服务器后启用' : `Lifecycle 将在 Phase ${feature?.phase ?? 2} 启用。`}</p>
+          <p>{mode === 'mock' ? i18n.t('lifecycle.mock') : i18n.t('lifecycle.phase', { phase: feature?.phase ?? 2 })}</p>
         ) : actions.map(({ id, ready }) => (
-          !ready.allowed ? <p id={`lifecycle-${id}-reason`} key={id}><strong>{actionLabels[id]}：</strong>{readableReadinessReason(ready.reason)}</p> : null
+          !ready.allowed ? <p id={`lifecycle-${id}-reason`} key={id}><strong>{actionLabel(id)}：</strong>{readableReadinessReason(ready.reason)}</p> : null
         ))}
-        {available && actions.every(({ ready }) => ready.allowed) && !busy ? <p>停止或重启会保存世界并断开在线玩家；Operation 完成前不会宣告成功。</p> : null}
+        {available && actions.every(({ ready }) => ready.allowed) && !busy ? <p>{i18n.t('lifecycle.saveWarning')}</p> : null}
       </div>
       {mutation.isError ? (
         <div className="lifecycle-error" role="alert">
-          <strong>{uncertainSubmission ? '操作提交结果未知' : '操作被后端拒绝'}</strong>
-          <span>{errorMessage(mutation.error)} {uncertainSubmission ? '请求可能已被接受；不会自动重试。可使用相同幂等键安全确认。' : '请按后端原因修正当前状态。'}</span>
+          <strong>{uncertainSubmission ? i18n.t('lifecycle.submissionUnknown') : i18n.t('lifecycle.rejected')}</strong>
+          <span>{errorMessage(mutation.error)} {uncertainSubmission ? i18n.t('lifecycle.uncertain') : i18n.t('lifecycle.correctState')}</span>
           {uncertainSubmission && mutation.variables ? (
-            <button className="button button--secondary" disabled={stale} onClick={() => mutation.mutate(mutation.variables!)}>使用相同幂等键确认</button>
+            <button className="button button--secondary" disabled={stale} onClick={() => mutation.mutate(mutation.variables!)}>{i18n.t('lifecycle.sameKey')}</button>
           ) : null}
         </div>
       ) : null}
@@ -244,8 +244,8 @@ export function LifecycleControls({
       ) : null}
       {trackedId && !currentOperation ? (
         <div className="operation-panel" aria-live="polite">
-          <div className="operation-panel__status"><LoaderCircle className={operationQuery.isFetching ? 'spin' : ''} size={18} /><div><strong>{operationQuery.isError ? '活动操作进度未知' : '正在读取活动操作'}</strong><span>{trackedId}</span></div></div>
-          {operationQuery.isError ? <div className="operation-query-error"><span>{errorMessage(operationQuery.error)} 只会重查进度，不会重复操作。</span><button className="button button--secondary" onClick={() => void operationQuery.refetch()}>重查进度</button></div> : null}
+          <div className="operation-panel__status"><LoaderCircle className={operationQuery.isFetching ? 'spin' : ''} size={18} /><div><strong>{operationQuery.isError ? i18n.t('lifecycle.activeUnknown') : i18n.t('lifecycle.readingActive')}</strong><span>{trackedId}</span></div></div>
+          {operationQuery.isError ? <div className="operation-query-error"><span>{errorMessage(operationQuery.error)} {i18n.t('lifecycle.queryOnly')}</span><button className="button button--secondary" onClick={() => void operationQuery.refetch()}>{i18n.t('lifecycle.queryAgain')}</button></div> : null}
         </div>
       ) : null}
       {confirmAction ? (

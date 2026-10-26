@@ -1,3 +1,7 @@
+import { useTranslation } from 'react-i18next';
+import { i18n } from '../i18n';
+import { formatLocalTime } from '../format';
+import { renderMessage, type UiMessage } from '../i18n/message';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import type { Operation, PropertiesResponse, ServersResponse } from '@mcsm/contracts';
@@ -7,16 +11,19 @@ import { PropertiesFields } from '../components/PropertiesFields';
 import { EmptyState, ErrorState, PageHeading } from '../components/Ui';
 import { usePropertyReceipt, type PropertyReceipt as Receipt } from '../propertyReceipt';
 import { authState } from '../authState';
+import { LanguageSettings } from '../components/LanguageSelector';
+import { AppearanceSettings } from '../components/Appearance';
 
 type Snapshot = PropertiesResponse['data'];
 const valuesOf = (snapshot: Snapshot) => snapshot.discovery ? Object.fromEntries(snapshot.discovery.items.map(item => [item.key, item.rawValue])) : Object.fromEntries(Object.entries(snapshot.fields).map(([key, value]) => [key, value === null ? '' : String(value)]));
 
 export function PropertiesPage({ server }: { server?: ServersResponse['data']['items'][number] | undefined }) {
   const { generation } = useSyncExternalStore(authState.subscribe, authState.snapshot);
-  return <PropertiesEditor key={`${server?.server.id ?? 'none'}:${generation}`} server={server} />;
+  return <><div className="workspace-preferences"><AppearanceSettings /><LanguageSettings /></div><PropertiesEditor key={`${server?.server.id ?? 'none'}:${generation}`} server={server} /></>;
 }
 
 function PropertiesEditor({ server }: { server?: ServersResponse['data']['items'][number] | undefined }) {
+  useTranslation();
   const id = server?.server.id;
   const { receipt, update: setReceipt, current: receiptScopeCurrent } = usePropertyReceipt(id);
   const mounted = useRef(true);
@@ -30,7 +37,7 @@ function PropertiesEditor({ server }: { server?: ServersResponse['data']['items'
   const dispatching = useRef(false);
   const [unknown, setUnknown] = useState(Boolean(receipt && !receipt.operationId));
   const [needsRefresh, setNeedsRefresh] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<UiMessage>('');
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   const query = useQuery({ queryKey: ['properties', id], queryFn: ({ signal }) => api.properties(id!, signal),
@@ -46,12 +53,12 @@ function PropertiesEditor({ server }: { server?: ServersResponse['data']['items'
     if (handled.current === result.id || !['succeeded', 'failed', 'interrupted'].includes(result.state)) return;
     handled.current = result.id;
     if (result.state === 'succeeded' && !result.error && result.result?.resourceId) {
-      setMessage('配置已保存。需要重启服务器才能生效；请到 Servers 显式启动或重启。');
+      setMessage({ key: 'properties.notice.saved' });
       setEdits({}); setConfirm(false); setOffline(false); setReceipt(undefined, receipt);
       void query.refetch().then((fresh) => { if (mounted.current && fresh.data && !fresh.isError) setBaseline(fresh.data.data); });
     } else {
       const blocked = result.state !== 'failed' || result.error?.code === 'RECOVERY_REQUIRED';
-      setMessage(blocked ? '配置操作未安全确认，保留恢复门控。请核对操作记录，不能再次保存。' : '配置保存失败；草稿保留，请刷新并重新确认。');
+      setMessage(blocked ? { key: 'properties.notice.recovery' } : { key: 'properties.notice.failed' });
       setUnknown(blocked);
       if (result.error?.code === 'PROPERTIES_REVISION_CONFLICT') setNeedsRefresh(true);
       if (!blocked) setReceipt(undefined, receipt);
@@ -84,22 +91,22 @@ function PropertiesEditor({ server }: { server?: ServersResponse['data']['items'
     if (!id || !baseline || dispatching.current || sending || (!existing && (receipt || !ready || !confirm || !Object.keys(changes).length))) return;
     const next = existing ? { ...existing, attempt: (existing.attempt ?? 0) + 1 } : { body: { changes, confirmOfflineIdentity: offline }, revision: baseline.revision, key: crypto.randomUUID() };
     if (!setReceipt(next, existing)) return;
-    dispatching.current = true; setSending(true); setMessage('正在提交；尚未确认配置已保存。'); setUnknown(false);
+    dispatching.current = true; setSending(true); setMessage({ key: 'properties.notice.sending' }); setUnknown(false);
     try {
       const response = await api.saveProperties(id, next.body, next.revision, next.key);
       if (response.data.operation.serverId !== id || response.data.operation.kind !== 'properties-write') throw new Error('配置操作响应不匹配');
       setReceipt({ ...next, operationId: response.data.operation.id }, next);
       if (!mounted.current || !receiptScopeCurrent()) return;
-      setMessage('请求已受理，正在核验配置写入…');
+      setMessage({ key: 'properties.notice.accepted' });
     } catch (error) {
       const definite = error instanceof ApiClientError && error.kind === 'http' && error.status !== undefined && error.status >= 400 && error.status < 500;
       if (!existing && definite && error.code !== 'RECOVERY_REQUIRED') setReceipt(undefined, next);
       if (!mounted.current || !receiptScopeCurrent()) return;
-      setUnknown(!definite || Boolean(existing)); setMessage(definite ? `${errorMessage(error)}。草稿保留，请刷新配置并重新确认。` : '响应不确定，不能认定成功或失败。禁止新请求；可明确使用原请求和原幂等键核对。');
+      setUnknown(!definite || Boolean(existing)); setMessage(definite ? { key: 'properties.notice.rejected', values: { error: errorMessage(error) } } : { key: 'properties.notice.unknown' });
       if (existing) {
-        setMessage('原请求结果仍未确认。此次核对失败不能证明原请求未执行；保留原幂等键，禁止新请求。');
+        setMessage({ key: 'properties.notice.originalUnknown' });
       } else if (definite && error.code === 'RECOVERY_REQUIRED') {
-        setMessage('配置需要人工恢复核验。保留请求与草稿，禁止再次保存。');
+        setMessage({ key: 'properties.notice.manualRecovery' });
       } else if (definite) {
         setConfirm(false);
         if (error.code === 'PROPERTIES_REVISION_CONFLICT') setNeedsRefresh(true);
@@ -107,20 +114,20 @@ function PropertiesEditor({ server }: { server?: ServersResponse['data']['items'
     } finally { dispatching.current = false; if (mounted.current && receiptScopeCurrent()) setSending(false); }
   }
   return <div className="page-stack properties-page">
-    <PageHeading eyebrow="SERVER CONFIGURATION" title="Server Properties" description="只编辑允许字段；保存前保护备份，保存后由你明确启动或重启。" />
-    <p>配置仅在已确认停止时保存；本页不会自动停止、启动或重启服务器。未验证的字段保持只读。</p>
-    {id ? <Link className="button button--secondary" to={`/whitelist?server=${encodeURIComponent(id)}`}>查看白名单成员</Link> : null}
-    {!server ? <EmptyState title="请选择服务器" description="选择实例后查看配置。" /> : !server.capabilities.properties ?
-      <EmptyState title="此实例未开放配置管理" description="由后端能力决定可用功能。" /> : query.isPending && !baseline ? <p role="status">正在读取配置…</p> :
+    <PageHeading eyebrow="SERVER CONFIGURATION" title={i18n.t('properties.title')} description={i18n.t('properties.description')} />
+    <p>{i18n.t('properties.offlineOnly')}</p>
+    {id ? <Link className="button button--secondary" to={`/whitelist?server=${encodeURIComponent(id)}`}>{i18n.t('properties.members')}</Link> : null}
+    {!server ? <EmptyState title={i18n.t('players.choose')} description={i18n.t('properties.chooseDescription')} /> : !server.capabilities.properties ?
+      <EmptyState title={i18n.t('properties.unsupported')} description={i18n.t('properties.capability')} /> : query.isPending && !baseline ? <p role="status">{i18n.t('properties.loading')}</p> :
       !baseline ? <ErrorState description={errorMessage(query.error)} retry={() => void refresh()} /> : <>
-        {!ready ? <p role="status">需要已确认停止、无其他操作且没有恢复锁的实例才能保存。请在 Servers 操作后刷新状态。</p> : null}
-        {disk && baseline && externalConflict ? <section role="alert"><h2>磁盘配置发生变化</h2>
-          <p>{fileReplaced ? '配置文件身份已变化。' : ''}草稿已保留，不会自动保存。请比较新增、修改或移除的字段后明确确认。</p>
-          <ul>{changedKeys.map(key => <li key={key}>{key}: {valuesOf(baseline)[key] ?? '(新增)'} → {valuesOf(disk)[key] ?? '(移除)'}</li>)}</ul>
-          <button className="button" disabled={frozen} onClick={() => { setBaseline(disk); setNeedsRefresh(false); setConfirm(false); setOffline(false); }}>确认比较结果，保留草稿并使用新版本</button>
+        {!ready ? <p role="status">{i18n.t('properties.notReady')}</p> : null}
+        {disk && baseline && externalConflict ? <section role="alert"><h2>{i18n.t('properties.diskChanged')}</h2>
+          <p>{fileReplaced ? i18n.t('properties.identityChanged') : ''}{i18n.t('properties.compareNotice')}</p>
+          <ul>{changedKeys.map(key => <li key={key}>{key}: {valuesOf(baseline)[key] ?? i18n.t('properties.added')} → {valuesOf(disk)[key] ?? i18n.t('properties.removed')}</li>)}</ul>
+          <button className="button" disabled={frozen} onClick={() => { setBaseline(disk); setNeedsRefresh(false); setConfirm(false); setOffline(false); }}>{i18n.t('properties.acceptComparison')}</button>
         </section> : null}
-        <p>最后读取：{query.data?.meta.generatedAt ?? 'N/A'} · 变化字段：{changedKeys.length} · 待保存：{Object.keys(changes).length}</p>
-        {blockedDraft.length ? <section role="alert"><h2>草稿需要核对</h2><ul>{blockedDraft.map(([key,value]) => <li key={key}>{key}: {value} <button disabled={frozen} onClick={() => setEdits(old => Object.fromEntries(Object.entries(old).filter(([name]) => name !== key)))}>放弃 {key} 草稿</button></li>)}</ul><p>已移除或只读字段不能提交；无效草稿在明确放弃前阻止保存。</p></section> : null}
+        <p>{i18n.t('properties.readSummary', { time: formatLocalTime(query.data?.meta.generatedAt), changed: changedKeys.length, pending: Object.keys(changes).length })}</p>
+        {blockedDraft.length ? <section role="alert"><h2>{i18n.t('properties.checkDraft')}</h2><ul>{blockedDraft.map(([key,value]) => <li key={key}>{key}: {value} <button disabled={frozen} onClick={() => setEdits(old => Object.fromEntries(Object.entries(old).filter(([name]) => name !== key)))}>{i18n.t('properties.discardDraft', { key })}</button></li>)}</ul><p>{i18n.t('properties.invalidDraft')}</p></section> : null}
         <PropertiesFields discovery={baseline.discovery} values={values} currentValues={baseValues} rules={baseline.fieldRules} disabled={frozen} onChange={(key, value) => {
           setEdits((old) => {
             const next = { ...old };
@@ -128,19 +135,19 @@ function PropertiesEditor({ server }: { server?: ServersResponse['data']['items'
             return next;
           }); setConfirm(false); setOffline(false); setMessage('');
         }} />
-        {Object.keys(changes).length ? <section className="settings-panel" aria-label="配置变更确认">
-          <h2>待保存变更</h2><ul>{Object.entries(changes).map(([key, value]) => <li key={key}>{key}：{baseValues[key] || '未提供'} → {value || '空值'}（{baseline.fieldRules[key]?.restartRequired ? '需要重启' : '无需重启'}）</li>)}</ul>
-          {changes['online-mode'] === 'false' ? <label><input type="checkbox" disabled={frozen} checked={offline} onChange={(e) => setOffline(e.target.checked)} />我确认关闭在线验证会影响玩家身份验证，接受此设置风险。</label> : null}
-          <label><input type="checkbox" disabled={frozen} checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />确认以上变更，创建保护备份后保存；不自动启动或重启。</label>
+        {Object.keys(changes).length ? <section className="settings-panel" aria-label={i18n.t('properties.confirmLabel')}>
+          <h2>{i18n.t('properties.pending')}</h2><ul>{Object.entries(changes).map(([key, value]) => <li key={key}>{key}：{baseValues[key] || i18n.t('property.unprovided')} → {value || i18n.t('property.empty')}（{baseline.fieldRules[key]?.restartRequired ? i18n.t('property.restartRequired') : i18n.t('property.restartNotRequired')}）</li>)}</ul>
+          {changes['online-mode'] === 'false' ? <label><input type="checkbox" disabled={frozen} checked={offline} onChange={(e) => setOffline(e.target.checked)} />{i18n.t('properties.offlineIdentityConsent')}</label> : null}
+          <label><input type="checkbox" disabled={frozen} checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />{i18n.t('properties.confirmSave')}</label>
         </section> : null}
-        <button className="button button--secondary" disabled={frozen || query.isFetching} onClick={() => void refresh()}>刷新当前配置，保留草稿</button>
-        <button className="button" disabled={!ready || frozen || !confirm || !Object.keys(changes).length || (changes['online-mode'] === 'false' && !offline)} onClick={() => void submit()}>备份并保存配置</button>
-        {unknown && receipt && !receipt.operationId ? <button className="button button--secondary" disabled={sending} onClick={() => void submit(receipt)}>使用原请求核对结果</button> : null}
-        {receipt ? <p>待确认请求在本次登录会话内跨页面保留；不会自动重发。刷新整个浏览器或重新登录后，请先核对操作记录。</p> : null}
-        {receipt?.operationId ? <p>操作 ID：{receipt.operationId}。不确定时先查操作记录，不要重复保存。</p> : null}
-        {op.isError ? <ErrorState description="暂时无法读取操作结果；配置保存状态未确认。" retry={() => void op.refetch()} /> : null}
-        {query.isError && baseline ? <p role="alert">配置刷新失败；保留草稿，尚未取得新的确认依据。</p> : null}
-        {message ? <p role="status">{message}</p> : null}
+        <button className="button button--secondary" disabled={frozen || query.isFetching} onClick={() => void refresh()}>{i18n.t('properties.refresh')}</button>
+        <button className="button" disabled={!ready || frozen || !confirm || !Object.keys(changes).length || (changes['online-mode'] === 'false' && !offline)} onClick={() => void submit()}>{i18n.t('properties.save')}</button>
+        {unknown && receipt && !receipt.operationId ? <button className="button button--secondary" disabled={sending} onClick={() => void submit(receipt)}>{i18n.t('properties.verifyOriginal')}</button> : null}
+        {receipt ? <p>{i18n.t('properties.retainedRequest')}</p> : null}
+        {receipt?.operationId ? <p>{i18n.t('properties.operation', { id: receipt.operationId })}</p> : null}
+        {op.isError ? <ErrorState description={i18n.t('properties.resultUnavailable')} retry={() => void op.refetch()} /> : null}
+        {query.isError && baseline ? <p role="alert">{i18n.t('properties.refreshFailed')}</p> : null}
+        {message ? <p role="status">{renderMessage(message)}</p> : null}
       </>}
   </div>;
 }

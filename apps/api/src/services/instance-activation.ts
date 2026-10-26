@@ -24,8 +24,8 @@ export async function activateInstance(registration: ValidatedRegistration, cont
   if (context.operations.getServerState(id).recoveryRequired || (await context.operations.storedOutcomes()).some(row => row.serverId === id)) throw blocked();
   const scan = await context.journal?.scan();
   if (scan?.records.some(row => row.intent.serverId === id) || scan?.issues.some(row => !row.serverId || row.serverId === id)) throw blocked();
-  for (const name of ['active-worlds', 'backup-schedules', 'backup-retention', 'backups', 'properties-backups', 'world-imports', 'addon-staging', 'addon-trash']) {
-    for (const suffix of [id, `${id}.json`]) {
+  for (const name of ['active-worlds', 'world-library', 'backup-schedules', 'backup-retention', 'backups', 'properties-backups', 'world-imports', 'addon-staging', 'addon-trash']) {
+    for (const suffix of [id, `${id}.json`, `${id}.identity.json`]) {
       try { await lstat(path.join(context.root, name, suffix)); throw blocked(); }
       catch (error) { if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error; }
     }

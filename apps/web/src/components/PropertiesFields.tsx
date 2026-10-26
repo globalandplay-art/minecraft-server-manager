@@ -1,6 +1,9 @@
 import type { ConfigurationDiscovery } from '@mcsm/contracts';
 import { DiscoveredProperties } from './DiscoveredProperties';
 import type { ChangeEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { i18n } from '../i18n';
+import { propertyGroup, propertyLabel, propertyOption } from '../i18n/properties';
 
 export type PropertiesFieldKey =
   | 'max-players'
@@ -36,56 +39,51 @@ const fields: { key: PropertiesFieldKey; label: string; kind: 'text' | 'numeric'
   { key: 'motd', label: '服务器描述', kind: 'text' },
 ];
 
-const optionLabels: Record<string, string> = {
-  peaceful: '和平', easy: '简单', normal: '普通', hard: '困难',
-  survival: '生存', creative: '创造', adventure: '冒险', spectator: '旁观',
-  true: '启用', false: '关闭',
-};
-
 const groups = [
   { name: '游戏玩法', keys: ['difficulty', 'gamemode', 'pvp'] },
   { name: '玩家管理', keys: ['max-players', 'white-list', 'enforce-whitelist', 'online-mode'] },
   { name: '性能', keys: ['view-distance', 'simulation-distance'] },
   { name: '其他设置', keys: ['motd'] },
 ];
-const displayValue = (value: string | undefined, kind: string) => value === undefined || value === '' ? '未提供' : kind === 'select' ? optionLabels[value] ?? value : value;
+const displayValue = (value: string | undefined, kind: string) => value === undefined || value === '' ? i18n.t('property.unprovided') : kind === 'select' ? propertyOption(value) : value;
 
 export function PropertiesFields({ discovery, values, currentValues, rules, disabled, onChange }: PropertiesFieldsProps) {
+  const { t } = useTranslation();
   if (discovery) return <DiscoveredProperties discovery={discovery} values={values} currentValues={currentValues} rules={rules} disabled={disabled} onChange={onChange} />;
   return (
     <div className="page-stack" style={{ width: '100%', maxWidth: '100%' }}>
-      <p>标记为需要重启的修改将在重启后生效。</p>
-      {groups.map(group => <section key={group.name} aria-label={group.name}>
-        <h2>{group.name}</h2>
+      <p>{t('property.restartNotice')}</p>
+      {groups.map(group => <section key={group.name} aria-label={propertyGroup(group.name)}>
+        <h2>{propertyGroup(group.name)}</h2>
         <div className="settings-panel properties-fields">
         {fields.filter(field => group.keys.includes(field.key)).map(({ key, label, kind, options }) => {
           const id = `property-${key}`;
           const value = values[key] ?? '';
           const rule = rules[key];
           const editable = rule?.editable === true;
-          const restartNote = rule?.restartRequired ? '修改需要重启后生效' : null;
+          const restartNote = rule?.restartRequired ? t('property.restart') : null;
           const control = editable ? (
             kind === 'select' ? (
               <select id={id} className="button button--secondary" style={{ width: '100%', maxWidth: '100%' }}
                 value={value} disabled={disabled} onChange={(event: ChangeEvent<HTMLSelectElement>) => onChange(key, event.target.value)}>
-                <option value="">未提供</option>
-                {options?.map((option) => <option key={option} value={option}>{optionLabels[option]}</option>)}
+                <option value="">{t('property.unprovided')}</option>
+                {options?.map((option) => <option key={option} value={option}>{propertyOption(option)}</option>)}
                 {value && !options?.includes(value) ? <option value={value}>{value}</option> : null}
               </select>
             ) : (
               <input id={id} className="button button--secondary" style={{ width: '100%', maxWidth: '100%' }}
                 type={kind === 'numeric' ? 'number' : 'text'} inputMode={kind === 'numeric' ? 'numeric' : undefined}
-                min={key === 'max-players' ? 1 : undefined} max={key === 'max-players' ? 10000 : undefined} step={kind === 'numeric' ? 1 : undefined} placeholder="未提供"
+                min={key === 'max-players' ? 1 : undefined} max={key === 'max-players' ? 10000 : undefined} step={kind === 'numeric' ? 1 : undefined} placeholder={t('property.unprovided')}
                 value={value} disabled={disabled} onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(key, event.target.value)} />
             )
           ) : (
-            <span id={id} aria-labelledby={`${id}-label`}>{displayValue(value, kind)} · 只读：版本规则未确认</span>
+            <span id={id} aria-labelledby={`${id}-label`}>{displayValue(value, kind)} · {t('property.readOnlyReason', { reason: t('property.unknownRule') })}</span>
           );
 
           return <div key={key}>
-            {editable ? <label htmlFor={id}>{label}</label> : <span id={`${id}-label`}>{label}</span>}
-            <div>{control}{restartNote ? <p>{restartNote}</p> : editable ? <p>无需重启；本页不发送在线命令</p> : null}
-              {currentValues ? <p>当前值：{displayValue(currentValues[key], kind)}{value !== (currentValues[key] ?? '') ? ` · 待修改值：${displayValue(value, kind)}` : ''}</p> : null}
+            {editable ? <label htmlFor={id}>{propertyLabel(key, label)}</label> : <span id={`${id}-label`}>{propertyLabel(key, label)}</span>}
+            <div>{control}{restartNote ? <p>{restartNote}</p> : editable ? <p>{t('property.noRestart')}</p> : null}
+              {currentValues ? <p>{t('property.current', { value: displayValue(currentValues[key], kind) })}{value !== (currentValues[key] ?? '') ? ` · ${t('property.draft', { value: displayValue(value, kind) })}` : ''}</p> : null}
             </div>
           </div>;
         })}

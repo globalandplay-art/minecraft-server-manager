@@ -5,6 +5,11 @@ import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { Authentication } from './components/Authentication';
 import './styles.css';
+import { initializeBrowserLanguage } from './i18n/browser';
+import { initializeBrowserTheme } from './theme/browser';
+
+initializeBrowserLanguage();
+initializeBrowserTheme();
 
 const queryClient = new QueryClient({
   defaultOptions: {

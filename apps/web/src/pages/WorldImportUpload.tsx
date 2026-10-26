@@ -2,10 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WorldImportUploadResponse, WorldImportUploadsResponse } from '@mcsm/contracts';
 import { api, errorMessage } from '../api';
 import { WorldImportAction } from './WorldImportAction';
+import { WorldIndependentImport } from './WorldIndependentImport';
+import { useTranslation } from 'react-i18next';
+import { createWorldFolderArchive, WorldFolderError } from '../worldFolderArchive';
 
 export function WorldImportUpload({ serverId }: { serverId: string }) {
+  return <WorldImportUploadInstance key={serverId} serverId={serverId} />;
+}
+function WorldImportUploadInstance({ serverId }: { serverId: string }) {
+  const { t } = useTranslation();
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [packing, setPacking] = useState(false);
+  const folderController = useRef<AbortController | null>(null);
+  useEffect(() => () => folderController.current?.abort(), []);
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<WorldImportUploadResponse['data'] | null>(null);
   const [uploads, setUploads] = useState<WorldImportUploadsResponse['data'] | null>(null);
@@ -35,14 +45,26 @@ export function WorldImportUpload({ serverId }: { serverId: string }) {
     <p className="muted">先在私有暂存区检查结构和版本。上传不会停止服务器或切换世界；实际导入需要另外校验计划并明确确认。</p>
     <p className="muted">所有实例共享最多三次暂存上传。失败、中断和成功都计入配额。自动清理默认关闭；明确开启后，新上传前才会安全清理过期且无引用的暂存。网络结果不确定时请先刷新记录，避免重复上传。明确丢弃只删除选中的私有暂存文件，无法恢复，不影响现世界。</p>
     <div onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
-      event.preventDefault(); if (!busy) select(event.dataTransfer.files.length === 1 ? event.dataTransfer.files[0] : undefined);
+      event.preventDefault(); if (!busy && !packing) select(event.dataTransfer.files.length === 1 ? event.dataTransfer.files[0] : undefined);
     }}>
       <label className="field-label">世界 ZIP（也可拖入一个文件）
-        <input type="file" accept=".zip,application/zip" disabled={busy} onChange={(event) => select(event.target.files?.[0])} />
+        <input type="file" accept=".zip,application/zip" disabled={busy || packing} onChange={(event) => select(event.target.files?.[0])} />
       </label>
+      <label className="field-label">{t('worldv2.folder.select')}
+        <input type="file" multiple ref={input => { input?.setAttribute('webkitdirectory', ''); }} disabled={busy || packing}
+          onChange={event => {
+            const files = Array.from(event.target.files ?? []); if (!files.length) return;
+            folderController.current?.abort(); const abort = new AbortController(); folderController.current = abort;
+            setPacking(true); setFile(null); setResult(null); setMessage('');
+            void createWorldFolderArchive(files, abort.signal).then(archive => { if (!abort.signal.aborted) select(archive); })
+              .catch((error: unknown) => { if (!abort.signal.aborted) setMessage(t(`worldv2.folder.${error instanceof WorldFolderError ? error.code : 'invalid'}`)); })
+              .finally(() => { if (!abort.signal.aborted) setPacking(false); });
+          }} />
+      </label>
+      <p className="muted">{t(packing ? 'worldv2.folder.packing' : 'worldv2.folder.help')}</p>
     </div>
     {file ? <p>{file.name} · {(file.size / 1024 ** 2).toFixed(1)} MiB</p> : null}
-    <button className="button button--secondary" disabled={busy || Boolean(discarding) || !file || Boolean(result) || uploads?.occupiedSlots === 3} onClick={() => {
+    <button className="button button--secondary" disabled={busy || packing || Boolean(discarding) || !file || Boolean(result) || uploads?.occupiedSlots === 3} onClick={() => {
       if (!file || busy) return;
       const abort = new AbortController(); controller.current = abort;
       setBusy(true); setMessage(''); setResult(null);
@@ -80,6 +102,9 @@ export function WorldImportUpload({ serverId }: { serverId: string }) {
           }}>{discarding === item.id ? '正在丢弃…' : '明确丢弃暂存'}</button>
         </div>)}</> : null}
     </div>
-    <WorldImportAction key={serverId} serverId={serverId} uploadId={usableImport} onLifecycle={refreshUploads} />
+    <WorldIndependentImport key={`independent-${serverId}`} serverId={serverId} uploadId={usableImport} onLifecycle={refreshUploads} />
+    <details><summary>{t('worldv2.legacy')}</summary>
+      <WorldImportAction key={serverId} serverId={serverId} uploadId={usableImport} onLifecycle={refreshUploads} />
+    </details>
   </section>;
 }

@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom/vitest';
+import { beforeEach } from 'vitest';
+import { i18n } from '../i18n';
 
-Object.defineProperty(document, 'hidden', {
+beforeEach(async () => { await i18n.changeLanguage('zh-CN'); });
+
+if (typeof document !== 'undefined') Object.defineProperty(document, 'hidden', {
   configurable: true,
   value: false,
 });

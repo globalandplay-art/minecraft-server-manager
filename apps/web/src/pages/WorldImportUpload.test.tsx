@@ -3,12 +3,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiClientError } from '../api';
 import { WorldImportUpload } from './WorldImportUpload';
 vi.mock('./WorldImportAction', () => ({ WorldImportAction: () => null }));
+vi.mock('./WorldIndependentImport', () => ({ WorldIndependentImport: () => null }));
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), api: { uploadWorldZip: vi.fn(), worldImportUploads: vi.fn(), discardWorldImportUpload: vi.fn() } }));
 const meta = { requestId: 'test', generatedAt: '2026-10-02T00:00:00Z', mode: 'local' as const };
 const id = '00000000-0000-4000-8000-000000000001';
 beforeEach(() => { vi.mocked(api.worldImportUploads).mockResolvedValue({ data: { items: [], occupiedSlots: 0, limit: 3 }, meta }); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 describe('world ZIP upload preview', () => {
+  it('prepares a selected folder locally and uploads only after explicit click', async () => {
+    render(<WorldImportUpload serverId="test" />);
+    const source = new File(['world'], 'level.dat');
+    Object.defineProperty(source, 'webkitRelativePath', { value: 'SelectedWorld/level.dat' });
+    Object.defineProperty(source, 'arrayBuffer', { value: async () => new TextEncoder().encode('world').buffer });
+    fireEvent.change(screen.getByLabelText('选择世界文件夹'), { target: { files: [source] } });
+    await screen.findByText(/world-folder.zip/);
+    expect(api.uploadWorldZip).not.toHaveBeenCalled();
+    vi.mocked(api.uploadWorldZip).mockRejectedValueOnce(new ApiClientError('folder rejected by server', 'http', 400));
+    fireEvent.click(screen.getByRole('button', { name: '上传并校验' }));
+    await screen.findByText('folder rejected by server');
+    expect(api.uploadWorldZip).toHaveBeenCalledWith('test', expect.objectContaining({ name: 'world-folder.zip' }), expect.any(AbortSignal));
+  });
   it('explains retained failed lifecycle and expiry without deleting on mount',async () => {
     vi.mocked(api.worldImportUploads).mockResolvedValue({ data:{ items:[{ id,state:'incomplete',discardAllowed:true,revision:'a'.repeat(64),lifecycle:'failed',expiresAt:'2026-10-05T00:00:00Z' }],occupiedSlots:1,limit:3 },meta });
     render(<WorldImportUpload serverId="test" />);

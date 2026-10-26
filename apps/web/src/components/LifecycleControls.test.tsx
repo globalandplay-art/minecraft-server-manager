@@ -1,10 +1,11 @@
 import type { Operation, OverviewResponse } from '@mcsm/contracts';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientError, api } from '../api';
 import { LifecycleControls } from './LifecycleControls';
+import { i18n } from '../i18n';
 
 type Summary = OverviewResponse['data']['summary'];
 const blocked = { allowed: false as const, reason: 'mock-mode' };
@@ -39,6 +40,21 @@ afterEach(() => {
 });
 
 describe('LifecycleControls', () => {
+  it('keeps the same confirmation open across locale changes without executing it', async () => {
+    const lifecycle = vi.spyOn(api, 'lifecycle');
+    renderControls(summary('running', { stop: allowed, restart: allowed }), 'local', true);
+    await userEvent.click(screen.getByRole('button', { name: '重启' }));
+    const dialog = screen.getByRole('dialog', { name: '确认重启服务器' });
+    await act(async () => { await i18n.changeLanguage('en'); });
+    expect(screen.getByRole('dialog', { name: 'Confirm server Restart' })).toBe(dialog);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    expect(lifecycle).not.toHaveBeenCalled();
+    await act(async () => { await i18n.changeLanguage('ja'); });
+    expect(screen.getByRole('dialog', { name: 'サーバーの再起動を確認' })).toBe(dialog);
+    await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(lifecycle).not.toHaveBeenCalled();
+  });
   it('Mock 模式保持三项操作禁用并常显阶段原因', () => {
     renderControls(summary('running'), 'mock', false);
 

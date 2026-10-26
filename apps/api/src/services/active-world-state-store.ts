@@ -31,7 +31,7 @@ export class ActiveWorldStateStore {
     this.#adapters = [...adapters];
   }
 
-  async initialize(restoreWorlds: ReadonlyMap<string, string> = new Map(), importWorlds: ReadonlyMap<string, readonly string[]> = new Map(), archivedWorlds: ReadonlyMap<string, string> = new Map(), archiveServers: ReadonlySet<string> = new Set(), check = () => {}): Promise<ReadonlySet<string>> {
+  async initialize(restoreWorlds: ReadonlyMap<string, string> = new Map(), importWorlds: ReadonlyMap<string, readonly string[]> = new Map(), archivedWorlds: ReadonlyMap<string, string> = new Map(), archiveServers: ReadonlySet<string> = new Set(), check = () => {}, protectedActiveServers: ReadonlySet<string> = new Set()): Promise<ReadonlySet<string>> {
     check();
     const managerRoot = path.dirname(this.#directory);
     await mkdir(managerRoot, { recursive: true, mode: 0o700 });
@@ -81,7 +81,11 @@ export class ActiveWorldStateStore {
         } catch (error) {
           if (!this.#isMissing(error)) throw error;
         }
+        if (existing !== null && protectedActiveServers.has(adapter.serverId) && existing.state !== "active") {
+          throw new Error("Historical activation state requires inspection");
+        }
         if (existing === null) {
+          if (protectedActiveServers.has(adapter.serverId)) throw new Error("Historical activation state is missing");
           if (archivedWorlds.has(adapter.serverId) || archiveServers.has(adapter.serverId)) throw new Error("Archived world state is missing");
           check(); await this.#write(file, expected); check();
           existing = expected;

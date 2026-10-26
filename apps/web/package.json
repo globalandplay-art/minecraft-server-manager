@@ -14,9 +14,11 @@
     "@mcsm/contracts": "*",
     "@sinclair/typebox": "^0.34.41",
     "@tanstack/react-query": "^5.90.2",
+    "i18next": "^26.5.10",
     "lucide-react": "^0.544.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-i18next": "^17.1.8",
     "react-router-dom": "^7.9.1"
   },
   "devDependencies": {

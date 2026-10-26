@@ -1,0 +1,18 @@
+export const errorMessages = {
+  'error.timeout': ['请求超时，管理器 API 暂时没有响应。', 'Request timed out. The Manager API is not responding.', 'リクエストがタイムアウトしました。Manager API が応答していません。'],
+  'error.connection': ['无法连接管理器 API。', 'Unable to connect to the Manager API.', 'Manager API に接続できません。'],
+  'error.unreadable': ['后端返回了无法读取的响应。', 'The backend returned an unreadable response.', 'バックエンドの応答を読み取れません。'],
+  'error.schema': ['后端响应格式异常。', 'Unexpected backend response format.', 'バックエンドの応答形式が不正です。'],
+  'error.commandState': ['后端返回了不一致的命令执行状态。', 'The backend returned inconsistent command execution state.', 'バックエンドが返したコマンドの実行状態に整合性がありません。'],
+  'error.worldUploadUnknown': ['上传未确认完成，请勿自动重复上传；已接收的文件可能保留在暂存区。', 'Upload completion is unconfirmed. Do not automatically upload again; received files may remain in staging.', 'アップロードの完了は未確認です。自動で再送しないでください。受信済みファイルは一時領域に残っている可能性があります。'],
+  'error.worldUploadSchema': ['上传响应格式异常。', 'Unexpected upload response format.', 'アップロードの応答形式が不正です。'],
+  'error.worldUploadRejected': ['世界上传被拒绝。', 'World upload was rejected.', 'ワールドのアップロードが拒否されました。'],
+  'error.worldUploadValidation': ['上传校验结果格式异常。', 'Unexpected upload validation result.', 'アップロード検証結果の形式が不正です。'],
+  'error.addonUploadUnknown': ['上传结果未确认；为避免重复暂存，本次不会自动重试。', 'Upload result is unconfirmed. No automatic retry will occur to avoid duplicate staging.', 'アップロード結果は未確認です。一時ファイルの重複を避けるため自動再試行はしません。'],
+  'error.addonUploadSchema': ['扩展上传响应格式异常。', 'Unexpected add-on upload response format.', '拡張機能のアップロード応答形式が不正です。'],
+  'error.addonUploadRejected': ['扩展上传被拒绝。', 'Add-on upload was rejected.', '拡張機能のアップロードが拒否されました。'],
+  'error.addonUploadValidation': ['扩展上传校验结果格式异常。', 'Unexpected add-on upload validation result.', '拡張機能のアップロード検証結果の形式が不正です。'],
+  'error.unknown': ['发生未知错误，请稍后重试。', 'An unknown error occurred. Try again later.', '不明なエラーが発生しました。しばらくしてから再度お試しください。'],
+  'error.http': ['请求失败（HTTP {{status}}）。', 'Request failed (HTTP {{status}}).', 'リクエストに失敗しました（HTTP {{status}}）。'],
+  'error.unexpectedStatus': ['后端返回了意外的状态码（HTTP {{status}}）。', 'The backend returned an unexpected status (HTTP {{status}}).', 'バックエンドから予期しない状態コードが返されました（HTTP {{status}}）。'],
+} as const;

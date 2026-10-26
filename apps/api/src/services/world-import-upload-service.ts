@@ -60,7 +60,7 @@ export class WorldImportUploadService {
       return inside(path.relative(reference,directory)) || inside(path.relative(directory,reference));
     };
     if ((requireScan && !scan) || scan?.issues.length || scan?.recoveryServerIds.has(serverId) ||
-      scan?.records.some((record) => record.intent.worldImport?.uploadId === id ||
+      scan?.records.some((record) => record.intent.worldImport?.uploadId === id || record.intent.worldLibraryImport?.uploadId === id ||
         (record.intent.serverId === serverId && ["active","recovery-required"].includes(record.state)) ||
         record.checkpoints.some((point) => point.details?.resourceId === id ||
           (point.details?.relativePath !== undefined && referencesDirectory(point.details.relativePath))) ||
@@ -123,7 +123,8 @@ export class WorldImportUploadService {
   private async journalOwner(serverId: string,id: string): Promise<string | undefined> {
     const scan = await this.journal?.scan();
     if (scan?.issues.some((issue) => issue.serverId === serverId)) throw unsafe();
-    const references = scan?.records.filter((record) => record.intent.serverId === serverId && record.intent.worldImport?.uploadId === id) ?? [];
+    const references = scan?.records.filter((record) => record.intent.serverId === serverId &&
+      (record.intent.worldImport?.uploadId === id || record.intent.worldLibraryImport?.uploadId === id)) ?? [];
     if (references.length > 1) throw unsafe();
     return references[0]?.intent.operationId;
   }

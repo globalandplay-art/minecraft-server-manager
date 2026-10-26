@@ -1,3 +1,9 @@
+> 2026-10-25 counting correction: C=18 distinct full-line classifier entries
+> (Neo12+peer6), not raw occurrences. Preserved stdout has41 C WARN occurrences
+> (Neo30+peer11). The earlier statement below that raw repeated lines are counted
+> separately is superseded. No raw report/log/classifier was changed. See
+> [remaining dispositions](./M3_REMAINING_DISPOSITIONS_2026-10-25.md).
+>
 > 2026-10-25 final-signoff update: user expressly accepted only R1/R2.
 > Their bounded decisions are now ACCEPTED_RESIDUAL_RISK; the earlier pending
 > language below is historical. A/C/D/E1 remain unapproved required categories.

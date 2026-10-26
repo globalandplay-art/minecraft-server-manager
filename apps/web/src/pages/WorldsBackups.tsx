@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, PageHeading } from '../components/Ui';
 import { RestoreAction, RestoreHistory } from './RestoreAction';
 import { WorldCreatePlan } from './WorldCreatePlan';
 import { WorldImportUpload } from './WorldImportUpload';
+import { WorldLibraryList } from './WorldLibraryList';
 import { WorldArchiveAction, WorldArchiveList } from './WorldArchiveAction';
 import { BackupSchedule } from './BackupSchedule';
 import { BackupRetention } from './BackupRetention';
@@ -78,6 +79,7 @@ export function WorldsPage({ server }: { server: Server | undefined }) {
     </section>) : <EmptyState title="未发现可管理的世界" description="后端没有返回可确认的世界目录。" />}
     {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldArchiveAction key={`archive-${server.server.id}`} serverId={server.server.id} world={query.data.data.items.find((world) => world.active)} running={server.status.state === 'running'} allowed={Boolean(server.readiness.worldChanges?.allowed)} /> : null}
     {server?.capabilities.worlds ? <WorldCreatePlan key={server.server.id} serverId={server.server.id} /> : null}
+    {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldLibraryList key={`library-${server.server.id}`} serverId={server.server.id} /> : null}
     {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldImportUpload key={`import-${server.server.id}`} serverId={server.server.id} /> : null}
     {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldArchiveList serverId={server.server.id} /> : null}
     <p className="muted">当前支持 Vanilla 世界集盘点、新建、ZIP 导入与归档。创建和导入完成后保持停服，由你另行启动。归档后无活动世界，启动和重启被拒绝；重新激活归档世界需人工恢复流程，当前没有自动恢复入口。</p>

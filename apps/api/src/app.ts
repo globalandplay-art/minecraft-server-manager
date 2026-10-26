@@ -38,6 +38,10 @@ import { removeInstance } from "./services/instance-removal.js";
 import type { RuntimeFactory } from "./infra/runtime-contract.js";
 import { registerWebSocketRoute } from "./routes/websocket.js";
 import { registerWorldRoutes } from "./routes/worlds.js";
+import { registerWorldLibraryRoutes } from "./routes/world-library.js";
+import { WorldLibraryStore } from "./services/world-library-store.js";
+import { WorldLibraryImportService } from "./services/world-library-import-service.js";
+import { registerWorldLibraryImportRoutes } from "./routes/world-library-imports.js";
 import { registerWorldCreatePlanRoutes } from "./routes/world-create-plans.js";
 import { WorldCreatePlanService } from "./services/world-create-plan-service.js";
 import { WorldCreateService } from "./services/world-create-service.js";
@@ -54,6 +58,7 @@ import { ServerService } from "./services/server-service.js";
 import type { TransactionJournalStore } from "./services/transaction-journal.js";
 import type { ActiveWorldStateStore } from "./services/active-world-state-store.js";
 import { BackupService } from "./services/backup-service.js";
+import { WorldActivationReconciler } from "./services/world-activation-reconciler.js";
 import { AddonUploadService } from "./services/addon-upload-service.js";
 import { AddonInstallService } from "./services/addon-install-service.js";
 import { AddonInventory } from "./services/addon-inventory.js";
@@ -147,10 +152,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       options.activeWorldState?.snapshot !== undefined && options.activeWorldState.prepareGeneration !== undefined,
     options.transactionJournal !== undefined && options.managerRoot !== undefined);
   const worlds = new WorldInventoryService(registry, clock, options.activeWorldState);
+  const worldLibrary = mode === "local" && options.managerRoot && options.activeWorldState?.snapshot
+    ? new WorldLibraryStore(options.managerRoot, clock) : undefined;
   const streams = new EventStreamService(registry, operations);
   let restores: RestoreService | undefined;
   let worldCreates: WorldCreateService | undefined;
   let worldImports: WorldImportService | undefined;
+  let worldLibraryImports: WorldLibraryImportService | undefined;
+  let worldActivationRecovery: WorldActivationReconciler | undefined;
   let worldArchives: WorldArchiveService | undefined;
   let backupSchedules: BackupScheduleService | undefined;
   let backupRetention: BackupRetentionService | undefined;
@@ -192,6 +201,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await phase('restore-reconcile', async () => { await restores?.reconcileStartup(); });
     await phase('world-create-reconcile', async () => { await worldCreates?.reconcileStartup(); });
     await phase('world-import-reconcile', async () => { await worldImports?.reconcileStartup(); });
+    await phase('world-activation-reconcile', async () => { await worldActivationRecovery?.reconcileStartup(); });
+    await phase('world-library-import-reconcile', async () => { await worldLibraryImports?.reconcileStartup(); });
     const archiveWorlds = await phase('world-archive-reconcile', async () => worldArchives?.reconcileStartup());
     await phase('properties-reconcile', async () => { await properties?.reconcileStartup(); });
     if (deferred && whitelistMembers) throw new Error('MANAGER_RECOVERY_UNCANCELLABLE_EXTENSION');
@@ -213,7 +224,30 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const importWorlds = new Map((scan?.records ?? []).filter((r) => r.intent.worldImport && ["active","recovery-required"].includes(r.state))
       .map((r) => [r.intent.serverId,[r.intent.worldImport!.previousName,r.intent.worldImport!.nextName]] as const));
     const archiveServers = new Set((scan?.records ?? []).filter((r) => r.intent.worldArchive).map((r) => r.intent.serverId));
-    operations.requireRecovery(await phase('active-world-state', async () => options.activeWorldState?.initialize(restoreWorlds,importWorlds,archiveWorlds,archiveServers,managerRecovery.check) ?? []));
+    const activationServers = new Set((scan?.records ?? []).filter(record => record.intent.worldActivation).map(record => record.intent.serverId));
+    for (const serverId of scan?.recoveryServerIds ?? []) activationServers.add(serverId);
+    for (const issue of scan?.issues ?? []) {
+      if (issue.serverId) activationServers.add(issue.serverId);
+      else for (const adapter of registry.list()) activationServers.add(adapter.serverId);
+    }
+    for (const operation of await operations.storedOutcomes()) if (operation.kind === "world-activate") activationServers.add(operation.serverId);
+    operations.requireRecovery(await phase('active-world-state', async () => options.activeWorldState?.initialize(restoreWorlds,importWorlds,archiveWorlds,archiveServers,managerRecovery.check,activationServers) ?? []));
+    await phase('world-library-observation', async () => {
+      if (!worldLibrary) return;
+      for (const adapter of registry.list().filter(isLocalAdapter)) {
+        managerRecovery.check();
+        const state = options.activeWorldState?.snapshot?.(adapter.serverId);
+        if (adapter.plan.serverInfo.type !== 'vanilla' || state?.state !== 'active' ||
+            operations.getServerState(adapter.serverId).recoveryRequired) continue;
+        try {
+          await worldLibrary.migrateLegacy({ serverId: adapter.serverId, rootPath: adapter.plan.rootPath }, state);
+        } catch {
+          // This sidecar is not yet a V2 mutation authority. Preserve legacy recovery
+          // semantics and expose inspection-required, never recreate damaged evidence.
+          app.log.warn('World library identity unavailable; V2 mutations remain disabled.');
+        }
+      }
+    });
     await phase('schedule-state', async () => { await backupSchedules?.initialize(managerRecovery.check); });
     managerRecovery.check();
     };
@@ -250,7 +284,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     ? new ServerRegistrationService(options.managerRoot, () => registry.list().filter(isLocalAdapter),
       options.activeWorldState?.register && options.localRuntimeFactory ? (registration, authorize) => activateInstance(registration, {
         root: options.managerRoot!, registry, operations, streams, factory: options.localRuntimeFactory!,
-        active: { register: options.activeWorldState!.register!.bind(options.activeWorldState) },
+        active: { register: async adapter => {
+          const detach = await options.activeWorldState!.register!(adapter);
+          try {
+            const state = options.activeWorldState!.snapshot?.(adapter.serverId);
+            if (worldLibrary && state?.state === 'active') await worldLibrary.migrateLegacy({ serverId: adapter.serverId, rootPath: adapter.plan.rootPath }, state);
+            return detach;
+          } catch (error) { detach(); throw error; }
+        } },
         ...(options.transactionJournal ? { journal: options.transactionJournal } : {}), closing: () => closing
       }, authorize) : undefined,
       (target, publish, authorize) => {
@@ -263,10 +304,19 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerCrashAnalysisRoutes(app, new CrashAnalysisService(registry, clock), clock, mode);
   registerOperationRoutes(app, service, clock, mode, options.authentication);
   registerWorldRoutes(app, worlds, clock, mode);
+  if (worldLibrary && options.activeWorldState?.snapshot) registerWorldLibraryRoutes(app, worldLibrary, registry,
+    options.activeWorldState.snapshot.bind(options.activeWorldState), clock, mode, id => worldLibraryImports?.available(id) ?? Promise.resolve(false));
   if (options.transactionJournal !== undefined && options.managerRoot !== undefined) {
     const uploads = new WorldImportUploadService(registry, operations, options.managerRoot,undefined,options.transactionJournal,clock,options.importAutomaticCleanup ?? false);
-    registerWorldImportUploadRoutes(app, uploads, clock, mode);
     const backups = new BackupService(registry, operations, options.transactionJournal, options.managerRoot, clock);
+    if (worldLibrary && options.activeWorldState?.snapshot) {
+      const recovery = new WorldActivationReconciler(registry, operations, options.transactionJournal, worldLibrary, uploads, backups, options.managerRoot);
+      worldActivationRecovery = recovery;
+      worldLibraryImports = new WorldLibraryImportService(registry, operations, options.transactionJournal, worldLibrary, uploads,
+        { snapshot: options.activeWorldState.snapshot.bind(options.activeWorldState) }, clock, undefined, record => recovery.verifiesSupersession(record));
+      registerWorldLibraryImportRoutes(app, worldLibraryImports, clock, mode, options.authentication);
+    }
+    registerWorldImportUploadRoutes(app, uploads, clock, mode);
     const addonUploads = new AddonUploadService(registry, operations, options.managerRoot, clock);
     registerAddonUploadRoutes(app, addonUploads, clock, mode);
     addonInstalls = new AddonInstallService(registry, operations, options.transactionJournal, backups, addonUploads,

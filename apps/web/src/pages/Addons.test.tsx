@@ -253,7 +253,7 @@ describe('P5.4 addon management UI', () => {
   });
   it('shows Paper plugins from backend capability data and never renders internal filename identity', async () => {
     show();
-    expect(await screen.findByRole('heading', { name: 'Plugins' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '插件' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Test Addon' })).toBeInTheDocument();
     expect(screen.getAllByText('未知').length).toBeGreaterThan(0);
     expect(screen.queryByText('private-name.jar')).not.toBeInTheDocument();
@@ -264,7 +264,7 @@ describe('P5.4 addon management UI', () => {
     const fabric = summary('fabric');
     vi.mocked(api.addons).mockResolvedValue(addonsResponse('fabric', [addon('mod')]));
     show(fabric);
-    expect(await screen.findByRole('heading', { name: 'Mods' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '模组' })).toBeInTheDocument();
     expect(await screen.findByText('Fabric Mod · 1.2.3')).toBeInTheDocument();
     cleanup();
     vi.clearAllMocks();

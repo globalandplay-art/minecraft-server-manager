@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+import { i18n, number } from '../i18n';
 import type { HealthResponse, OverviewResponse } from '@mcsm/contracts';
 import { AlertTriangle, Clock3, Cpu, HardDrive, MemoryStick, RefreshCw, Server } from 'lucide-react';
 import { formatBytes, formatLocalTime, formatSource, formatUptime, localTimezoneLabel, statusDescription, statusLabels } from '../format';
@@ -8,15 +10,15 @@ type Overview = OverviewResponse['data'];
 type Metric = Overview['metrics'][keyof Overview['metrics']];
 
 const reasonLabels: Record<string, string> = {
-  'not-collected': '未采集',
-  'server-stopped': 'Minecraft 未运行',
-  'not-supported': '当前服务端未提供',
-  'probe-unavailable': '状态探测暂不可用',
-  'mock-unavailable': 'Mock 场景未提供',
+  'not-collected': 'common.notCollected',
+  'server-stopped': 'dashboard.reason.stopped',
+  'not-supported': 'dashboard.reason.unsupported',
+  'probe-unavailable': 'dashboard.reason.probe',
+  'mock-unavailable': 'dashboard.reason.mock',
 };
 
 function reasonLabel(reason: string) {
-  return reasonLabels[reason] ?? reason;
+  return reasonLabels[reason] ? i18n.t(reasonLabels[reason]!) : reason;
 }
 
 function metricMeta(metric: Metric, forceStale: boolean) {
@@ -38,13 +40,13 @@ function metricMeta(metric: Metric, forceStale: boolean) {
 }
 
 function metricNumber(metric: Overview['metrics']['cpu'], suffix = '') {
-  return metric.status === 'unavailable' ? 'N/A' : `${metric.value.toFixed(metric.value % 1 ? 1 : 0)}${suffix}`;
+  return metric.status === 'unavailable' ? 'N/A' : `${number(metric.value, { maximumFractionDigits: metric.value % 1 ? 1 : 0 })}${suffix}`;
 }
 
 function MetricGrid({ overview, forceStale }: { overview: Overview; forceStale: boolean }) {
   const { summary, metrics } = overview;
   const effectiveState = forceStale ? 'unknown' : summary.status.state;
-  const previousStatus = forceStale ? `上次：${statusLabels[summary.status.state]}` : undefined;
+  const previousStatus = forceStale ? i18n.t('dashboard.previous', { state: statusLabels[summary.status.state] }) : undefined;
   const players = metrics.players.status === 'unavailable'
     ? 'N/A'
     : `${metrics.players.value.online} / ${metrics.players.value.max}`;
@@ -54,7 +56,7 @@ function MetricGrid({ overview, forceStale }: { overview: Overview; forceStale: 
     : formatBytes(metrics.disk.value.usedBytes);
   const diskDetail = metrics.disk.status === 'unavailable'
     ? undefined
-    : `总容量 ${formatBytes(metrics.disk.value.totalBytes)}`;
+    : i18n.t('dashboard.totalDisk', { bytes: formatBytes(metrics.disk.value.totalBytes) });
   const uptime = metrics.uptime.status === 'unavailable' ? 'N/A' : formatUptime(metrics.uptime.value);
   const statusTone = effectiveState === 'running' ? 'success' : effectiveState === 'crashed' ? 'danger' : 'warning';
 
@@ -73,7 +75,7 @@ function MetricGrid({ overview, forceStale }: { overview: Overview; forceStale: 
       <MetricCard label="MSPT" value={metricNumber(metrics.mspt)} unit={metrics.mspt.status === 'unavailable' ? undefined : 'ms'} {...metricMeta(metrics.mspt, forceStale)} />
       <MetricCard label="CPU" value={metricNumber(metrics.cpu, '%')} {...metricMeta(metrics.cpu, forceStale)} />
       <MetricCard label="RAM" value={ram} {...metricMeta(metrics.ram, forceStale)} />
-      <MetricCard label="DISK" value={disk} unit={metrics.disk.status === 'unavailable' ? undefined : '已用'} detail={diskDetail} {...metricMeta(metrics.disk, forceStale)} />
+      <MetricCard label="DISK" value={disk} unit={metrics.disk.status === 'unavailable' ? undefined : i18n.t('dashboard.used')} detail={diskDetail} {...metricMeta(metrics.disk, forceStale)} />
       <MetricCard label="UPTIME" value={uptime} {...metricMeta(metrics.uptime, forceStale)} />
     </div>
   );
@@ -84,19 +86,19 @@ function ServerOverview({ overview }: { overview: Overview }) {
   const support = [
     capabilities.mods ? 'Mods' : null,
     capabilities.plugins ? 'Plugins' : null,
-  ].filter(Boolean).join('、') || '原生服务端（无 Mods / Plugins）';
+  ].filter(Boolean).join('、') || i18n.t('dashboard.native');
   return (
     <section className="panel overview-panel">
-      <div className="panel__heading"><div><span className="eyebrow">INSTANCE</span><h2>服务器概览</h2></div><Server size={20} /></div>
+      <div className="panel__heading"><div><span className="eyebrow">{i18n.t('monitor.instance')}</span><h2>{i18n.t('dashboard.overview')}</h2></div><Server size={20} /></div>
       <dl className="detail-list">
-        <div><dt>服务端类型</dt><dd>{server.type.toUpperCase()}</dd></div>
+        <div><dt>{i18n.t('dashboard.type')}</dt><dd>{server.type.toUpperCase()}</dd></div>
         <div><dt>Minecraft</dt><dd>{server.minecraftVersion ?? 'N/A'}</dd></div>
         <div><dt>Java Runtime</dt><dd>{server.java.runtimeVersion ?? 'N/A'}</dd></div>
-        <div><dt>扩展能力</dt><dd>{support}</dd></div>
-        <div><dt>命令通道</dt><dd>{readiness.commandTransport === 'unavailable' ? '不可用' : readiness.commandTransport.toUpperCase()}</dd></div>
-        <div><dt>检测置信度</dt><dd>{server.detection.confidence}</dd></div>
+        <div><dt>{i18n.t('dashboard.extensions')}</dt><dd>{support}</dd></div>
+        <div><dt>{i18n.t('dashboard.transport')}</dt><dd>{readiness.commandTransport === 'unavailable' ? i18n.t('dashboard.unavailable') : readiness.commandTransport.toUpperCase()}</dd></div>
+        <div><dt>{i18n.t('dashboard.confidence')}</dt><dd>{server.detection.confidence}</dd></div>
       </dl>
-      <p className="data-footnote">数据来自 {formatSource(overview.summary.status.source)}；不会展示服务端本地目录。</p>
+      <p className="data-footnote">{i18n.t('dashboard.source', { source: formatSource(overview.summary.status.source) })}</p>
       {server.detection.warnings.length ? (
         <div className="inline-warning"><AlertTriangle size={16} />{server.detection.warnings.join('；')}</div>
       ) : null}
@@ -105,12 +107,12 @@ function ServerOverview({ overview }: { overview: Overview }) {
 }
 
 function ActivityList({ activity, mode }: { activity: Overview['activity']; mode: 'mock' | 'local' }) {
-  const sourceLabel = mode === 'mock' ? 'Mock 示例' : '本地管理记录';
+  const sourceLabel = mode === 'mock' ? i18n.t('source.mock') : i18n.t('dashboard.localActivity');
   return (
     <section className="panel activity-panel">
-      <div className="panel__heading"><div><span className="eyebrow">{mode === 'mock' ? 'MOCK FIXTURE' : 'LOCAL ACTIVITY'}</span><h2>最近活动</h2></div><Clock3 size={20} /></div>
+      <div className="panel__heading"><div><span className="eyebrow">{i18n.t(mode === 'mock' ? 'monitor.mock' : 'monitor.localActivity')}</span><h2>{i18n.t('dashboard.activity')}</h2></div><Clock3 size={20} /></div>
       {activity.length === 0 ? (
-        <div className="compact-empty">当前数据源暂无活动记录。</div>
+        <div className="compact-empty">{i18n.t('dashboard.noActivity')}</div>
       ) : (
         <ol className="activity-list">
           {activity.slice(0, 5).map((item) => (
@@ -142,18 +144,19 @@ export function Dashboard({
   refresh: () => void;
   lifecycleFeature?: HealthResponse['data']['features']['lifecycle'] | undefined;
 }) {
+  useTranslation();
   const { summary } = overview;
   const heroState = forceStale ? 'unknown' : summary.status.state;
   return (
     <div className="page-stack">
       {mode === 'mock' ? <MockBanner /> : null}
       <PageHeading
-        eyebrow="OVERVIEW"
-        title="Dashboard"
-        description={`快照时间按 ${localTimezoneLabel()} 显示；每个指标保留自身采样来源。`}
+        eyebrow={i18n.t('monitor.overview')}
+        title={i18n.t('nav.dashboard')}
+        description={i18n.t('dashboard.timezone', { timezone: localTimezoneLabel() })}
         aside={
           <button className="button button--secondary" onClick={refresh} disabled={refreshing}>
-            <RefreshCw size={16} className={refreshing ? 'spin' : ''} />{refreshing ? '刷新中' : '刷新数据'}
+            <RefreshCw size={16} className={refreshing ? 'spin' : ''} />{i18n.t(refreshing ? 'dashboard.refreshing' : 'dashboard.refresh')}
           </button>
         }
       />
@@ -162,31 +165,31 @@ export function Dashboard({
           <span className="server-icon"><Server size={24} /></span>
           <div>
             <div className="server-hero__title"><h2>{summary.server.name}</h2><StatusBadge status={heroState} mock={mode === 'mock'} /></div>
-            <p>{summary.server.type.toUpperCase()} {summary.server.minecraftVersion ?? '版本未知'} <span>·</span> Java {summary.server.java.requiredMajor ?? 'N/A'}</p>
-            {forceStale ? <p className="status-explanation">上次状态：{statusLabels[summary.status.state]} · 当前快照已过期</p> : statusDescription(summary.status.state) ? <p className="status-explanation">{statusDescription(summary.status.state)}</p> : null}
+            <p>{summary.server.type.toUpperCase()} {summary.server.minecraftVersion ?? i18n.t('servers.unknownVersion')} <span>·</span> Java {summary.server.java.requiredMajor ?? 'N/A'}</p>
+            {forceStale ? <p className="status-explanation">{i18n.t('dashboard.previousState', { state: statusLabels[summary.status.state] })}</p> : statusDescription(summary.status.state) ? <p className="status-explanation">{statusDescription(summary.status.state)}</p> : null}
           </div>
         </div>
         <LifecycleControls summary={summary} mode={mode} feature={lifecycleFeature} stale={forceStale} />
       </section>
       {forceStale ? (
-        <div className="stale-banner" role="status"><AlertTriangle size={17} />超过 15 秒未获得成功快照，以下数据仅供回看，不能作为实时状态判断。</div>
+        <div className="stale-banner" role="status"><AlertTriangle size={17} />{i18n.t('dashboard.stale')}</div>
       ) : null}
       <MetricGrid overview={overview} forceStale={forceStale} />
-      <div className="metric-notes" aria-label="指标口径说明">
-        <span><Cpu size={15} />CPU：MC 进程，按整机逻辑核心容量归一化</span>
-        <span><MemoryStick size={15} />RAM：MC 进程 RSS</span>
-        <span><HardDrive size={15} />Disk：服务端目录所在卷</span>
+      <div className="metric-notes" aria-label={i18n.t('dashboard.metricNotes')}>
+        <span><Cpu size={15} />{i18n.t('dashboard.cpuNote')}</span>
+        <span><MemoryStick size={15} />{i18n.t('dashboard.ramNote')}</span>
+        <span><HardDrive size={15} />{i18n.t('dashboard.diskNote')}</span>
       </div>
       <div className="dashboard-lower">
         <ServerOverview overview={overview} />
         <ActivityList activity={overview.activity} mode={mode} />
       </div>
       {overview.alerts.length ? (
-        <section className="alerts-panel" aria-label="服务器告警">
+        <section className="alerts-panel" aria-label={i18n.t('dashboard.alerts')}>
           {overview.alerts.map((alert) => <p key={alert.code}><AlertTriangle size={16} />{alert.message}</p>)}
         </section>
       ) : null}
-      <div className="snapshot-footer">API 快照生成于 <time dateTime={generatedAt}>{formatLocalTime(generatedAt)}</time>（{localTimezoneLabel()}）</div>
+      <div className="snapshot-footer">{i18n.t('dashboard.snapshot')} <time dateTime={generatedAt}>{formatLocalTime(generatedAt)}</time>（{localTimezoneLabel()}）</div>
     </div>
   );
 }

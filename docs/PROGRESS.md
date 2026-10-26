@@ -1,3 +1,291 @@
+# 2026-10-26 Worlds V2 activation preparation — IN PROGRESS
+
+## Latest: structural activation-chain checks added; repeated writes still pending
+
+Sequence/predecessor validation now rejects gaps/forks, inconsistent permanent
+world/name/directory bindings and reused operation/guard evidence. First-only
+physical recovery remains enforced; no activation API/UI or repeated executor
+is enabled. Independent source delta reviews P1/P2/P3=0 within this scope.
+Final focused tests: 85 PASS / 3 files, exit 0; API typecheck, scoped lint and
+diff PASS. No new browser/Java/full-regression claim.
+See [history continuation](./WORLDS_V2_ACTIVATION_HISTORY_2026-10-26.md).
+The prior six-process crash report remains prior-candidate evidence, not fresh
+validation of the changed reconciler. A valid history prefix alone cannot prove
+that its final transition was not deleted; durable head evidence is still needed.
+
+## Previous: first-activation physical recovery integrated
+
+Read-only startup recovery now verifies complete first activation and exact
+import supersession. Normal target save/settings changes are accepted only with
+intact lineage, source, guard, copies and active-slot evidence. No write endpoint
+or activation executor is mounted. Unknown/partial states remain gated.
+
+Final affected module56 PASS plus86 PASS across5 related suites; API build,
+typecheck, scoped lint and diff PASS. Six independent Node-process boundaries
+PASS: four precommit cases stay unknown, two committed cases physically recover
+the exact world result without replay. No Java/real loading or browser result is
+claimed. Independent Sol High and advanced source/delta review P1/P2/P3=0 within
+this integration scope. Missing/anomalous slots are never repaired by startup;
+two consecutive boots and corrupt-journal/missing-operation cases are covered.
+
+See [current recovery evidence](./WORLDS_V2_ACTIVATION_RECOVERY_2026-10-26.md).
+Next is repeated activation/history and confirmation API/UI, not restic yet.
+Archive-history activation is explicitly unsupported pending exact chain support.
+V2 remains IN PROGRESS; P7 STOPPED; no Git publication. The checkpoints below
+are historical where superseded by this entry.
+
+Latest execution candidate: first-activation backend now creates/verifies a
+pinned Legacy world guard, persists protected before/approved configuration,
+switches level-name, updates active slot and commits while preserving both
+world trees. It does not auto stop/start. It is deliberately NOT constructed
+by app.ts and has no production route/UI; committed-history supersession and
+restart physical verification must precede exposure. Subsequent activations
+are currently rejected explicitly.
+
+Affected importer/preflight/executor tests38 PASS, API typecheck/scoped lint/diff
+PASS. Independent source/delta reviews P1/P2/P3=0 within this unmounted candidate.
+Five actual owned Node-process interruption/restart boundaries PASS; all children
+closed, no Java starts. All activation outcomes deliberately remain gated after
+restart until its missing reconciler is implemented. This is safe unknown-state
+acceptance, not completed activation recovery. Final report:
+`test-results/worlds-v2-activation-crash-5e889bc2-f93a-4c88-88f4-0ba6bfae3c99/result.json`.
+See activation checkpoint for retained failed run, review findings and repairs.
+
+Latest continuation: existing journal schema10 now persists activation bindings,
+guard/config evidence and explicit predecessor/sequence. Reserved world-activate
+operations require physical confirmation on restart even if a saved success has
+lost its journal. No activation executor/API/UI is enabled. Initial missing
+terminal-pass recovery check was caught by an unchanged test and fixed; later
+self-predecessor/fixture findings were independently closed. Journal/operation55
+PASS, Contracts30 PASS, API typecheck/scoped lint/diff PASS. Two existing import
+Node crash/restart boundaries passed after these core changes. Independent Sol
+High and advanced delta reviews scoped P1/P2/P3=0. Full activation-chain checks,
+protection backup and config/state switch still need implementation and review;
+do not treat persisted intent support as usable world switching.
+
+Read-only first-activation preflight is implemented in
+`WorldActivationPlanService`: immutable current/target IDs, original import
+proof, full trees, version profile, stopped state and properties file identity
+are rechecked under instance read admission. No activation HTTP/UI or writer is
+mounted; executionAvailable=false and loadVerified=false remain explicit.
+
+Latest affected executor/preflight/API suite23 PASS, exit0. Added same-content
+properties replacement regression and preserved original file in the fixture.
+API typecheck/scoped lint/diff PASS. Independent Sol High and advanced safety
+delta review report P1/P2/P3=0 within this read-only/refactor scope. The advanced
+reviewer's transient capacity failure was resolved by retry; no claim is made
+about account-wide remaining usage.
+
+Shared committed-import verification retains all original checks. After this
+refactor, two real owned Node-process interruption/restart boundaries passed:
+`test-results/worlds-v2-import-crash-7994c753-969a-4d07-a679-92ec835501ef/result.json`.
+Independent review matched its10 source hashes and confirmed child close.
+This is not Minecraft acceptance. No real instance/world/backup was modified.
+
+Next: journal-bound activation lifecycle and protection guard, then configuration
+switch, active-state update and explicit recovery. A verified activation chain
+must distinguish legitimate post-activation world writes from tampered inactive
+imports; simply skipping old hashes is prohibited. Activation/replacement,
+restic/schedules/queue/retention and V2 final acceptance remain incomplete.
+See [activation checkpoint](./WORLDS_V2_ACTIVATION_2026-10-26.md).
+P7 STOPPED; no Git commit/push/PR.
+
+# 2026-10-25 Worlds & Backups V2 — IN PROGRESS
+
+## Latest continuation — inactive import and folder transport implemented
+
+Independent inactive-world installation now uses a preassigned immutable ID,
+schema-9 intent, shared operation/upload leases, full-tree verification and
+startup catalog/journal reconciliation. Strict authenticated plan/import APIs
+and a three-language explicit-confirmation UI are connected. ZIP and browser
+folder selection share the existing server-side ZIP validation pipeline.
+The active world/configuration remain unchanged; activation/replacement are
+still unavailable. This is not Worlds & Backups V2 FINAL PASS.
+
+Latest executor/API integration:18 PASS, including actual folder-generated ZIP
+through real staging and installation (Fake Minecraft). Other affected API
+modules124 PASS/6files; Web43 PASS/4files; focused Contracts2 PASS. API/Web build
+and typecheck, scoped ESLint and diff PASS. Final JSON reports are linked in
+the V2 report. No full delivery
+regression or new three-width browser acceptance is claimed.
+
+Independent Sol High integration/folder reviews and advanced safety delta review
+are complete within scope: P1/P2/P3=0. The transient reviewer quota failure below
+was resolved by retry. A UI P2 (later401/403 discarding a prior unknown request)
+was fixed and independently closed; original body/key persist across remount.
+
+Seven real owned Node-process crash boundaries passed on an earlier candidate;
+two affected boundaries passed again on the final backend candidate with10/10
+source hashes independently checked. Reports and limits are linked in the V2
+checkpoint. These are not Java/Minecraft loading tests. All children closed;
+isolated evidence retained. No real Minecraft/world/backup/restic operation.
+
+Next implementation: controlled activation/replacement with lineage-aware
+recovery, then restic, schedules/queue/retention and final four-tab UI. Hot backup
+remains disabled. P7 STOPPED; no Git publication.
+
+## Historical checkpoints below (superseded where noted above)
+
+Latest continuation: schema-9 inactive-import identity intent and upload-reference
+protection implemented, plus mandatory physical confirmation for new terminal
+outcomes. Final affected journal/upload/operation-store tests95 PASS/4files;
+API typecheck, scoped lint and diff PASS. No executor or V2 mutation API enabled.
+Final advanced safety delta review is PENDING: reviewer returned usage-limit
+error after the persisted-state type-check fix. Earlier read-only identity/GET
+slice signoff remains valid within that scope. No V2 final PASS.
+
+Resume with independent journal delta review, then actual inactive import and
+startup catalog/journal cross-check. Tests so far reconstruct stores in-process;
+they do not establish OS crash/restart acceptance. See exact resume steps in
+[V2 checkpoint](./WORLDS_BACKUPS_V2_2026-10-25.md). No additional permission needed.
+
+Continuation: persistent random lineage sidecar and authenticated read-only
+`GET /api/v1/servers/:serverId/world-library` are implemented. Same-name
+replacement records retain the previous lineage; missing/corrupt/partial
+identity evidence is not silently adopted. Historical backup association stays
+unverified; legacy files and behavior are unchanged. V2 mutations remain false.
+Affected legacy/API tests 207 PASS; latest identity14 PASS; Contracts30 PASS;
+API typecheck, final scoped lint and diff PASS. Independent Sol High and scoped
+advanced safety review each P1/P2/P3=0, limited to observation/GET.
+
+Next: journal-bound preassigned identity, catalog rollback/loss reconciliation,
+inactive import and activation/replacement crash boundaries. This sidecar is
+not yet a mutation authority; directory identity/level.dat revision cannot
+replace full-tree and recovery checks. See continuation in the linked report.
+No real world/backup/repository changes; no Git publication. V2 stays IN PROGRESS.
+
+The user has authorized phased autonomous V2 implementation and isolated tests.
+Existing UI2/L1/M3 uncommitted work is preserved. Baseline and independent
+architecture review are complete. Bounded world NBT metadata observation and a
+conservative version policy are implemented: focused 30 PASS, API typecheck,
+root lint and diff PASS; independent Sol High scoped P1/P2/P3=0.
+
+No new import/activation/replacement write endpoint or four-tab UI is enabled.
+Versioned immutable world-library identity and legacy compatibility must precede
+those mutations. Restic, queue, minute schedules and VSS remain unimplemented;
+online backup stays disabled. No real Minecraft/world/backup/repository changes.
+See [V2 checkpoint](./WORLDS_BACKUPS_V2_2026-10-25.md). No V2 final PASS.
+P7 STOPPED; no Git publication. Continue the authorized phased implementation.
+
+# 2026-10-25 Performance/shared locale UI checkpoint
+
+Performance now has a compact six-metric strip, one switchable trend, sampling
+status and bounded history. Shared navigation/breadcrumbs/Servers/headings use
+proper Chinese/English/Japanese resources. Demo Settings no longer requests
+protected stopped remote APIs and therefore no longer forces a password login.
+Actual auth/401 handling stays intact; raw diagnostics are preserved.
+
+Existing verification: Web276 PASS, Contracts28 PASS, root lint/project
+typecheck/build/diff PASS; Chrome360/768/1440 three-language/two-theme3 PASS.
+Independent Sol High scoped source/evidence P1/P2/P3=0.586 resource keys match;
+full L1 remains IN PROGRESS. See [checkpoint](./PERFORMANCE_UI_I18N_2026-10-25.md).
+
+User asks to avoid excessive repeated validation before upcoming UI/interaction
+changes. Stop new check runs/polish; continue from the next concrete UI feedback.
+No Git upload or Java launch. P7 STOPPED; M3 historical acceptance unchanged.
+
+# 2026-10-25 L1 continuation — Console/lifecycle integrated, IN PROGRESS
+
+Console presentation and lifecycle confirmation/progress/readiness now use the
+shared zh-CN/en/ja resources.518 keys have parity. Raw logs/RCON, command payloads,
+auth/stream behavior, lifecycle guards and confirmation semantics are unchanged.
+New tests verify draft/socket/dialog preservation and zero automatic operations.
+
+Focused25 PASS/6 files; root lint, Web typecheck/build and diff PASS. Chrome
+360/768/1440 workflow tests3 PASS/exit0 using explicitly Fake REST/WebSocket data.
+Independent Sol High slice source review has no remaining P1/P2/P3; full L1
+translation/final review is still incomplete. This is not a new full-regression
+or real Minecraft acceptance claim. See [checkpoint](./L1_CONSOLE_LIFECYCLE_2026-10-25.md).
+
+Continue with whitelist/local-whitelist presentation, then remaining add-on,
+world/backup/import/restore and crash workflows. No Git upload, no Java start;
+P7 STOPPED and existing UI2/M3 historical acceptance remains intact.
+
+# 2026-10-25 UI2 FINAL PASS — LT Workspace Dual Themes
+
+Implemented the dense LT Manager workspace, shared warm-white/forest-green and
+graphite/amber palettes, header/Settings Light/Dark/System selection, early-paint
+bootstrap, persistent preference, system listener and instance/API status footer.
+Servers now uses a compact table; existing confirmations and business calls stay.
+No backend source changed. Existing uncommitted L1/M3 work was retained.
+
+Final Web261 PASS, Contracts28 PASS; lint/typecheck/build/diff exit0. Final
+Chrome appearance suite4 PASS at360/768/1440, with zh-CN/ja, both palettes,
+system/manual/persistence/focus/no-write and pre-React checks. Real Vite/Chrome
+uses injected mock HTTP; this is not renewed Minecraft business acceptance.
+Independent GPT-6.1 Sol High final source/evidence/document review confirms
+P1/P2/P3=0, UNRESOLVED_REQUIRED_GATES=0, UI2_FINAL_GATE=PASS. See
+[UI2 report](./UI2_WORKSPACE_THEMES_2026-10-25.md).
+
+L1 remains IN PROGRESS below. No Git commit/push/PR, no EXE work, no Java launch;
+M3 acceptance/history unchanged and P7 STOPPED.
+
+# 2026-10-25 L1 internationalization — IN PROGRESS
+
+Shared i18next/react-i18next core, bundled zh-CN/en/ja, system detection,
+explicit persisted preference, runtime header/Settings selectors, locale
+formatting and browser-independent preference adapter are implemented.
+Shell/auth presentation/common UI, Dashboard/Servers/registration/removal,
+Players, Properties workflows/fields/discovery, Performance/notices/trends
+and phase/Settings copy are connected. Backend/commands/raw logs unchanged.
+405 resource keys have three-language parity; full UI coverage is NOT complete.
+Baseline1161/current782 Chinese literal candidates are lexical inventory only.
+Remaining Console/lifecycle/readiness, whitelist, add-ons, worlds/backups,
+Crash Analysis and paused remote copy remain ACTIVE L1 work, not delivered.
+
+Latest full Web252 PASS; added static-key/locale suite8 PASS overlaps prior
+checks and is not summed. Contracts28 PASS. Lint/typecheck/build/diff PASS
+for the recorded checkpoint; backend API suite NOT RUN (no backend changes).
+Shell language browser360/768/1440:3 PASS/exit0, including persistence and
+non-overlap after a real360 layout fix. This is not full workflow acceptance.
+Independent Sol High final Review PENDING: requested reviewer hit usage limit;
+one earlier removal-notice finding was fixed and regression-tested, but no
+completed independent delta/final signoff or final P1/P2/P3=0 is claimed.
+L1 FINAL PASS NOT REACHED. See [implementation checkpoint](./L1_I18N_2026-10-25.md).
+
+M3 completed bounded acceptance remains historical and unchanged; original raw
+strict BLOCKED retained. No Minecraft start, Windows/network change, Git upload
+or EXE work. P7 remains STOPPED. Continue already authorized L1 after checkpoint.
+
+# 2026-10-25 M3 FINAL PASS — Accepted Residual Risks
+
+Current authoritative revised Gate is PASS, with original strictDiagnostics
+permanently BLOCKED. Independent GPT-6.1 Sol High final source/evidence signoff:
+P1=0, P2=0, P3=0, unresolved required Gates=0. M3 is complete within its
+bounded local engineering/real marker-lifecycle acceptance scope.
+
+R1/R2 retain earlier direct project-user approval. A/C/D/E1 are separately
+approved by the technical owner's formal decision conveyed in the current
+user instruction; no extra personal signature requirement was found. These
+are accepted limitations, NOT fixed defects or general ERROR/WARN exemptions.
+A excludes live CPU/RAM/full system diagnostics; C excludes online player
+authentication/login/secure chat (NOT VERIFIED); D applies only to the exact
+hash-bound fixture in three omission phases, never user/content-mod worlds;
+E1 excludes interactive terminal/arbitrary stdin. R1 remains partial DEBUG
+loss, and R2 historical startup Tick slowdown with root UNKNOWN.
+C18 distinct classifier entries versus41 raw stdout WARN occurrences remain
+explicit. Every raw log/strict classifier/original failed report is preserved.
+Reassess on artifact/JDK/OS/logging/launch changes, new diagnostics, critical
+log loss, sustained lag, world/save damage or identity/stop/recovery regression.
+
+Candidate HEAD9f7cf49:33 frozen files + capability delta +18 evidence hashes
+match; no source/test changes. Valid API2834/Web243/Contracts28, static/build,
+three-width browser and separate Forge/Neo actual-load evidence reused.
+Three old LC2 native experiments remain DEFERRED, excluded and NOT PASS.
+No seven-launch rerun, registry/network/system change, Git upload, EXE packaging
+or next-stage work. P7 remains STOPPED. Earlier BLOCKED notes below are history.
+See [current final acceptance](./M3_FINAL_ACCEPTANCE_2026-10-25.md) and decision
+artifact `test-results/m3-revised-final-gate-20261025-v2.json`.
+
+# 2026-10-25 M3 remaining dispositions — user decision pending
+
+Read-only evidence review proposes individually bounded A telemetry, C local-only
+scope excluding online authentication, D exact controlled marker omission and
+E1 pipe-terminal dispositions. None is newly approved; four required categories
+remain BLOCKED. No product/classifier/test changes or Minecraft runs.
+C18/total59 are classifier entries, not raw occurrence counts; preserved C
+stdout has41 WARN occurrences. See [decision proposals](./M3_REMAINING_DISPOSITIONS_2026-10-25.md).
+
 # 2026-10-25 M3 revised final decision — R1/R2 accepted, BLOCKED
 
 The user's final-signoff instruction now accepts ONLY R1 (precise partial Neo

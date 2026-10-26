@@ -1,7 +1,12 @@
-import { render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Servers } from './Servers';
+import { api } from '../api';
+import { i18n } from '../i18n';
+
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const blocked = { allowed: false as const, reason: 'mock-mode' };
 const runningServer = {
@@ -20,6 +25,22 @@ const runningServer = {
 };
 
 describe('Servers 只读页面', () => {
+  it('retranslates a completed removal notice after its child has unmounted', async () => {
+    const meta = { requestId: 'l1-test', generatedAt: new Date().toISOString(), mode: 'local' as const };
+    vi.spyOn(api, 'registrationCatalog').mockResolvedValue({ data: { profiles: [], pending: [] }, meta });
+    const remove = vi.spyOn(api, 'registrationRemove').mockResolvedValue({ data: { id: 'paper-demo', removed: true, filesPreserved: true, unloaded: true, restartRequired: false, unloadErrorCode: null }, meta });
+    function Harness() {
+      const [items, setItems] = useState([{ ...runningServer, status: { ...runningServer.status, state: 'stopped' as const } }]);
+      return <Servers items={items} mode="local" onRemoved={() => setItems([])} />;
+    }
+    render(<MemoryRouter><Harness /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '移除服务器' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认移除' }));
+    await waitFor(() => expect(screen.getByText('已移除 Survival · 示例 的 LT 登记，服务端文件完整保留。')).toBeVisible());
+    await act(async () => { await i18n.changeLanguage('en'); });
+    expect(screen.getByText('LT registration for Survival · 示例 was removed. All server files were retained.')).toBeVisible();
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
   it('空列表只显示接入说明，不伪造运行中的服务器', () => {
     render(<MemoryRouter><Servers items={[]} mode="mock" /></MemoryRouter>);
 

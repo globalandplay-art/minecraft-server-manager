@@ -1,4 +1,85 @@
-# M3_REVISED_FINAL_GATE — 2026-10-25
+# Current final-signoff decision v2 — 2026-10-25
+
+**M3 FINAL PASS — Accepted Residual Risks**
+
+```text
+ORIGINAL_STRICT_DIAGNOSTICS = BLOCKED
+REVISED_FINAL_GATE = PASS
+M3_FINAL_STATUS = FINAL PASS WITH ACCEPTED RESIDUAL RISKS
+P1 = 0
+P2 = 0
+P3 = 0
+UNRESOLVED_REQUIRED_GATES = 0
+```
+
+Independent GPT-6.1 Sol High has completed substantive final source/evidence
+signoff: R1/R2 ACCEPT, A/C/D/E1 approved bounded nonblocking dispositions,
+no other unresolved required Gate. This is not writer self-signoff or evidence
+that any accepted diagnostic is fixed. Historical v1 below remains preserved.
+
+Current candidate: `codex/phase-4-players-properties` at
+`9f7cf498940b8e8c357b44ba1da8d201751463e4`, plus documentation-only changes.
+The former d8bb9b4 + reviewed working-tree candidate is now committed here.
+Fresh read-only verification matches all33 pinned files, the capability-test
+delta and18 prior evidence hashes. No apps/packages/tests diff against HEAD.
+API2834, Web243, Contracts28, lint/typecheck/build and360/768/1440 browser
+evidence remain applicable. Three explicitly deferred LC2 native experiments
+are excluded, not PASS. No new tests or Minecraft starts were needed.
+
+## Approval provenance and scope
+
+- R1/R2: earlier direct project-user approval, retained as bounded residual risks.
+- A/C/D/E1: this task's user message explicitly relays the technical owner's
+  formal nonblocking decision. This is recorded as technical approval conveyed
+  by the user, not a fabricated additional personal signature or reviewer waiver.
+- AGENTS, routing and M3 scope contain no additional personal-signature gate
+  for these bounded dispositions. Existing independent final review still applies.
+- A accepts only captured Perflib/OSHI telemetry degradation; live CPU/RAM and
+  complete system/crash-report enrichment are not certified.
+- C accepts local M3 scope only. Online正版 player authentication, login and
+  secure-chat remain NOT VERIFIED.18 distinct classifier strings represent41
+  raw stdout WARN occurrences (Neo30+peer11), not18 independent connections.
+- D accepts only the hash-bound annotation-only marker in omission launches3/5/7
+  of the isolated test world. No user-world/content-mod removal waiver.
+- E1 accepts only advanced-terminal unavailability under tested pipe stdio;
+  interactive terminal editing and arbitrary stdin commands remain unverified.
+- Exact signatures, evidence, scope exclusions and reassessment triggers are
+  [recorded individually](./M3_REMAINING_DISPOSITIONS_2026-10-25.md).
+  None of these problems is declared repaired; no platform/version transfer.
+
+## Retained and superseding evidence
+
+Original Neo business/modLifecycle PASS and strict/overall BLOCKED remain
+unchanged, including raw-report SHA
+`9ff761fb8f9927ee48ec0d7c1bd217db4bf82bc85d643ab90d56e17e76495ab4`.
+Forge's old onReady/replay failure remains in its original report; its six real
+load/omission states and normal exits are distinct from later startup recovery
+tests and actual independent Manager process-session browser replay evidence.
+Same-process reconstruction is not renamed an OS restart. Final API includes
+startup/admission/close/transaction/recovery tests. This combined evidence,
+not retroactive alteration of Forge's failed report, is the basis for review.
+The preserved Forge proof subsequently passes bounded deferred recovery in
+39.47s without receipt writes; shared admission tests and eight actual durable
+Manager browser process sessions close the current startup/replay Gate. This
+is not a claim of a fresh Forge OS-process replay run.
+Fixed fatal-mod diagnosis, standalone upstream DEBUG reproduction, normal
+logging probes and bounded warm/JFR observations retain all limitations below.
+Historical Tick cause remains UNKNOWN; online auth, exhaustive world integrity,
+arbitrary mod compatibility and sustained performance remain uncertified.
+
+Reopen relevant approval on artifact/JDK/OS/logging/launch changes, different
+diagnostic signatures, missing critical ERROR/FATAL, repeated sustained lag,
+world/save damage, ownership/control/stop/recovery regressions or changed
+production boundaries. No global warning/error allowance or classifier change.
+
+Original strictDiagnostics=BLOCKED permanently. Decision artifact:
+`test-results/m3-revised-final-gate-20261025-v2.json`; independent readback is
+stored separately, preserving v1 and all raw evidence. P7 STOPPED;
+EXE packaging/next stage not started; no Git commit/push/merge/PR this task.
+
+---
+
+# Historical decision v1 — 2026-10-25 (preserved)
 
 **ORIGINAL_STRICT_DIAGNOSTICS = BLOCKED**
 

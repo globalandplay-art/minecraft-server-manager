@@ -1,8 +1,10 @@
 import { AlertTriangle, CircleOff, CloudOff, Database, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { formatLocalTime, formatSource, statusLabels } from '../format';
 
 export function StatusBadge({ status, mock = false }: { status: string; mock?: boolean }) {
+  useTranslation();
   const tone = ['running', 'ok'].includes(status)
     ? 'success'
     : ['crashed'].includes(status)
@@ -20,22 +22,24 @@ export function StatusBadge({ status, mock = false }: { status: string; mock?: b
 }
 
 export function MockBanner() {
+  const { t } = useTranslation();
   return (
     <div className="mock-banner" role="status">
       <Database size={17} aria-hidden="true" />
-      <strong>MOCK DATA</strong>
-      <span>Phase 1 演示数据，未连接真实 Minecraft 服务器</span>
+      <strong>{t('monitor.mock')}</strong>
+      <span>{t('ui.mockBanner')}</span>
     </div>
   );
 }
 
 export function ConnectionBanner({ message, retry }: { message: string; retry: () => void }) {
+  const { t } = useTranslation();
   return (
     <div className="connection-banner" role="alert">
       <CloudOff size={19} aria-hidden="true" />
-      <div><strong>管理器 API 连接异常</strong><span>{message} 已保留最近一次有效数据。</span></div>
+      <div><strong>{t('ui.apiError')}</strong><span>{message} {t('ui.lastValidData')}</span></div>
       <button className="button button--secondary" onClick={retry}>
-        <RefreshCw size={16} aria-hidden="true" />重试
+        <RefreshCw size={16} aria-hidden="true" />{t('common.retry')}
       </button>
     </div>
   );
@@ -63,7 +67,7 @@ export function EmptyState({
 }
 
 export function ErrorState({
-  title = '暂时无法载入数据',
+  title,
   description,
   retry,
   secondary,
@@ -73,13 +77,14 @@ export function ErrorState({
   retry?: () => void;
   secondary?: ReactNode;
 }) {
+  const { t } = useTranslation();
   return (
     <section className="state-card state-card--error" role="alert">
       <span className="state-card__icon" aria-hidden="true"><AlertTriangle size={24} /></span>
-      <h2>{title}</h2>
+      <h2>{title ?? t('ui.loadError')}</h2>
       <p>{description}</p>
       <div className="state-actions">
-        {retry ? <button className="button button--primary" onClick={retry}><RefreshCw size={16} />重试</button> : null}
+        {retry ? <button className="button button--primary" onClick={retry}><RefreshCw size={16} />{t('common.retry')}</button> : null}
         {secondary}
       </div>
     </section>
@@ -132,19 +137,20 @@ export function MetricCard({
   tone?: 'success' | 'warning' | 'danger' | undefined;
   detail?: ReactNode | undefined;
 }) {
+  const { t } = useTranslation();
   const stale = Boolean(staleReason || forceStale);
   return (
     <article className={`metric-card ${stale ? 'metric-card--stale' : ''}`}>
       <div className="metric-card__header">
         <span>{label}</span>
-        {stale ? <span className="stale-label">旧数据</span> : null}
+        {stale ? <span className="stale-label">{t('ui.stale')}</span> : null}
       </div>
       <div className={`metric-card__value ${tone ? `metric-card__value--${tone}` : ''}`}>
         {value}{unit ? <small>{unit}</small> : null}
       </div>
       {detail ? <div className="metric-card__detail">{detail}</div> : null}
       <div className="metric-card__meta">
-        <span>{unavailableReason ?? (source ? formatSource(source) : '状态探测')}</span>
+        <span>{unavailableReason ?? (source ? formatSource(source) : t('ui.statusProbe'))}</span>
         {sampledAt ? <time dateTime={sampledAt}>{formatLocalTime(sampledAt)}</time> : null}
       </div>
       {staleReason ? <p className="metric-card__reason">{staleReason}</p> : null}
@@ -153,8 +159,9 @@ export function MetricCard({
 }
 
 export function SkeletonMetrics() {
+  const { t } = useTranslation();
   return (
-    <div className="metrics-grid" aria-label="正在载入服务器指标" aria-busy="true">
+    <div className="metrics-grid" aria-label={t('ui.loadingMetrics')} aria-busy="true">
       {Array.from({ length: 8 }, (_, index) => (
         <div className="metric-card metric-card--skeleton" key={index}>
           <span className="skeleton skeleton--label" />
@@ -162,7 +169,7 @@ export function SkeletonMetrics() {
           <span className="skeleton skeleton--meta" />
         </div>
       ))}
-      <span className="sr-only">正在载入服务器指标</span>
+      <span className="sr-only">{t('ui.loadingMetrics')}</span>
     </div>
   );
 }

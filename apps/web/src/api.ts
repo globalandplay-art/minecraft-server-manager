@@ -1,3 +1,4 @@
+import { localizeClientError } from './i18n/error-presentation';
 import {
   registrationCatalogResponseSchema, registrationPreviewResponseSchema, registrationSaveResponseSchema,
   registrationRemoveResponseSchema, type RegistrationRemoveResponse,
@@ -23,6 +24,8 @@ import {
   type WorldImportUploadsResponse, type WorldImportDiscardResponse, type WorldImportDiscardRequest,
   worldImportPlanResponseSchema, worldImportRecoveryPlanResponseSchema,
   type WorldImportPlanResponse, type WorldImportRecoveryPlanResponse, type WorldImportRequest, type WorldImportRecoveryRequest,
+  worldLibraryResponseSchema, worldLibraryImportPlanResponseSchema,
+  type WorldLibraryResponse, type WorldLibraryImportPlanResponse, type WorldLibraryImportRequest,
   healthResponseSchema,
   overviewResponseSchema,
   lifecycleActionResponseSchema,
@@ -252,6 +255,14 @@ export const api = {
   recoverWhitelist: (serverId: string, operationId: string) =>
     requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/whitelist/recover`, lifecycleActionResponseSchema,
       { method: 'POST', body: { operationId, confirm: true }, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200 }),
+  worldLibrary: (serverId: string, signal?: AbortSignal) =>
+    getJson<WorldLibraryResponse>(`/servers/${encodeURIComponent(serverId)}/world-library`, worldLibraryResponseSchema, signal),
+  worldLibraryImportPlan: (serverId: string, body: { uploadId: string; name: string }, signal?: AbortSignal) =>
+    requestJson<WorldLibraryImportPlanResponse>(`/servers/${encodeURIComponent(serverId)}/world-library/import-plan`, worldLibraryImportPlanResponseSchema,
+      { method: 'POST', body, signal, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
+  importIndependentWorld: (serverId: string, body: WorldLibraryImportRequest, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/world-library/import`, lifecycleActionResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202, timeoutMs: 120_000 }),
   worldImportPlan: (serverId: string, body: { uploadId: string; name: string }) =>
     requestJson<WorldImportPlanResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/import-plan`, worldImportPlanResponseSchema,
       { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
@@ -479,6 +490,6 @@ export function shouldRetry(failureCount: number, error: Error) {
 }
 
 export function errorMessage(error: unknown) {
-  if (error instanceof ApiClientError) return error.message;
-  return '发生未知错误，请稍后重试。';
+  if (error instanceof ApiClientError) return localizeClientError(error.message);
+  return localizeClientError('发生未知错误，请稍后重试。');
 }

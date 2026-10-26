@@ -53,7 +53,7 @@ describe('Dashboard 边界状态', () => {
     render(<MemoryRouter><InvalidSelection /></MemoryRouter>);
 
     expect(screen.getByRole('heading', { name: '实例不存在 / 已移除' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '返回 Servers' })).toHaveAttribute('href', '/servers');
+    expect(screen.getByRole('link', { name: '返回服务器' })).toHaveAttribute('href', '/servers');
   });
 
   it('快照过期时 Hero 与指标状态同时降级，并保留上次状态', () => {
@@ -80,8 +80,8 @@ describe('Dashboard 边界状态', () => {
     };
     render(<QueryClientProvider client={client}><Dashboard overview={localOverview} generatedAt="2026-09-27T00:00:00.000Z" mode="local" forceStale={false} refreshing={false} refresh={() => undefined} /></QueryClientProvider>);
 
-    expect(screen.getByText('LOCAL ACTIVITY')).toBeVisible();
+    expect(screen.getByText('本地活动')).toBeVisible();
     expect(screen.getByText(/本地管理记录/)).toBeVisible();
-    expect(screen.queryByText('MOCK FIXTURE')).not.toBeInTheDocument();
+    expect(screen.queryByText('Mock · 演示数据')).not.toBeInTheDocument();
   });
 });

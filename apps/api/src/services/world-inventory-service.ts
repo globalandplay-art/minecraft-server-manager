@@ -584,6 +584,24 @@ export async function readWorldVersion(worldRoot: string): Promise<string | null
   return safeVersion(compound(data?.Version)?.Name);
 }
 
+/** Bounded NBT observation only; a readable version is not proof of loadability. */
+export async function readWorldMetadata(worldRoot: string): Promise<{
+  version: string | null;
+  dataVersion: number | null;
+  readable: boolean;
+}> {
+  const root = await readLevelData(worldRoot, "level.dat", {
+    Data: { DataVersion: true, Version: { Name: true } }
+  });
+  const data = compound(root?.Data);
+  const value = data?.DataVersion;
+  return {
+    version: safeVersion(compound(data?.Version)?.Name),
+    dataVersion: typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null,
+    readable: data !== undefined
+  };
+}
+
 export class WorldInventoryService {
   constructor(
     private readonly registry: AdapterRegistry,

@@ -1,3 +1,162 @@
+# 2026-10-26 Worlds V2 activation boundary
+
+Latest disposition: complete first-activation recognition and precise import
+supersession are now implemented and mounted READ-ONLY at startup. This closes
+the committed-first-activation verification gap, not the whole activation feature.
+Intact committed evidence can recover success; partial/missing/contradictory
+evidence stays gated. Historical active slots are never automatically repaired.
+Source/delta reviews0/0/0;142 focused API tests and6 OS-process boundaries pass.
+See [latest scope/evidence](./WORLDS_V2_ACTIVATION_RECOVERY_2026-10-26.md).
+
+MUST_COMPLETE before write UI: repeated activation and original-world return,
+exact legacy/archive-history support or explicit unavailable capability, strict
+API/UI, partial-operation explicit recovery and real Minecraft acceptance.
+No write executor is mounted. No unconditional skip of imported hashes exists.
+
+First-activation executor candidate is now implemented/tested in isolation, with
+verified pinned guard and config copies; still unmounted. The five real Node
+crash cases intentionally leave every activation result gated on restart.
+MUST_COMPLETE before production wiring: committed-history/supersession verifier,
+explicit unknown recovery, repeated world switching, API/UI and real loading.
+Do not claim that crash-gating PASS means functional recovery PASS. Three reviewed
+P2 execution findings are fixed/closed; historical failed reports remain linked.
+
+Schema10 durable intent and mandatory restart gating are now implemented and
+independently reviewed within scope. This closes the intent-format gap only.
+Actual chain continuity/guard validation, protected activation writer, recovery
+and API/UI remain MUST_COMPLETE. No raw committed activation record authorizes
+mutable content or bypasses original import verification. Initial failed tests
+and review findings/repairs are retained in the activation checkpoint.
+
+Read-only first-activation preparation and shared committed import verification
+are implemented/reviewed, scoped P1/P2/P3=0. They do not enable switching.
+MUST_COMPLETE: durable activation chain with explicit original-import linkage,
+protection guards, config/active-pointer transaction and recovery; only verified
+activation evidence may supersede the inactive full-tree hash requirement.
+Previous active targets require that future chain, not a relaxed first-import
+check. No automatic restart or unrelated recovery-cause clearing is allowed.
+See [current evidence](./WORLDS_V2_ACTIVATION_2026-10-26.md). V2 IN PROGRESS.
+
+# 2026-10-25 Worlds V2 identity integration — active implementation
+
+## Current disposition after inactive-import integration
+
+The temporary independent-review capacity block and schema-9 inactive-import
+executor gap below are CLOSED within their reviewed scope. The new UI preserves
+unknown requests even when later confirmation returns401/403. Independent Sol
+High and advanced safety scoped reviews report P1/P2/P3=0. Earlier evidence and
+the original transient failure record remain below.
+
+MUST_COMPLETE for V2: activation/replacement and explicit interrupted-import
+recovery; lineage-aware historical transaction supersession after legitimate
+world changes; restic and protected credentials; durable schedules/queue and
+per-world retention; four-tab UI and full localization; real browser/Vanilla
+delivery acceptance. Consumed upload evidence currently remains protected and
+occupies the existing three-slot staging budget; do not remove it until a
+separately verified evidence/retention lifecycle exists. Unknown or missing
+catalog/journal evidence stays gated. Legacy backup linkage remains unverified.
+
+Folder transport is implemented using bounded stored ZIPs and the existing
+server revalidation path. Browser support requires directory-selection support;
+ordinary ZIP upload remains available. No arbitrary local filesystem API added.
+No old LC2 experiment, P7 or unrelated component becomes a V2 prerequisite.
+
+## Historical checkpoint (retained)
+
+Schema9 journal preparation now persists future installation identity/bindings
+and protects source ownership. Final journal-delta safety review is PENDING due
+to independent reviewer usage limit; last persisted-state parser fix has95
+affected tests PASS but is not independently re-signed. Keep mutations closed.
+Actual inactive installation, catalog rollback reconciliation, OS crash tests
+and activation/replacement remain implementation work, not completed features.
+
+Random persistent lineage observation and read-only API are implemented, with
+mutations explicitly unavailable. Remaining MUST_FIX before V2 write authority:
+journal-persisted IDs before install; catalog rollback/loss cross-check outside
+the sidecar; exact instance/world/revision/guard bindings; inactive import,
+activation/replacement and crash reconciliation. Directory identity alone does
+not prove content lineage; the current revision only observes level.dat.
+Legacy backup association remains unverified and no historical records are
+rewritten. These gaps do not reopen M3 or block unrelated local management.
+See [V2 implementation and review bounds](./WORLDS_BACKUPS_V2_2026-10-25.md).
+
+# 2026-10-25 Performance/shared locale follow-up
+
+Navigation/Servers/common headings and Performance copy are fixed and verified;
+demo Settings no longer queries protected stopped remote endpoints. This is not
+full L1 delivery; untranslated remaining workflow bodies retain their active
+tracking below. Upcoming UI/interaction feedback takes priority over repetitive
+checks. Existing build/dependency warnings and historical evidence are retained.
+See [current checkpoint](./PERFORMANCE_UI_I18N_2026-10-25.md).
+
+# 2026-10-25 L1 continuation checkpoint
+
+Console/lifecycle/readiness translation integration is verified in focused tests
+and three-width Fake-data browser workflows. This does not resolve remaining
+L1 whitelist/add-ons/worlds/backups/crash/error-copy work or full final review.
+Source inventory682 Chinese literal candidates is lexical, not a translated
+percentage. See [current L1 slice](./L1_CONSOLE_LIFECYCLE_2026-10-25.md).
+No deferred native LC2 or remote feature was reactivated.
+
+# 2026-10-25 UI2 appearance boundaries
+
+UI2 implements two semantic palettes and runtime System/Light/Dark preferences.
+Its visual/mock-browser evidence does not expand Minecraft, remote-access or M3
+risk acceptance. No extra log subsystem, desktop packaging or business operation
+was added. See [UI2 evidence](./UI2_WORKSPACE_THEMES_2026-10-25.md).
+
+Existing L1 full-workflow translation remains MUST_COMPLETE: Japanese/Chinese UI2
+controls and theme independence are verified, but older unlocalized workflow and
+paused-remote text is not certified as complete. English preferences are retained.
+Existing dependency audit/build warnings and old LC2 experiments remain tracked;
+UI2 neither resolves them nor authorizes new risk waivers. Independent final UI2
+evidence signoff is recorded in its report, separately from L1/M3 decisions.
+
+# 2026-10-25 L1 active completeness and dependency notes
+
+L1 is IN PROGRESS, not FINAL PASS. Remaining workflow translation, broad
+three-language/browser coverage and independent Sol High final Review are
+ACTIVE MUST_COMPLETE items, not an approved scope reduction or deferred delivery.
+The independent reviewer returned a usage-limit error; do not substitute writer
+self-signoff or another model. See [L1 checkpoint](./L1_I18N_2026-10-25.md).
+
+Read-only dependency audit found existing advisory reports including critical
+concurrently/shell-quote entries. All8 reported affected package versions match
+pre-L1 HEAD; no i18next/react-i18next finding in that response. This is not a
+risk waiver or security guarantee. Preserve audit/baseline evidence for separate
+triage; do not force-upgrade unrelated runtime or suppress warnings. Production
+build >500kB advisory remains visible. Prior M3 risks/evidence are unchanged.
+
+# 2026-10-25 M3 FINAL PASS — Accepted Residual Risks
+
+Current authoritative revised Gate is PASS, with original strictDiagnostics
+permanently BLOCKED. Independent GPT-6.1 Sol High final source/evidence signoff:
+P1=0, P2=0, P3=0, unresolved required Gates=0. M3 is complete within its
+bounded local engineering/real marker-lifecycle acceptance scope.
+
+R1/R2 retain earlier direct project-user approval. A/C/D/E1 are separately
+approved by the technical owner's formal decision conveyed in the current
+user instruction; no extra personal signature requirement was found. These
+are accepted limitations, NOT fixed defects or general ERROR/WARN exemptions.
+A excludes live CPU/RAM/full system diagnostics; C excludes online player
+authentication/login/secure chat (NOT VERIFIED); D applies only to the exact
+hash-bound fixture in three omission phases, never user/content-mod worlds;
+E1 excludes interactive terminal/arbitrary stdin. R1 remains partial DEBUG
+loss, and R2 historical startup Tick slowdown with root UNKNOWN.
+C18 distinct classifier entries versus41 raw stdout WARN occurrences remain
+explicit. Every raw log/strict classifier/original failed report is preserved.
+Reassess on artifact/JDK/OS/logging/launch changes, new diagnostics, critical
+log loss, sustained lag, world/save damage or identity/stop/recovery regression.
+
+Candidate HEAD9f7cf49:33 frozen files + capability delta +18 evidence hashes
+match; no source/test changes. Valid API2834/Web243/Contracts28, static/build,
+three-width browser and separate Forge/Neo actual-load evidence reused.
+Three old LC2 native experiments remain DEFERRED, excluded and NOT PASS.
+No seven-launch rerun, registry/network/system change, Git upload, EXE packaging
+or next-stage work. P7 remains STOPPED. Earlier BLOCKED notes below are history.
+See [current final acceptance](./M3_FINAL_ACCEPTANCE_2026-10-25.md) and decision
+artifact `test-results/m3-revised-final-gate-20261025-v2.json`.
+
 # 2026-10-25 M3 revised final decision — R1/R2 accepted, BLOCKED
 
 The user's final-signoff instruction now accepts ONLY R1 (precise partial Neo

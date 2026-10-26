@@ -2,8 +2,20 @@ import { useCallback, useEffect, useState, useSyncExternalStore, type FormEvent,
 import { useQueryClient } from '@tanstack/react-query';
 import { api, ApiClientError, errorMessage } from '../api';
 import { authState } from '../authState';
+import { useTranslation } from 'react-i18next';
+import { i18n } from '../i18n';
+import { resources } from '../i18n/resources';
+import { LanguageSelector } from './LanguageSelector';
+
+// Only application-owned auth notices are localized; backend errors stay raw.
+function notice(text: string | null) {
+  if (!text) return text;
+  const key = Object.entries(resources['zh-CN'].translation).find(([key, value]) => key.startsWith('auth.notice.') && value === text)?.[0];
+  return key ? i18n.t(key) : text;
+}
 
 export function Authentication({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const state = useSyncExternalStore(authState.subscribe, authState.snapshot);
   const client = useQueryClient();
   const [username, setUsername] = useState('');
@@ -57,20 +69,21 @@ export function Authentication({ children }: { children: ReactNode }) {
   };
   if (state.phase === 'authenticated' || state.phase === 'legacy') return <>{children}</>;
   return <main className="auth-page"><section className="auth-card" aria-labelledby="auth-title">
-    <div className="auth-brand">MC Server Manager</div>
-    <h1 id="auth-title">{state.phase === 'signed-out' ? '登录管理器' : state.phase === 'checking' ? '正在检查登录状态' : '暂时无法登录'}</h1>
-    <p className="muted">使用在本机设置的管理账号。登录后可查看和管理本地服务器。</p>
+    <div className="auth-brand">LT Manager</div>
+    <LanguageSelector /><h1 id="auth-title">{t(state.phase === 'signed-out' ? 'auth.signInTitle' : state.phase === 'checking' ? 'auth.checking' : 'auth.unavailableTitle')}</h1>
+    <p className="muted">{t('auth.description')}</p>
     {state.phase === 'signed-out' ? <form className="auth-form" onSubmit={(event) => void submit(event)}>
-      <label htmlFor="auth-username">账号</label><input id="auth-username" name="username" autoComplete="username" maxLength={64} required value={username} onChange={(event) => setUsername(event.target.value)} disabled={busy} />
-      <label htmlFor="auth-password">密码</label><input id="auth-password" name="password" type="password" autoComplete="current-password" maxLength={256} required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} />
-      <button className="button button--primary" disabled={busy} type="submit">{busy ? '正在登录…' : '登录'}</button>
+      <label htmlFor="auth-username">{t('auth.username')}</label><input id="auth-username" name="username" autoComplete="username" maxLength={64} required value={username} onChange={(event) => setUsername(event.target.value)} disabled={busy} />
+      <label htmlFor="auth-password">{t('auth.password')}</label><input id="auth-password" name="password" type="password" autoComplete="current-password" maxLength={256} required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} />
+      <button className="button button--primary" disabled={busy} type="submit">{t(busy ? 'auth.signingIn' : 'auth.signIn')}</button>
     </form> : null}
-    {message || state.notice ? <p role="alert" className="inline-warning">{message ?? state.notice}</p> : null}
-    {state.phase !== 'checking' ? <button className="button button--secondary" disabled={busy} onClick={() => void inspect()}>重新检查会话</button> : null}
+    {message || state.notice ? <p role="alert" className="inline-warning">{notice(message ?? state.notice)}</p> : null}
+    {state.phase !== 'checking' ? <button className="button button--secondary" disabled={busy} onClick={() => void inspect()}>{t('auth.recheck')}</button> : null}
   </section></main>;
 }
 
 export function AuthenticationControls() {
+  const { t } = useTranslation();
   const state = useSyncExternalStore(authState.subscribe, authState.snapshot);
   const [busy, setBusy] = useState(false);
   const [reauth, setReauth] = useState(false);
@@ -93,16 +106,16 @@ export function AuthenticationControls() {
   };
   if (state.phase !== 'authenticated') return null;
   return <div className="auth-controls">
-    <span className="topbar-chip">已登录</span>
-    <button className="button button--secondary" disabled={busy} onClick={() => setReauth(true)}>再次确认身份</button>
-    <button className="button button--secondary" disabled={busy} onClick={() => void logout()}>退出登录</button>
-    {state.notice ? <span role="alert" className="inline-warning">{state.notice}</span> : null}
+    <span className="topbar-chip">{t('auth.signedIn')}</span>
+    <button className="button button--secondary" disabled={busy} onClick={() => setReauth(true)}>{t('auth.reauthenticate')}</button>
+    <button className="button button--secondary" disabled={busy} onClick={() => void logout()}>{t('auth.signOut')}</button>
+    {state.notice ? <span role="alert" className="inline-warning">{notice(state.notice)}</span> : null}
     {reauth ? <div className="auth-dialog-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="reauth-title" className="auth-card">
-      <h2 id="reauth-title">再次确认身份</h2><p className="muted">输入账号与密码，确认当前会话仍由你操作。</p>
+      <h2 id="reauth-title">{t('auth.reauthenticate')}</h2><p className="muted">{t('auth.reauthDescription')}</p>
       <form className="auth-form" onSubmit={(event) => void confirm(event)}>
-        <label htmlFor="reauth-username">账号</label><input id="reauth-username" autoComplete="username" maxLength={64} required value={username} onChange={(event) => setUsername(event.target.value)} disabled={busy} />
-        <label htmlFor="reauth-password">密码</label><input id="reauth-password" type="password" autoComplete="current-password" maxLength={256} required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} />
-        <button className="button button--primary" disabled={busy}>确认身份</button><button type="button" className="button button--secondary" disabled={busy} onClick={() => { setPassword(''); setReauth(false); }}>取消</button>
+        <label htmlFor="reauth-username">{t('auth.username')}</label><input id="reauth-username" autoComplete="username" maxLength={64} required value={username} onChange={(event) => setUsername(event.target.value)} disabled={busy} />
+        <label htmlFor="reauth-password">{t('auth.password')}</label><input id="reauth-password" type="password" autoComplete="current-password" maxLength={256} required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} />
+        <button className="button button--primary" disabled={busy}>{t('auth.confirmIdentity')}</button><button type="button" className="button button--secondary" disabled={busy} onClick={() => { setPassword(''); setReauth(false); }}>{t('common.cancel')}</button>
       </form>{message ? <p className="inline-warning" role="alert">{message}</p> : null}
     </section></div> : null}
   </div>;

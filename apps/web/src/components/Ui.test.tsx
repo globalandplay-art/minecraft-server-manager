@@ -15,7 +15,7 @@ describe('状态语义组件', () => {
   it('持续明确标识 Mock 数据而不冒充真实服务器', () => {
     render(<MockBanner />);
 
-    expect(screen.getByText('MOCK DATA')).toBeInTheDocument();
+    expect(screen.getByText('Mock · 演示数据')).toBeInTheDocument();
     expect(screen.getByText(/未连接真实 Minecraft/)).toBeInTheDocument();
   });
 

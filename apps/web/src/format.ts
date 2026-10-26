@@ -1,23 +1,20 @@
+import { currentLanguage, i18n, number } from './i18n';
+
 const sourceLabels: Record<string, string> = {
-  mock: 'Mock 示例',
-  process: 'MC 进程',
-  filesystem: '文件系统',
-  'status-query': '状态查询',
-  rcon: 'RCON',
-  log: '日志',
-  plugin: '插件',
-  jmx: 'JMX',
+  mock: 'source.mock', process: 'source.process', filesystem: 'source.filesystem',
+  'status-query': 'source.statusQuery', rcon: 'source.rcon', log: 'source.log',
+  plugin: 'source.plugin', jmx: 'source.jmx',
 };
 
 export function formatSource(source: string | null) {
-  return source ? (sourceLabels[source] ?? source) : '未采集';
+  return source ? (sourceLabels[source] ? i18n.t(sourceLabels[source]!) : source) : i18n.t('common.notCollected');
 }
 
 export function formatLocalTime(iso: string | null | undefined) {
-  if (!iso) return '未知';
+  if (!iso) return i18n.t('common.unknown');
   const value = new Date(iso);
-  if (Number.isNaN(value.getTime())) return '未知';
-  return new Intl.DateTimeFormat('zh-CN', {
+  if (Number.isNaN(value.getTime())) return i18n.t('common.unknown');
+  return new Intl.DateTimeFormat(currentLanguage(), {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -28,7 +25,7 @@ export function formatLocalTime(iso: string | null | undefined) {
 }
 
 export function localTimezoneLabel() {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || '本地时区';
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || i18n.t('format.localTimezone');
 }
 
 export function formatBytes(bytes: number) {
@@ -40,7 +37,8 @@ export function formatBytes(bytes: number) {
     value /= 1024;
     index += 1;
   }
-  return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
+  const decimals = value >= 10 || index === 0 ? 0 : 1;
+  return `${number(value, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} ${units[index]}`;
 }
 
 export function formatUptime(seconds: number) {
@@ -48,22 +46,18 @@ export function formatUptime(seconds: number) {
   const days = Math.floor(seconds / 86_400);
   const hours = Math.floor((seconds % 86_400) / 3_600);
   const minutes = Math.floor((seconds % 3_600) / 60);
-  if (days > 0) return `${days}天 ${hours}小时`;
-  if (hours > 0) return `${hours}小时 ${minutes}分`;
-  return `${minutes}分钟`;
+  if (days > 0) return i18n.t('format.daysHours', { days: number(days), hours: number(hours) });
+  if (hours > 0) return i18n.t('format.hoursMinutes', { hours: number(hours), minutes: number(minutes) });
+  return i18n.t('format.minutes', { minutes: number(minutes) });
 }
 
-export const statusLabels: Record<string, string> = {
-  stopped: '已停止',
-  starting: '启动中',
-  running: '运行中',
-  stopping: '停止中',
-  crashed: '异常退出',
-  unknown: '未知',
-};
+// Getters keep legacy callers reactive without freezing translated module values.
+export const statusLabels: Record<string, string> = Object.defineProperties({},
+  Object.fromEntries(['stopped', 'starting', 'running', 'stopping', 'crashed', 'unknown']
+    .map(status => [status, { enumerable: true, get: () => i18n.t(`status.${status}`) }])));
 
 export function statusDescription(status: string) {
-  if (status === 'crashed') return '服务端意外退出，请在后续 Crash Analysis 中查看证据。';
-  if (status === 'unknown') return '当前无法可靠确认 Minecraft 进程状态。';
+  if (status === 'crashed') return i18n.t('status.crashedDescription');
+  if (status === 'unknown') return i18n.t('status.unknownDescription');
   return null;
 }

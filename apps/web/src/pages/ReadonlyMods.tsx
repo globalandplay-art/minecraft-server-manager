@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+import { i18n } from '../i18n';
 import type { AddonUploadResponse, ServerSummary } from '@mcsm/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
@@ -9,6 +11,7 @@ import { ModInstallPanel } from './ModInstallPanel';
 /** Inert validation staging is separate from permission to mutate installed mods. */
 export function ReadonlyModsPage({ server, renderLifecycle }: { server: ServerSummary;
   renderLifecycle?: ((locked: boolean, onBusy: (busy: boolean) => void) => ReactNode) | undefined }) {
+  useTranslation();
   const client = useQueryClient();
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [search, setSearch] = useState('');
@@ -48,7 +51,7 @@ export function ReadonlyModsPage({ server, renderLifecycle }: { server: ServerSu
   const items = inventory.isFetching ? [] : inventory.data?.data.items.filter(item =>
     [item.filename, ...(item.declaredMetadata?.mods.flatMap(mod => [mod.name, mod.id]) ?? [])].some(value => value.toLowerCase().includes(search.toLowerCase()))) ?? [];
   return <div className="page-stack addons-page">
-    <PageHeading eyebrow="MOD INVENTORY" title="Mods" description={`${server.server.name} · ${server.server.type.toUpperCase()} · ${server.server.minecraftVersion ?? '版本未知'}`}
+    <PageHeading eyebrow={i18n.t('monitor.modInventory')} title={i18n.t('nav.mods')} description={`${server.server.name} · ${server.server.type.toUpperCase()} · ${server.server.minecraftVersion ?? '版本未知'}`}
       aside={<button className="button button--secondary" onClick={() => void inventory.refetch({ cancelRefetch: false })} disabled={inventory.isFetching}><RefreshCw size={16} aria-hidden="true" />刷新清单</button>} />
     <section className="panel"><h2>模组文件清单（只读）</h2>
       <p>清单读取 mods 和 disabled-mods 目录。可先上传校验，安装另需停服和明确确认；{renderLifecycle ? '下方可在停服后管理启用、禁用与回收，均不自动重启。' : '暂未开放启用、禁用或移除。'}</p>

@@ -17,25 +17,34 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { i18n } from '../i18n';
+import { LanguageSelector } from './LanguageSelector';
+import { ThemeSelector } from './Appearance';
 
 type ServerSummary = ServersResponse['data']['items'][number];
 type Features = HealthResponse['data']['features'];
+function addonLabelKey(selectedServer?: ServerSummary) {
+  if (selectedServer?.server.type === 'paper' && selectedServer.capabilities.plugins) return 'nav.plugins';
+  if (selectedServer && (selectedServer.server.type === 'forge' || selectedServer.server.type === 'neoforge' || selectedServer.server.type === 'fabric' && selectedServer.capabilities.mods)) return 'nav.mods';
+  return 'nav.addons';
+}
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard', feature: 'dashboard', icon: LayoutDashboard },
-  { to: '/servers', label: 'Servers', feature: 'servers', icon: Server },
-  { to: '/players', label: 'Players', feature: 'players', icon: Users },
-  { to: '/worlds', label: 'Worlds', feature: 'worlds', icon: Globe2 },
-  { to: '/addons', label: 'Mods / Plugins', feature: 'addons', icon: Boxes },
-  { to: '/console', label: 'Console', feature: 'console', icon: TerminalSquare },
-  { to: '/performance', label: 'Performance', feature: 'performance', icon: Gauge },
-  { to: '/backups', label: 'Backups', feature: 'backups', icon: DatabaseBackup },
-  { to: '/crashes', label: 'Crash Analysis', feature: 'crashAnalysis', icon: Activity },
+  { to: '/dashboard', labelKey: 'nav.dashboard', feature: 'dashboard', icon: LayoutDashboard },
+  { to: '/servers', labelKey: 'nav.servers', feature: 'servers', icon: Server },
+  { to: '/players', labelKey: 'nav.players', feature: 'players', icon: Users },
+  { to: '/worlds', labelKey: 'nav.worlds', feature: 'worlds', icon: Globe2 },
+  { to: '/addons', labelKey: 'nav.addons', feature: 'addons', icon: Boxes },
+  { to: '/console', labelKey: 'nav.console', feature: 'console', icon: TerminalSquare },
+  { to: '/performance', labelKey: 'nav.performance', feature: 'performance', icon: Gauge },
+  { to: '/backups', labelKey: 'nav.backups', feature: 'backups', icon: DatabaseBackup },
+  { to: '/crashes', labelKey: 'nav.crashes', feature: 'crashAnalysis', icon: Activity },
 ] as const;
 
 function phaseLabel(feature: keyof Features, features?: Features) {
   const state = features?.[feature];
-  if (!state) return '状态未知';
+  if (!state) return i18n.t('common.unknownState');
   return state.implemented ? null : `P${state.phase}`;
 }
 
@@ -56,6 +65,7 @@ function Sidebar({
   closeDrawer,
   drawerRef,
 }: SidebarProps) {
+  const { t } = useTranslation();
   const readOnlyMods = selectedServer?.server.type === 'forge' || selectedServer?.server.type === 'neoforge';
   const addonsUnsupported = !readOnlyMods && selectedServer
     ? !selectedServer.capabilities.mods && !selectedServer.capabilities.plugins
@@ -67,24 +77,21 @@ function Sidebar({
         ref={drawerRef}
         className={`sidebar ${drawerOpen ? 'sidebar--open' : ''}`}
         role={drawerOpen ? 'dialog' : undefined}
-        aria-label={drawerOpen ? '主导航抽屉' : '应用侧栏'}
+        aria-label={t(drawerOpen ? 'shell.drawer' : 'shell.sidebar')}
         aria-modal={drawerOpen || undefined}
       >
         <div className="brand">
           <span className="brand__mark" aria-hidden="true"><MonitorCog size={20} /></span>
-          <span><strong>MC Server</strong><small>Manager</small></span>
-          <button className="icon-button sidebar__close" onClick={closeDrawer} aria-label="关闭导航">
+          <span><strong>LT Manager</strong><small>Workspace</small></span>
+          <button className="icon-button sidebar__close" onClick={closeDrawer} aria-label={t('shell.closeNav')}>
             <X size={20} />
           </button>
         </div>
-        <nav className="nav-list" aria-label="主导航">
-          {navItems.map(({ to, label: defaultLabel, feature, icon: Icon }) => {
-            const label = feature === 'addons' && selectedServer
-              ? selectedServer.server.type === 'paper' && selectedServer.capabilities.plugins ? 'Plugins'
-                : readOnlyMods || selectedServer.server.type === 'fabric' && selectedServer.capabilities.mods ? 'Mods' : defaultLabel
-              : defaultLabel;
-            const badge = feature === 'addons' && readOnlyMods ? '受限' : feature === 'addons' && addonsUnsupported
-              ? '不支持'
+        <nav className="nav-list" aria-label={t('shell.navigation')}>
+          {navItems.map(({ to, labelKey, feature, icon: Icon }) => {
+            const label = feature === 'addons' ? t(addonLabelKey(selectedServer)) : t(labelKey);
+            const badge = feature === 'addons' && readOnlyMods ? t('common.limited') : feature === 'addons' && addonsUnsupported
+              ? t('common.unsupported')
               : feature === 'addons' && (selectedServer?.capabilities.mods || selectedServer?.capabilities.plugins)
                 ? null
                 : phaseLabel(feature, features);
@@ -109,17 +116,17 @@ function Sidebar({
             onClick={closeDrawer}
           >
             <Settings size={18} aria-hidden="true" />
-            <span>Settings</span>
-            <small className="phase-badge">只读</small>
+            <span>{t('nav.settings')}</span>
+            <small className="phase-badge">{t('common.readOnly')}</small>
           </NavLink>
           <div className="local-note">
             <span className="status-dot status-dot--success" aria-hidden="true" />
-            <span><strong>本地管理模式</strong><small>仅监听此电脑</small></span>
+            <span><strong>{t('shell.localManagement')}</strong><small>{t('shell.thisComputer')}</small></span>
           </div>
         </div>
       </aside>
       {drawerOpen ? (
-        <button className="drawer-overlay" onClick={closeDrawer} aria-label="关闭导航遮罩" />
+        <button className="drawer-overlay" onClick={closeDrawer} aria-label={t('shell.closeOverlay')} />
       ) : null}
     </>
   );
@@ -135,6 +142,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ children, features, servers, selectedId, connectionState, mode }: AppShellProps) {
+  const { t } = useTranslation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
@@ -196,29 +204,30 @@ export function AppShell({ children, features, servers, selectedId, connectionSt
       <div className="app-frame">
         <header className="topbar">
           <div className="topbar__leading">
+            <span className="workspace-breadcrumb" aria-label={t('workspace.location')}>LT / {t(location.pathname === '/addons' ? addonLabelKey(selectedServer) : location.pathname === '/settings' ? 'nav.settings' : `nav.${({ '/whitelist': 'whitelist', '/dashboard': 'dashboard', '/servers': 'servers', '/players': 'players', '/worlds': 'worlds', '/addons': 'addons', '/console': 'console', '/performance': 'performance', '/backups': 'backups', '/crashes': 'crashes' } as Record<string, string>)[location.pathname] ?? 'dashboard'}`)}</span>
             <button
               ref={menuButtonRef}
               className="icon-button menu-button"
               onClick={() => setDrawerOpen(true)}
-              aria-label="打开主导航"
+              aria-label={t('shell.openNav')}
               aria-expanded={drawerOpen}
             >
               <Menu size={21} />
             </button>
             <div className="mobile-server-name" title={selectedServer?.server.name}>
-              {selectedServer?.server.name ?? '未选择实例'}
+              {selectedServer?.server.name ?? t('shell.noSelection')}
             </div>
             <label className="server-switcher">
-              <span>当前实例</span>
+              <span>{t('shell.currentInstance')}</span>
               <span className="select-wrap">
                 <select
                   value={selectedServer?.server.id ?? ''}
                   onChange={(event) => updateServer(event.target.value)}
                   disabled={servers.length === 0}
-                  aria-label="选择服务器实例"
+                  aria-label={t('shell.selectInstance')}
                 >
-                  {selectedId && !selectedServer ? <option value="">实例不可用，请重新选择</option> : null}
-                  {servers.length === 0 ? <option value="">暂无实例</option> : null}
+                  {selectedId && !selectedServer ? <option value="">{t('shell.unavailableInstance')}</option> : null}
+                  {servers.length === 0 ? <option value="">{t('shell.noInstances')}</option> : null}
                   {servers.map((item) => (
                     <option key={item.server.id} value={item.server.id}>{item.server.name}</option>
                   ))}
@@ -228,14 +237,17 @@ export function AppShell({ children, features, servers, selectedId, connectionSt
             </label>
           </div>
           <div className="topbar__status" aria-live="polite">
-            <span className="topbar-chip">{mode === 'mock' ? 'Mock 演示' : mode === 'local' ? '本地模式' : '读取模式中'}</span>
+            <LanguageSelector />
+            <ThemeSelector compact />
+            <span className="topbar-chip">{t(mode === 'mock' ? 'shell.mock' : mode === 'local' ? 'shell.local' : 'shell.readingMode')}</span>
             <span className={`topbar-chip ${connectionState === 'connected' ? 'topbar-chip--success' : connectionState === 'error' ? 'topbar-chip--danger' : ''}`}>
               <span className={`status-dot ${connectionState === 'connected' ? 'status-dot--success' : connectionState === 'error' ? 'status-dot--danger' : 'status-dot--warning'}`} aria-hidden="true" />
-              API {connectionState === 'connected' ? '已连接' : connectionState === 'error' ? '连接异常' : '连接中'}
+              API {t(connectionState === 'connected' ? 'shell.connected' : connectionState === 'error' ? 'shell.connectionError' : 'shell.connecting')}
             </span>
           </div>
         </header>
         <main className="main-content">{children}</main>
+        <footer className="workspace-statusbar" aria-label={t('workspace.statusbar')}><span>LT Workspace</span><span>{selectedServer?.server.name ?? t('workspace.noInstance')}</span><span>{t(mode === 'mock' ? 'shell.mock' : mode === 'local' ? 'shell.local' : 'shell.readingMode')}</span><span>API: {t(connectionState === 'connected' ? 'shell.connected' : connectionState === 'error' ? 'shell.connectionError' : 'shell.connecting')}</span></footer>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import type { PerformanceResponse } from '@mcsm/contracts';
 
-export type TrendMetric = 'cpu' | 'ram' | 'disk' | 'players';
+export type TrendMetric = 'cpu' | 'ram' | 'disk' | 'players' | 'tps' | 'mspt';
 type Sample = PerformanceResponse['data']['samples'][number];
 export type TrendPoint = Readonly<{ time: number; value: number }>;
 /** At most120 API snapshots; metric timestamps, not collection time, locate points.

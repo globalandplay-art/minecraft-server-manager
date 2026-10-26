@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+import { i18n } from '../i18n';
 import type { AddonTrashResponse, AddonsResponse, AddonUploadResponse, Operation, ServerSummary } from '@mcsm/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, RefreshCw, Upload } from 'lucide-react';
@@ -118,6 +120,7 @@ export function AddonsPage({ server }: { server?: ServerSummary | undefined }) {
 
 function ManagedAddonsPage({ server, lifecycleOnly = false, externalBusy = false, onLifecycleBusy }: {
   server?: ServerSummary | undefined; lifecycleOnly?: boolean; externalBusy?: boolean; onLifecycleBusy?: (busy: boolean) => void }) {
+  useTranslation();
   const serverId = server?.server.id;
   const client = useQueryClient();
   const [staged, setStaged] = useState<StagedAddon | null>(null);
@@ -138,7 +141,7 @@ function ManagedAddonsPage({ server, lifecycleOnly = false, externalBusy = false
     : (server?.server.type === 'fabric' || lifecycleOnly) && server?.capabilities.mods ? 'mod' : null;
   const extended = server?.server.type === 'forge' || server?.server.type === 'neoforge';
   const supported = supportedKind !== null;
-  const title = supportedKind === 'plugin' ? 'Plugins' : supportedKind === 'mod' ? 'Mods' : 'Mods / Plugins';
+  const title = i18n.t(supportedKind === 'plugin' ? 'nav.plugins' : supportedKind === 'mod' ? 'nav.mods' : 'nav.addons');
   const inventory = useQuery({ queryKey: ['addons', serverId], queryFn: lifecycleOnly ? () => api.addons(serverId!) : ({ signal }) => api.addons(serverId!, signal),
     enabled: Boolean(serverId && supported), retry: shouldRetry, refetchOnWindowFocus: false });
   const trash = useQuery({ queryKey: ['addon-trash', serverId], queryFn: lifecycleOnly ? () => api.addonTrash(serverId!) : ({ signal }) => api.addonTrash(serverId!, signal),
@@ -266,14 +269,14 @@ function ManagedAddonsPage({ server, lifecycleOnly = false, externalBusy = false
     }
   }
 
-  if (!server) return <div className="page-stack"><PageHeading eyebrow="ADDON MANAGEMENT" title={title} /><EmptyState title="请选择服务器" description="选择由后端识别的 Paper 或 Fabric 实例后查看扩展。" /></div>;
-  if (!supported) return <div className="page-stack"><PageHeading eyebrow="ADDON MANAGEMENT" title={title} description="服务端类型和能力来自后端注册信息。" />
+  if (!server) return <div className="page-stack"><PageHeading eyebrow={i18n.t('monitor.addons')} title={title} /><EmptyState title="请选择服务器" description="选择由后端识别的 Paper 或 Fabric 实例后查看扩展。" /></div>;
+  if (!supported) return <div className="page-stack"><PageHeading eyebrow={i18n.t('monitor.addons')} title={title} description="服务端类型和能力来自后端注册信息。" />
     <EmptyState title="此实例不支持 Mods / Plugins" description={`${server.server.type.toUpperCase()} 实例没有已开放的 Paper 插件或 Fabric 模组能力。`} /></div>;
 
   return <div className="page-stack addons-page">
     {lifecycleOnly ? <div className="addon-section-heading"><h2>模组生命周期管理</h2><button className="button button--secondary"
       onClick={() => void refreshAll()} disabled={inventory.isFetching || trash.isFetching || status.isFetching}>刷新操作状态</button></div>
-      : <PageHeading eyebrow="ADDON MANAGEMENT" title={title} description={`${server.server.name} · ${server.server.type.toUpperCase()} · ${server.server.minecraftVersion ?? '版本未知'}`}
+      : <PageHeading eyebrow={i18n.t('monitor.addons')} title={title} description={`${server.server.name} · ${server.server.type.toUpperCase()} · ${server.server.minecraftVersion ?? '版本未知'}`}
       aside={<button className="button button--secondary" onClick={() => void refreshAll()} disabled={inventory.isFetching || trash.isFetching || status.isFetching}><RefreshCw size={16} aria-hidden="true" />刷新状态</button>} />}
     {recoveryRequired ? <section className="addon-banner addon-banner--danger" role="alert"><strong>需要恢复核验，变更已锁定</strong><p>保留旧操作和证据。这里只能刷新状态，不能重试或开始新的扩展变更。</p></section> : null}
     {blockedReason && !recoveryRequired ? <section className="addon-banner" role="status">{blockedReason}</section> : null}

@@ -79,12 +79,12 @@ export class OperationService {
     }
     const storedById = new Map(stored.map((record) => [record.operation.id, record.operation]));
     for (const record of transactionScan?.records ?? []) {
-      if (!(record.intent.restore || record.intent.worldChange || record.intent.worldImport || record.intent.worldArchive || record.intent.propertiesWrite || record.intent.addonInstall || record.intent.addonLifecycle) || !["committed", "rolled-back"].includes(record.state)) continue;
+      if (!(record.intent.restore || record.intent.worldChange || record.intent.worldImport || record.intent.worldLibraryImport || record.intent.worldActivation || record.intent.worldArchive || record.intent.propertiesWrite || record.intent.addonInstall || record.intent.addonLifecycle) || !["committed", "rolled-back"].includes(record.state)) continue;
       const outcome = storedById.get(record.intent.operationId);
       const established = outcome?.state === "succeeded" || (outcome?.state === "failed" && outcome.step === "rolled-back" && !outcome.error) ||
         (record.intent.addonInstall && record.state === "rolled-back" && outcome?.state === "failed" && outcome.error?.code === "ADDON_INSTALL_NOT_APPLIED") ||
         (record.intent.addonLifecycle && record.state === "rolled-back" && outcome?.state === "failed" && outcome.error?.code === "ADDON_LIFECYCLE_NOT_APPLIED");
-      if (!established && !this.#verifiedTerminalOperations.has(record.intent.operationId)) this.requireTransactionRecovery(record.intent.serverId, record.intent.operationId);
+      if ((!established || record.intent.worldLibraryImport || record.intent.worldActivation) && !this.#verifiedTerminalOperations.has(record.intent.operationId)) this.requireTransactionRecovery(record.intent.serverId, record.intent.operationId);
     }
     for (const record of stored) {
       check();
@@ -98,13 +98,17 @@ export class OperationService {
       const established = record.operation.state === "succeeded" || (record.operation.state === "failed" && record.operation.step === "rolled-back" && !record.operation.error) ||
         (terminal?.intent.addonInstall && terminal.state === "rolled-back" && record.operation.state === "failed" && record.operation.error?.code === "ADDON_INSTALL_NOT_APPLIED") ||
         (terminal?.intent.addonLifecycle && terminal.state === "rolled-back" && record.operation.state === "failed" && record.operation.error?.code === "ADDON_LIFECYCLE_NOT_APPLIED");
-      const transactionBearing = Boolean(terminal?.intent.restore || terminal?.intent.worldChange || terminal?.intent.worldImport || terminal?.intent.worldArchive || terminal?.intent.propertiesWrite || terminal?.intent.addonInstall || terminal?.intent.addonLifecycle);
-      const unverified = Boolean(transactionBearing && !established && !this.#verifiedTerminalOperations.has(record.operation.id));
+      const transactionBearing = Boolean(terminal?.intent.restore || terminal?.intent.worldChange || terminal?.intent.worldImport || terminal?.intent.worldLibraryImport || terminal?.intent.worldActivation || terminal?.intent.worldArchive || terminal?.intent.propertiesWrite || terminal?.intent.addonInstall || terminal?.intent.addonLifecycle);
+      const unverified = Boolean(((transactionBearing && (!established || terminal?.intent.worldLibraryImport || terminal?.intent.worldActivation)) ||
+        record.operation.kind === "world-library-import" || record.operation.kind === "world-activate") && !this.#verifiedTerminalOperations.has(record.operation.id));
+      if (["world-library-import", "world-activate"].includes(record.operation.kind) && unverified) this.#addRecovery(record.operation.serverId, `operation:${record.operation.id}`);
       const addonNotApplied = Boolean(terminal?.intent.addonInstall && terminal.state === "rolled-back" && this.#verifiedTerminalOperations.has(record.operation.id));
       const addonLifecycleNotApplied = Boolean(terminal?.intent.addonLifecycle && terminal.state === "rolled-back" && this.#verifiedTerminalOperations.has(record.operation.id));
       const unsafeCompletion = unverified || Boolean(terminal && this.#recoveryCauses.get(record.operation.serverId)?.has(`operation:${record.operation.id}`));
       if (unverified) this.requireTransactionRecovery(record.operation.serverId, record.operation.id);
-      if (unsafeCompletion || record.operation.state === "queued" || record.operation.state === "running" || (record.operation.state === "interrupted" && terminal)) {
+      const verifiedWorldId = !unsafeCompletion && terminal?.state === "committed" ? terminal.intent.worldActivation?.worldId ?? terminal.intent.worldLibraryImport?.worldId : undefined;
+      if (unsafeCompletion || record.operation.state === "queued" || record.operation.state === "running" || (record.operation.state === "interrupted" && terminal) ||
+          (verifiedWorldId && record.operation.result?.resourceId !== verifiedWorldId)) {
         const interrupted: Operation = {
           ...record.operation,
           state: unsafeCompletion ? "interrupted" : (addonNotApplied || addonLifecycleNotApplied) ? "failed" : terminal ? (terminal.state === "committed" || record.operation.kind === "world-import-recovery" ? "succeeded" : "failed") : "interrupted",
@@ -114,7 +118,7 @@ export class OperationService {
             terminal?.intent.addonLifecycle && terminal.state === "committed" ? {
               resourceId: terminal.intent.addonLifecycle.action === "trash" ? terminal.intent.addonLifecycle.trashId : terminal.intent.addonLifecycle.addonId,
               rollbackAvailable: false, restartRequired: true
-            } : record.operation.result,
+            } : verifiedWorldId ? { resourceId: verifiedWorldId, rollbackAvailable: false } : record.operation.result,
           error: addonNotApplied ? { code: "ADDON_INSTALL_NOT_APPLIED", message: "安装未应用；原上传、保护备份和临时证据已保留" } :
             addonLifecycleNotApplied ? { code: "ADDON_LIFECYCLE_NOT_APPLIED", message: "扩展状态变更未应用；源文件与保护证据仍保留" } : terminal && !unsafeCompletion ? null : record.operation.kind === "backup-export"
             ? { code: "EXPORT_INTERRUPTED", message: "导出被管理器重启中断，可重新请求" }
@@ -383,7 +387,7 @@ export class OperationService {
     requestBody: string,
     execute: (context: RuntimeOperationContext) => Promise<void>,
     preflight?: () => Promise<void>,
-    kind: "backup" | "backup-export" | "restore" | "rollback" | "world-create" | "world-import" | "world-import-recovery" | "world-archive" | "properties-write" | "addon-change" | "whitelist-change" = "backup",
+    kind: "backup" | "backup-export" | "restore" | "rollback" | "world-create" | "world-import" | "world-library-import" | "world-activate" | "world-import-recovery" | "world-archive" | "properties-write" | "addon-change" | "whitelist-change" = "backup",
     recoveryOwner?: string,
     admission?: OperationAdmission,
     lifetime?: () => () => undefined
