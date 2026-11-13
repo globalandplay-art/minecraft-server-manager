@@ -1,6 +1,10 @@
 ﻿import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readdir, realpath, rename, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
+import { backupDirectoryIdentity } from "./backup-identity.js";
+import { readPrivatePropertiesFile } from "./properties-private-file.js";
+import { readWorldGenerationReservation, type WorldGenerationReservation } from "./world-generation-reservation.js";
 
 const SCHEMA_VERSION = 1 as const;
 const MAX_RECORD_BYTES = 64 * 1024;
@@ -19,6 +23,7 @@ export type TransactionKind =
   | "world-import"
   | "world-library-import"
   | "world-activate"
+  | "world-replace"
   | "world-archive"
   | "properties-write"
   | "addon-install"
@@ -57,6 +62,23 @@ export interface TransactionIntent {
   readonly paths: readonly TransactionPath[];
   readonly createdAt: string;
   readonly restore?: RestoreIntent;
+  /** Same-name V2 replacement. Target object identity is bound by staged/installed
+   * checkpoints, never invented before the target directory exists. */
+  readonly worldReplacement?: {
+    readonly rootIdentity: string; readonly catalogId: string;
+    readonly worldId: string; readonly previousWorldId: string; readonly levelName: string; readonly confirmationName: string;
+    readonly libraryRevision: string; readonly currentWorldRevision: string; readonly currentContentChecksum: string;
+    readonly currentDirectoryIdentity: string; readonly currentObjectIdentity: string;
+    readonly propertiesRevision: string; readonly propertiesChecksum: string;
+    readonly uploadId: string; readonly uploadRevision: string; readonly importedChecksum: string;
+    readonly minecraftVersion: "26.3"; readonly guardBackupId: string;
+    readonly sequence: number; readonly predecessorTransactionId: string | null; readonly workspaceName: string;
+    /** Explicitly versioned admission snapshots; not execution/recovery authority. */
+    readonly approval?: {
+      readonly schemaVersion: 1; readonly propertiesIdentity: string;
+      readonly activeStateIdentity: string; readonly activeStateChecksum: string; readonly catalogFileIdentity: string;
+    };
+  };
   readonly worldActivation?: {
     readonly rootIdentity: string;
     readonly catalogId: string;
@@ -71,8 +93,9 @@ export interface TransactionIntent {
     readonly targetContentChecksum: string;
     readonly currentDirectoryIdentity: string;
     readonly targetDirectoryIdentity: string;
-    readonly sourceImportTransactionId: string;
-    readonly sourceImportChecksum: string;
+    readonly sourceImportTransactionId: string | null;
+    readonly sourceImportChecksum: string | null;
+    readonly sourceGuard?: { readonly transactionId: string; readonly guardBackupId: string; readonly checksum: string };
     readonly predecessorTransactionId: string | null;
     readonly sequence: number;
     readonly guardBackupId: string;
@@ -81,6 +104,7 @@ export interface TransactionIntent {
     readonly workspaceName: string;
   };
   readonly worldChange?: {
+    readonly generation?: WorldGenerationReservation;
     readonly rootIdentity: string;
     readonly previousName: string;
     readonly nextName: string;
@@ -189,7 +213,7 @@ export interface TransactionCheckpoint {
 }
 
 export interface TransactionJournalRecord {
-  readonly schemaVersion: typeof SCHEMA_VERSION | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  readonly schemaVersion: typeof SCHEMA_VERSION | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
   readonly transactionId: string;
   readonly intent: TransactionIntent;
   readonly state: TransactionState;
@@ -207,6 +231,7 @@ export interface JournalScanResult {
   readonly records: readonly TransactionJournalRecord[];
   readonly recoveryServerIds: ReadonlySet<string>;
   readonly issues: readonly JournalIssue[];
+  readonly locationIdentity?: string;
 }
 
 export interface CreateTransactionIntent extends Omit<TransactionIntent, "createdAt"> {
@@ -258,10 +283,10 @@ function normalizeRelativePath(value: string): string {
 function validateIntent(value: unknown): value is TransactionIntent {
   if (!isObject(value) || !hasOnlyKeys(value, [
     "operationId", "serverId", "kind", "scope", "resourceId", "allowStop",
-    "originalState", "paths", "createdAt", "restore", "worldChange", "worldImport", "worldLibraryImport", "worldActivation", "worldArchive", "propertiesWrite", "addonInstall", "addonLifecycle"
+    "originalState", "paths", "createdAt", "restore", "worldChange", "worldImport", "worldLibraryImport", "worldActivation", "worldReplacement", "worldArchive", "propertiesWrite", "addonInstall", "addonLifecycle"
   ])) return false;
   if (!UUID.test(String(value.operationId)) || !SERVER_ID.test(String(value.serverId))) return false;
-  if (!(["backup", "restore", "rollback", "world-create", "world-import", "world-library-import", "world-activate", "world-archive", "properties-write", "addon-install", "addon-lifecycle"] as unknown[])
+  if (!(["backup", "restore", "rollback", "world-create", "world-import", "world-library-import", "world-activate", "world-replace", "world-archive", "properties-write", "addon-install", "addon-lifecycle"] as unknown[])
     .includes(value.kind)) return false;
   if (!["world-set", "server-snapshot", null].includes(value.scope as never)) return false;
   if (value.resourceId !== null && !isOpaqueId(value.resourceId)) return false;
@@ -282,12 +307,26 @@ function validateIntent(value: unknown): value is TransactionIntent {
   if (value.worldChange !== undefined) {
     const w = value.worldChange;
     if (value.restore !== undefined || value.kind !== "world-create" || value.scope !== "world-set" || !isObject(w) ||
-      !hasOnlyKeys(w, ["rootIdentity", "previousName", "nextName", "approvedRevision", "guardBackupId", "propertiesBefore", "propertiesAfter", "workspaceName"]) ||
+      !hasOnlyKeys(w, ["rootIdentity", "previousName", "nextName", "approvedRevision", "guardBackupId", "propertiesBefore", "propertiesAfter", "workspaceName", "generation"]) ||
       ![w.rootIdentity, w.approvedRevision, w.propertiesBefore, w.propertiesAfter].every((v) => typeof v === "string" && SHA256.test(v)) ||
       !UUID.test(String(w.guardBackupId)) || !/^\.manager-world-create-[0-9a-f-]{36}$/u.test(String(w.workspaceName))) return false;
     for (const name of [w.previousName, w.nextName]) {
       if (typeof name !== "string" || name.length > 128 || name.includes("/")) return false;
       try { if (normalizeRelativePath(name) !== name) return false; } catch { return false; }
+    }
+    if (w.generation !== undefined) {
+      try {
+        const g = readWorldGenerationReservation(w.generation);
+        if (g.serverId !== value.serverId || g.operationId !== value.operationId || g.worldId !== value.resourceId ||
+            g.rootIdentity !== w.rootIdentity || g.previousName !== w.previousName || g.nextName !== w.nextName ||
+            g.guardBackupId !== w.guardBackupId || g.propertiesBefore !== w.propertiesBefore || g.propertiesAfter !== w.propertiesAfter ||
+            w.workspaceName !== `.manager-world-create-${g.operationId}`) return false;
+        const expected = [{ role: "source", relativePath: g.previousName },
+          { role: "target", relativePath: g.nextName }, { role: "staging", relativePath: w.workspaceName }];
+        const paths: unknown[] = value.paths;
+        if (paths.length !== expected.length || expected.some(path => paths.filter(item => isObject(item) &&
+          item.role === path.role && item.namespace === "server" && item.relativePath === path.relativePath).length !== 1)) return false;
+      } catch { return false; }
     }
   }
   if (value.worldImport !== undefined) {
@@ -426,19 +465,31 @@ function validateIntent(value: unknown): value is TransactionIntent {
     const w = value.worldActivation;
     const lineage = /^worldv2-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
     const hashes = ["rootIdentity", "libraryRevision", "currentWorldRevision", "targetWorldRevision", "currentContentChecksum", "targetContentChecksum",
-      "currentDirectoryIdentity", "targetDirectoryIdentity", "sourceImportChecksum", "propertiesBefore", "propertiesAfter"];
+      "currentDirectoryIdentity", "targetDirectoryIdentity", "propertiesBefore", "propertiesAfter"];
     if (!isObject(w) || !hasOnlyKeys(w, [...hashes, "catalogId", "worldId", "previousWorldId", "previousName", "nextName", "sourceImportTransactionId",
-      "predecessorTransactionId", "sequence", "guardBackupId", "workspaceName"]) ||
+      "sourceImportChecksum", "sourceGuard", "predecessorTransactionId", "sequence", "guardBackupId", "workspaceName"]) ||
       typeof value.operationId !== "string" || typeof value.serverId !== "string" || value.kind !== "world-activate" ||
       value.scope !== "world-set" || value.allowStop !== false || value.originalState !== "stopped" ||
       hashes.some(key => typeof w[key] !== "string" || !SHA256.test(w[key] as string)) ||
-      ["catalogId", "sourceImportTransactionId", "guardBackupId"].some(key => typeof w[key] !== "string" || !UUID.test(w[key] as string)) ||
+      ["catalogId", "guardBackupId"].some(key => typeof w[key] !== "string" || !UUID.test(w[key] as string)) ||
       typeof w.worldId !== "string" || !lineage.test(w.worldId) || typeof w.previousWorldId !== "string" || !lineage.test(w.previousWorldId) ||
       w.worldId === w.previousWorldId || value.resourceId !== w.worldId ||
       typeof w.sequence !== "number" || !Number.isSafeInteger(w.sequence) || w.sequence < 1 ||
       (w.sequence === 1 ? w.predecessorTransactionId !== null : typeof w.predecessorTransactionId !== "string" || !UUID.test(w.predecessorTransactionId)) ||
       typeof w.previousName !== "string" || typeof w.nextName !== "string" || w.previousName.toLowerCase() === w.nextName.toLowerCase() ||
       w.workspaceName !== `.manager-world-activate-${value.operationId}` || w.propertiesBefore === w.propertiesAfter) return false;
+    if (w.sourceGuard === undefined) {
+      if (typeof w.sourceImportTransactionId !== "string" || !UUID.test(w.sourceImportTransactionId) ||
+          typeof w.sourceImportChecksum !== "string" || !SHA256.test(w.sourceImportChecksum)) return false;
+    } else {
+      const source = w.sourceGuard;
+      if (w.sequence === 1 || w.sourceImportTransactionId !== null || w.sourceImportChecksum !== null || !isObject(source) ||
+          !hasOnlyKeys(source, ["transactionId", "guardBackupId", "checksum"]) ||
+          typeof source.transactionId !== "string" || !UUID.test(source.transactionId) ||
+          typeof source.guardBackupId !== "string" || !UUID.test(source.guardBackupId) ||
+          typeof source.checksum !== "string" || !SHA256.test(source.checksum) ||
+          source.checksum !== w.targetContentChecksum || source.guardBackupId.toLowerCase() === (w.guardBackupId as string).toLowerCase()) return false;
+    }
     for (const name of [w.previousName, w.nextName]) {
       if (!name || name.length > 128 || name.includes("/") || name.startsWith(".") || name.normalize("NFC") !== name) return false;
       try { if (normalizeRelativePath(name) !== name) return false; } catch { return false; }
@@ -453,11 +504,48 @@ function validateIntent(value: unknown): value is TransactionIntent {
       isObject(p) && p.role === e.role && p.namespace === e.namespace && p.relativePath === e.relativePath))) return false;
   }
   if (value.kind === "world-activate" && value.worldActivation === undefined) return false;
+  if (value.worldReplacement !== undefined) {
+    const w = value.worldReplacement;
+    const hashes = ["rootIdentity", "libraryRevision", "currentWorldRevision", "currentContentChecksum", "currentDirectoryIdentity",
+      "currentObjectIdentity", "propertiesRevision", "propertiesChecksum", "uploadRevision", "importedChecksum"];
+    const lineage = /^worldv2-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+    if (!isObject(w) || !hasOnlyKeys(w, [...hashes, "catalogId", "worldId", "previousWorldId", "levelName", "confirmationName",
+      "uploadId", "minecraftVersion", "guardBackupId", "sequence", "predecessorTransactionId", "workspaceName", "approval"]) ||
+      typeof value.operationId !== "string" || typeof value.serverId !== "string" || value.kind !== "world-replace" ||
+      value.scope !== "world-set" || value.allowStop !== false || value.originalState !== "stopped" ||
+      hashes.some(key => typeof w[key] !== "string" || !SHA256.test(w[key] as string)) ||
+      ["catalogId", "guardBackupId", "uploadId"].some(key => typeof w[key] !== "string" || !UUID.test(w[key] as string)) ||
+      typeof w.worldId !== "string" || !lineage.test(w.worldId) || typeof w.previousWorldId !== "string" || !lineage.test(w.previousWorldId) ||
+      w.worldId === w.previousWorldId || value.resourceId !== w.worldId || w.minecraftVersion !== "26.3" ||
+      typeof w.sequence !== "number" || !Number.isSafeInteger(w.sequence) || w.sequence < 1 ||
+      (w.sequence === 1 ? w.predecessorTransactionId !== null : typeof w.predecessorTransactionId !== "string" || !UUID.test(w.predecessorTransactionId)) ||
+      typeof w.levelName !== "string" || !w.levelName || w.levelName.length > 128 || /[\\/:<>"|?*\u0000-\u001f\u007f]/u.test(w.levelName) ||
+      w.levelName.startsWith(".") || w.levelName.normalize("NFC") !== w.levelName || w.confirmationName !== w.levelName ||
+      w.workspaceName !== `.manager-world-replace-${value.operationId}`) return false;
+    if (w.approval !== undefined) {
+      const approval = w.approval;
+      if (!isObject(approval) || !hasOnlyKeys(approval, ["schemaVersion", "propertiesIdentity", "activeStateIdentity", "activeStateChecksum", "catalogFileIdentity"]) ||
+          approval.schemaVersion !== 1 || ["propertiesIdentity", "activeStateIdentity", "activeStateChecksum", "catalogFileIdentity"]
+            .some(key => typeof approval[key] !== "string" || !SHA256.test(approval[key] as string)) ||
+          createHash("sha256").update(`${approval.propertiesIdentity}\0${w.propertiesChecksum}`).digest("hex") !== w.propertiesRevision) return false;
+    }
+    try { if (normalizeRelativePath(w.levelName) !== w.levelName) return false; } catch { return false; }
+    const expected = [
+      { role: "source", namespace: "server", relativePath: w.levelName },
+      { role: "target", namespace: "server", relativePath: w.levelName },
+      { role: "staging", namespace: "server", relativePath: w.workspaceName },
+      { role: "archive", namespace: "server", relativePath: `${w.workspaceName}/previous-world` },
+      { role: "rollback", namespace: "manager", relativePath: `backups/${value.serverId}/${w.guardBackupId}` }
+    ];
+    if (value.paths.length !== expected.length || !expected.every(e => (value.paths as unknown[]).some(p =>
+      isObject(p) && p.role === e.role && p.namespace === e.namespace && p.relativePath === e.relativePath))) return false;
+  }
+  if (value.kind === "world-replace" && value.worldReplacement === undefined) return false;
   const roles = new Set<string>();
   for (const item of value.paths) {
     if (!isObject(item) || !hasOnlyKeys(item, ["role", "relativePath", "namespace"])) return false;
-    if ((value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldLibraryImport !== undefined || value.worldActivation !== undefined || value.worldArchive !== undefined || value.propertiesWrite !== undefined || value.addonInstall !== undefined || value.addonLifecycle !== undefined) && !["manager", "server"].includes(String(item.namespace))) return false;
-    if (value.restore === undefined && value.worldChange === undefined && value.worldImport === undefined && value.worldLibraryImport === undefined && value.worldActivation === undefined && value.worldArchive === undefined && value.propertiesWrite === undefined && value.addonInstall === undefined && value.addonLifecycle === undefined && item.namespace !== undefined) return false;
+    if ((value.restore !== undefined || value.worldChange !== undefined || value.worldImport !== undefined || value.worldLibraryImport !== undefined || value.worldActivation !== undefined || value.worldReplacement !== undefined || value.worldArchive !== undefined || value.propertiesWrite !== undefined || value.addonInstall !== undefined || value.addonLifecycle !== undefined) && !["manager", "server"].includes(String(item.namespace))) return false;
+    if (value.restore === undefined && value.worldChange === undefined && value.worldImport === undefined && value.worldLibraryImport === undefined && value.worldActivation === undefined && value.worldReplacement === undefined && value.worldArchive === undefined && value.propertiesWrite === undefined && value.addonInstall === undefined && value.addonLifecycle === undefined && item.namespace !== undefined) return false;
     if (!["source", "target", "staging", "rollback", "archive"].includes(String(item.role))) return false;
     if (roles.has(String(item.role)) || typeof item.relativePath !== "string") return false;
     roles.add(String(item.role));
@@ -487,27 +575,36 @@ function validateRecord(value: unknown): value is TransactionJournalRecord {
   if (!isObject(value) || !hasOnlyKeys(value, [
     "schemaVersion", "transactionId", "intent", "state", "checkpoints", "updatedAt"
   ])) return false;
-  if (![SCHEMA_VERSION, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(value.schemaVersion as never) || !UUID.test(String(value.transactionId)) ||
+  if (![SCHEMA_VERSION, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(value.schemaVersion as never) || !UUID.test(String(value.transactionId)) ||
       !validateIntent(value.intent) ||
       !["active", "recovery-required", "committed", "rolled-back"].includes(String(value.state)) ||
       !Array.isArray(value.checkpoints) || value.checkpoints.length > MAX_CHECKPOINTS ||
       !isTimestamp(value.updatedAt)) return false;
   if ((value.schemaVersion === 2) !== (value.intent.restore !== undefined)) return false;
-  if ((value.schemaVersion === 3) !== (value.intent.worldChange !== undefined)) return false;
+  if ((value.schemaVersion === 3 || value.schemaVersion === 14) !== (value.intent.worldChange !== undefined) ||
+      (value.schemaVersion === 14) !== (value.intent.worldChange?.generation !== undefined)) return false;
+  if (value.intent.worldChange?.generation?.transactionId !== undefined &&
+      value.intent.worldChange.generation.transactionId !== value.transactionId) return false;
   if ((value.schemaVersion === 4) !== (value.intent.worldImport !== undefined)) return false;
   if ((value.schemaVersion === 5) !== (value.intent.worldArchive !== undefined)) return false;
   if ((value.schemaVersion === 6) !== (value.intent.propertiesWrite !== undefined)) return false;
   if ((value.schemaVersion === 7) !== (value.intent.addonInstall !== undefined)) return false;
   if ((value.schemaVersion === 8) !== (value.intent.addonLifecycle !== undefined)) return false;
   if ((value.schemaVersion === 9) !== (value.intent.worldLibraryImport !== undefined)) return false;
-  if ((value.schemaVersion === 10) !== (value.intent.worldActivation !== undefined)) return false;
-  if ((value.schemaVersion === 9 || value.schemaVersion === 10) && (typeof value.transactionId !== "string" || typeof value.state !== "string")) return false;
-  if (value.schemaVersion === 10 && value.intent.worldActivation?.predecessorTransactionId?.toLowerCase() === (value.transactionId as string).toLowerCase()) return false;
+  if ((value.schemaVersion === 10 || value.schemaVersion === 11) !== (value.intent.worldActivation !== undefined)) return false;
+  if ((value.schemaVersion === 11) !== (value.intent.worldActivation?.sourceGuard !== undefined)) return false;
+  if ((value.schemaVersion === 12 || value.schemaVersion === 13) !== (value.intent.worldReplacement !== undefined) ||
+      (value.schemaVersion === 13) !== (value.intent.worldReplacement?.approval !== undefined)) return false;
+  if ((value.schemaVersion === 12 || value.schemaVersion === 13) && (typeof value.transactionId !== "string" || typeof value.state !== "string" ||
+      value.intent.worldReplacement!.predecessorTransactionId?.toLowerCase() === value.transactionId.toLowerCase())) return false;
+  if ((value.schemaVersion === 9 || value.schemaVersion === 10 || value.schemaVersion === 11) && (typeof value.transactionId !== "string" || typeof value.state !== "string")) return false;
+  if (value.intent.worldActivation && (value.intent.worldActivation.predecessorTransactionId?.toLowerCase() === (value.transactionId as string).toLowerCase() ||
+      value.intent.worldActivation.sourceGuard?.transactionId.toLowerCase() === (value.transactionId as string).toLowerCase())) return false;
   let previousTime = Date.parse(value.intent.createdAt);
   for (let index = 0; index < value.checkpoints.length; index += 1) {
     const checkpoint = value.checkpoints[index];
     if (!isObject(checkpoint) || !hasOnlyKeys(checkpoint, ["sequence", "name", "recordedAt", "details"]) ||
-        ((value.schemaVersion === 9 || value.schemaVersion === 10) && typeof checkpoint.name !== "string") ||
+        ((value.schemaVersion === 9 || value.schemaVersion === 10 || value.schemaVersion === 11 || value.schemaVersion === 12 || value.schemaVersion === 13 || value.schemaVersion === 14) && typeof checkpoint.name !== "string") ||
         checkpoint.sequence !== index + 1 || !CHECKPOINT_NAME.test(String(checkpoint.name)) ||
         !isTimestamp(checkpoint.recordedAt) ||
         (checkpoint.details !== undefined && !validateDetails(checkpoint.details))) return false;
@@ -560,7 +657,7 @@ export class TransactionJournalStore {
     this.#directory = path.join(this.#managerRoot, "transactions");
   }
 
-  async initialize(): Promise<JournalScanResult> {
+  async initialize(bindLocation = false): Promise<JournalScanResult> {
     await mkdir(this.#managerRoot, { recursive: true, mode: 0o700 });
     const managerInfo = await lstat(this.#managerRoot);
     if (!managerInfo.isDirectory() || managerInfo.isSymbolicLink()) {
@@ -582,7 +679,7 @@ export class TransactionJournalStore {
         !normalized(directoryRealPath).startsWith(`${normalized(managerRealPath)}${path.sep}`)) {
       throw new Error("Transaction journal directory escapes manager root");
     }
-    return this.scan();
+    return bindLocation ? this.#scanAtCurrentLocation(readBounded) : this.scan();
   }
 
   async finalizeRollback(serverId: string, parentId: string, childId: string, updatedAt: string, inject?: (point: string) => Promise<void>): Promise<void> {
@@ -605,7 +702,32 @@ export class TransactionJournalStore {
     });
   }
 
+  async scanExisting(): Promise<JournalScanResult> {
+    return this.#scanAtCurrentLocation(async file => {
+      const { bytes } = await readPrivatePropertiesFile(file, MAX_RECORD_BYTES);
+      try {
+        const text = bytes.toString("utf8");
+        if (!bytes.equals(Buffer.from(text, "utf8"))) throw new Error("Invalid transaction journal encoding");
+        return text;
+      } finally { bytes.fill(0); }
+    });
+  }
+
+  async #scanAtCurrentLocation(readRecord: (file: string) => Promise<string>): Promise<JournalScanResult> {
+    const locationIdentity = async () => createHash("sha256").update(JSON.stringify([
+      await backupDirectoryIdentity(this.#managerRoot), await backupDirectoryIdentity(this.#directory)
+    ])).digest("hex");
+    const before = await locationIdentity();
+    const result = await this.#scan(readRecord);
+    if (await locationIdentity() !== before) throw new Error("Transaction journal location changed");
+    return { ...result, locationIdentity: before };
+  }
+
   async scan(): Promise<JournalScanResult> {
+    return this.#scan(readBounded);
+  }
+
+  async #scan(readRecord: (file: string) => Promise<string>): Promise<JournalScanResult> {
     const entries = await readdir(this.#directory, { withFileTypes: true });
     if (entries.length > MAX_RECORDS) throw new Error("Too many transaction journal files");
     const records: TransactionJournalRecord[] = [];
@@ -631,7 +753,7 @@ export class TransactionJournalStore {
         continue;
       }
       try {
-        const raw = await readBounded(path.join(this.#directory, entry.name));
+        const raw = await readRecord(path.join(this.#directory, entry.name));
         const value: unknown = JSON.parse(raw);
         if (!validateRecord(value) || value.transactionId.toLowerCase() !== identity.transactionId ||
             value.intent.serverId !== identity.serverId) throw new Error("invalid");
@@ -671,13 +793,14 @@ export class TransactionJournalStore {
         ...(input.worldImport === undefined ? {} : { worldImport: structuredClone(input.worldImport) }),
         ...(input.worldLibraryImport === undefined ? {} : { worldLibraryImport: structuredClone(input.worldLibraryImport) }),
         ...(input.worldActivation === undefined ? {} : { worldActivation: structuredClone(input.worldActivation) }),
+        ...(input.worldReplacement === undefined ? {} : { worldReplacement: structuredClone(input.worldReplacement) }),
         ...(input.worldArchive === undefined ? {} : { worldArchive: structuredClone(input.worldArchive) }),
         ...(input.propertiesWrite === undefined ? {} : { propertiesWrite: structuredClone(input.propertiesWrite) }),
         ...(input.addonInstall === undefined ? {} : { addonInstall: structuredClone(input.addonInstall) }),
         ...(input.addonLifecycle === undefined ? {} : { addonLifecycle: structuredClone(input.addonLifecycle) })
       };
       const record: TransactionJournalRecord = {
-        schemaVersion: input.worldActivation !== undefined ? 10 : input.worldLibraryImport !== undefined ? 9 : input.addonLifecycle !== undefined ? 8 : input.addonInstall !== undefined ? 7 : input.propertiesWrite !== undefined ? 6 : input.worldArchive !== undefined ? 5 : input.worldImport !== undefined ? 4 : input.worldChange !== undefined ? 3 : input.restore === undefined ? SCHEMA_VERSION : 2,
+        schemaVersion: input.worldChange?.generation !== undefined ? 14 : input.worldReplacement !== undefined ? input.worldReplacement.approval === undefined ? 12 : 13 : input.worldActivation !== undefined ? input.worldActivation.sourceGuard === undefined ? 10 : 11 : input.worldLibraryImport !== undefined ? 9 : input.addonLifecycle !== undefined ? 8 : input.addonInstall !== undefined ? 7 : input.propertiesWrite !== undefined ? 6 : input.worldArchive !== undefined ? 5 : input.worldImport !== undefined ? 4 : input.worldChange !== undefined ? 3 : input.restore === undefined ? SCHEMA_VERSION : 2,
         transactionId,
         intent,
         state: "active",

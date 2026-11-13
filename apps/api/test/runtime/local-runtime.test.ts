@@ -164,13 +164,115 @@ describe("LocalMinecraftRuntime", () => {
       expect(children.size).toBe(0);
     } finally { await runtime.closeObserver(); }
   });
-  async function ready(runtime: Awaited<ReturnType<LocalRuntimeFactory['create']>>, root: string) {
-    const before = new Set(children), starting = runtime.start(operation());
+  async function ready(runtime: Awaited<ReturnType<LocalRuntimeFactory['create']>>, root: string, context: RuntimeOperationContext = operation()) {
+    const before = new Set(children), starting = runtime.start(context);
     await vi.waitFor(() => expect([...children].some(child => !before.has(child))).toBe(true));
     await appendFile(join(root, 'logs/latest.log'), '[Server thread/INFO]: Done (new child)!\n');
     await starting;
     return [...children].find(child => !before.has(child))!;
   }
+
+  it.each([0, 2])('records exact owned launch/stop exit facts for code %s without interpreting success', async code => {
+    const root = await fixtureRoot();
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript({ exitOnStop: true }).replace('process.exit(0)', `process.exit(${code})`)),
+      { spawnProcess: trackedSpawn(), statusProbe: async () => 'running', readinessPollMs: 5 });
+    try {
+      await runtime.initialize(); expect(runtime.getOwnedLaunchObservation()).toBeNull();
+      const child = await ready(runtime, root);
+      expect(runtime.getOwnedLaunchObservation()).toMatchObject({ serverId: 'runtime-test', ownerOperationId: 'start-operation',
+        processId: child.pid, spawned: true, ready: true, exited: false, closed: false, stopRequested: false, stopCompleted: false });
+      const copy = runtime.getOwnedLaunchObservation()!; Object.assign(copy, { ready: false, exitCode: 99 });
+      expect(runtime.getOwnedLaunchObservation()).toMatchObject({ ready: true, exitCode: null });
+      const steps: string[] = [];
+      await runtime.stop({ ...operation('stop'), verifyBeforeStop: async () => { steps.push('verified'); },
+        beforeStop: () => { steps.push('admitted'); return undefined; } });
+      expect(steps).toEqual(['verified', 'admitted']);
+      await vi.waitFor(() => expect(runtime.getOwnedLaunchObservation()?.closed).toBe(true));
+      expect(runtime.getOwnedLaunchObservation()).toMatchObject({ ownerOperationId: 'start-operation', stopOperationId: 'stop-operation',
+        stopRequested: true, stopCompleted: true, errorObserved: false, exited: true, exitCode: code, signal: null, closed: true });
+    } finally { await runtime.closeObserver(); }
+    expect(runtime.getOwnedLaunchObservation()).toBeNull();
+  });
+
+  it('records unexpected exit separately from an explicitly completed stop', async () => {
+    const root = await fixtureRoot(), script = "process.stdin.on('data',()=>process.exit(2));setInterval(()=>{},1000);";
+    const runtime = new LocalMinecraftRuntime(plan(root, script), { spawnProcess: trackedSpawn(), statusProbe: async () => 'running', readinessPollMs: 5 });
+    try {
+      await runtime.initialize(); const child = await ready(runtime, root); child.stdin.write('crash\n');
+      await vi.waitFor(() => expect(runtime.getOwnedLaunchObservation()?.closed).toBe(true));
+      expect(runtime.getOwnedLaunchObservation()).toMatchObject({ ready: true, stopRequested: false, stopCompleted: false, exited: true, exitCode: 2 });
+    } finally { await runtime.closeObserver(); }
+  });
+
+  it('does not allow old child events or a reconstructed runtime to supply a new launch witness', async () => {
+    const root = await fixtureRoot(), runtimePlan = plan(root, childScript({ exitOnStop: true }));
+    const options = { spawnProcess: trackedSpawn(), statusProbe: async () => 'running' as const, readinessPollMs: 5 };
+    const runtime = new LocalMinecraftRuntime(runtimePlan, options);
+    try {
+      await runtime.initialize(); const old = await ready(runtime, root), first = runtime.getOwnedLaunchObservation()!;
+      await runtime.stop(operation('stop')); await vi.waitFor(() => expect(runtime.getOwnedLaunchObservation()?.closed).toBe(true));
+      await ready(runtime, root, { ...operation(), operationId: 'second-owner' });
+      const second = runtime.getOwnedLaunchObservation()!;
+      expect(second.launchId).not.toBe(first.launchId); expect(second.ownerOperationId).toBe('second-owner');
+      old.emit('error', new Error('late old child event'));
+      expect(runtime.getOwnedLaunchObservation()).toEqual(second);
+      await runtime.stop(operation('stop'));
+    } finally { await runtime.closeObserver(); }
+    const reconstructed = new LocalMinecraftRuntime(runtimePlan, { statusProbe: async () => 'stopped' });
+    try { await reconstructed.initialize(); expect(reconstructed.getOwnedLaunchObservation()).toBeNull(); }
+    finally { await reconstructed.closeObserver(); }
+  });
+
+  it('does not invent successful process exit evidence when spawn throws synchronously', async () => {
+    const root = await fixtureRoot(), runtime = new LocalMinecraftRuntime(plan(root, childScript()), {
+      spawnProcess: () => { throw new Error('injected spawn failure'); }, statusProbe: async () => 'stopped'
+    });
+    try {
+      await runtime.initialize(); await expect(runtime.start(operation())).rejects.toMatchObject({ code: 'RUNTIME_START_FAILED' });
+      expect(runtime.getOwnedLaunchObservation()).toBeNull();
+    } finally { await runtime.closeObserver(); }
+  });
+
+  it('checks synchronous admission after startup awaits and before spawning', async () => {
+    const root = await fixtureRoot(), spawnProcess = vi.fn(() => { throw new Error('unexpected spawn'); });
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript()), { spawnProcess, statusProbe: async () => 'stopped' });
+    const context = operation();
+    let revoked = false;
+    try {
+      await runtime.initialize();
+      expect((await runtime.snapshot()).status.state).toBe('stopped');
+      await expect(runtime.start({ ...context, onStep: async step => {
+        if (step === 'spawning-process') revoked = true;
+        return context.onStep(step);
+      }, beforeSpawn: () => {
+        if (revoked) throw new Error('authorization revoked');
+        return undefined;
+      } })).rejects.toThrow('authorization revoked');
+      expect(revoked).toBe(true);
+      expect(spawnProcess).not.toHaveBeenCalled();
+      expect(runtime.getOwnedLaunchObservation()).toBeNull();
+      expect((await runtime.snapshot()).status).toMatchObject({ state: 'stopped', ownership: 'none' });
+    } finally { await runtime.closeObserver(); }
+  });
+
+  it('refuses guarded spawn after a concurrent probe observes an external server', async () => {
+    const root = await fixtureRoot(), spawnProcess = vi.fn(() => { throw new Error('unexpected spawn'); });
+    let probe: 'stopped' | 'running' = 'stopped';
+    const runtime = new LocalMinecraftRuntime(plan(root, childScript()), { spawnProcess, statusProbe: async () => probe });
+    const context = operation(), beforeSpawn = vi.fn(() => undefined);
+    try {
+      await runtime.initialize();
+      expect((await runtime.snapshot()).status.state).toBe('stopped');
+      await expect(runtime.start({ ...context, onStep: async step => {
+        probe = 'running';
+        await runtime.snapshot();
+        return context.onStep(step);
+      }, beforeSpawn })).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+      expect(beforeSpawn).not.toHaveBeenCalled();
+      expect(spawnProcess).not.toHaveBeenCalled();
+      expect((await runtime.snapshot()).status).toMatchObject({ state: 'running', ownership: 'external' });
+    } finally { await runtime.closeObserver(); }
+  });
 
   it('shares factory game-port reservations until owned child exit, then permits the next instance', async () => {
     const firstRoot = await fixtureRoot(), secondRoot = await fixtureRoot();
@@ -236,8 +338,11 @@ describe("LocalMinecraftRuntime", () => {
     try {
       const child = await ready(runtime, root);
       expect(child.pid).toBeGreaterThan(0); child.emit('error', new Error('injected live-child error'));
+      expect(runtime.getOwnedLaunchObservation()).toMatchObject({ errorObserved: true, exited: false, exitCode: null, signal: null, closed: false });
       expect(() => ports.acquire(25565, null)).toThrow();
       await stopTestChild(child); expect(ports.acquire(25565, null).active).toBe(true);
+      await vi.waitFor(() => expect(runtime.getOwnedLaunchObservation()?.closed).toBe(true));
+      expect(runtime.getOwnedLaunchObservation()).toMatchObject({ errorObserved: true, exited: true, exitCode: child.exitCode, signal: child.signalCode, closed: true });
     } finally { await runtime.closeObserver(); }
   });
 

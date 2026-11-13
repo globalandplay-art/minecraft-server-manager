@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -132,6 +132,7 @@ describe("TransactionJournalStore", () => {
     roots.push(target);
     await symlink(target, directory, process.platform === "win32" ? "junction" : "dir");
     await expect(new TransactionJournalStore(root).initialize()).rejects.toThrow("real directory");
+    await expect(new TransactionJournalStore(root).scanExisting()).rejects.toThrow();
   });
 
   it("rejects a manager root that resolves through a symlink", async () => {
@@ -141,6 +142,19 @@ describe("TransactionJournalStore", () => {
     const linkedRoot = join(parent, "linked-manager");
     await symlink(target, linkedRoot, process.platform === "win32" ? "junction" : "dir");
     await expect(new TransactionJournalStore(linkedRoot).initialize()).rejects.toThrow("real directory");
+  });
+
+  it("distinguishes a replacement journal directory even when both scans are empty", async () => {
+    const root = await fixtureRoot(), store = new TransactionJournalStore(root);
+    const before = await store.initialize(true);
+    expect(before.locationIdentity).toBeDefined();
+    expect((await store.scanExisting()).locationIdentity).toBe(before.locationIdentity);
+    const directory = join(root, "transactions");
+    await rename(directory, join(root, "retained-transactions"));
+    await mkdir(directory);
+    const after = await store.scanExisting();
+    expect(after.records).toEqual(before.records);
+    expect(after.locationIdentity).not.toBe(before.locationIdentity);
   });
 
   it("detects duplicate operation ownership across otherwise terminal records", async () => {

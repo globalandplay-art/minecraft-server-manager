@@ -18,6 +18,7 @@ import type {
   RuntimeStreamReplay,
   RuntimeStreamSnapshot,
   RuntimeEvent,
+  RuntimeOwnedLaunchObservation,
   ValidatedLaunchPlan
 } from "../runtime-contract.js";
 import type { WhitelistRconSession } from "../runtime-contract.js";
@@ -137,6 +138,8 @@ function safeSpawn(
 }
 
 export class LocalMinecraftRuntime implements MinecraftRuntime {
+  readonly supportsSpawnAdmission = true;
+  readonly supportsStopAdmission = true;
   private readonly portReservations: RuntimePortReservations;
   private portLease: RuntimePortLease | null = null;
   private readonly verifyTcpPeer: RconPeerVerifier;
@@ -158,6 +161,9 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
   private child: ChildProcessWithoutNullStreams | null = null;
   private readonly whitelistGenerations = new WeakMap<ChildProcessWithoutNullStreams, string>();
   private childOperationId: string | null = null;
+  private launchObservation: { child: ChildProcessWithoutNullStreams; value: {
+    -readonly [K in keyof RuntimeOwnedLaunchObservation]: RuntimeOwnedLaunchObservation[K]
+  } } | null = null;
   private childExit: Promise<void> | null = null;
   private rcon: RconClient | null = null;
   private rconSignature: string | null = null;
@@ -281,16 +287,20 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       throw new RuntimeError("OPERATION_INTERRUPTED", "启动操作已中断。" );
     }
 
+    // A fresh attempt cannot expose evidence from a preceding launch.
+    this.launchObservation = null;
     // Drain the current file/rotation before observing this launch. A Done line
     // that predates this point can never satisfy the readiness gate.
     await this.tailer.pollNow();
     await context.onStep("spawning-process");
     const launchConnection = await this.readRconConnection();
+    if (context.verifyBeforeSpawn) await context.verifyBeforeSpawn();
     this.assertOpen();
     if (context.signal.aborted) throw new RuntimeError('OPERATION_INTERRUPTED', '启动操作已中断。');
     const lease = this.portReservations.acquire(this.plan.statusEndpoint.port, launchConnection?.port ?? null);
     this.portLease = lease;
     let childCreated = false;
+    let admissionRejected = false;
     let doneSeen = false;
     const unsubscribe = this.stream.subscribe((event) => {
       if (event.type === "log" && event.entry.source === "latest.log" && DONE_PATTERN.test(event.entry.text)) {
@@ -298,9 +308,6 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       }
     });
 
-    this.expectedStop = false;
-    this.knownStopped = false;
-    this.updateStatus("starting", "managed", context.operationId, false);
     let child: ChildProcessWithoutNullStreams;
     try {
       assertJavaEnvironment();
@@ -308,6 +315,20 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       this.resourceEarliest = this.now().getTime();
       this.resourceCache = null;
       this.resourceSampler.reset();
+      try {
+        if (context.beforeSpawn && (this.status.state !== "stopped" || this.status.ownership !== "none" ||
+            this.status.recoveryRequired || (this.child && this.child.exitCode === null))) {
+          throw new RuntimeError("RECOVERY_REQUIRED", "启动前无法确认实例已停止。");
+        }
+        const admission: unknown = context.beforeSpawn?.();
+        if (admission !== undefined) {
+          void Promise.resolve(admission).catch(() => undefined);
+          throw new RuntimeError("RECOVERY_REQUIRED", "启动授权未通过同步核验。");
+        }
+      } catch (error) {
+        admissionRejected = true;
+        throw error;
+      }
       child = this.spawnProcess(this.plan.javaExecutable, this.plan.argv, {
         cwd: this.plan.rootPath,
         shell: false,
@@ -315,16 +336,23 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
         detached: true
       });
       childCreated = true;
+      this.expectedStop = false;
+      this.knownStopped = false;
       this.releasePortsOnExit(child, lease);
-      this.attachChild(child);
+      const ownedLaunch = this.attachChild(child, context.operationId);
       this.childOperationId = context.operationId;
+      this.updateStatus("starting", "managed", context.operationId, false);
       await this.waitForSpawn(child, context.signal);
       await context.onStep("waiting-for-new-done-log");
       await this.waitUntilReady(() => doneSeen, context.signal);
+      if (!this.closed && this.child === child && child.exitCode === null && child.signalCode === null) {
+        ownedLaunch.ready = true;
+      }
       this.startedAt = this.now().getTime();
       this.updateStatus("running", "managed", null, false);
       await context.onStep("running");
     } catch (error) {
+      if (admissionRejected) throw error;
       if (this.child && this.child.exitCode === null) {
         this.updateStatus("unknown", "managed", null, true);
       } else if (this.status.state !== "crashed") {
@@ -364,10 +392,20 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       throw new RuntimeError("RECOVERY_REQUIRED", "运行状态不确定，需要先完成恢复检查。" );
     }
     this.expectedStop = true;
+    const observation = this.launchObservation?.child === child ? this.launchObservation.value : undefined;
+    if (observation) { observation.stopRequested = true; observation.stopOperationId = context.operationId; }
     this.updateStatus("stopping", "managed", context.operationId, false);
     await context.onStep("sending-stop");
     const exitAtStart = this.childExit;
     const lease = this.portLease;
+    const beforeStop = (): undefined => {
+      const result: unknown = context.beforeStop?.();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => undefined);
+        throw new RuntimeError("RECOVERY_REQUIRED", "停止授权未通过同步核验。");
+      }
+      return undefined;
+    };
     try {
       const rcon = await this.readRconConnection();
       this.assertRconLaunch(child, lease, 'stopping');
@@ -377,8 +415,8 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
           await client.executeGuarded("stop", () => {
             this.assertRconLaunch(child, lease, 'stopping');
             if (this.rcon !== client) throw new RuntimeError('COMMAND_TRANSPORT_UNAVAILABLE', 'RCON 连接已变化。');
-            return undefined;
-          });
+            return beforeStop();
+          }, context.verifyBeforeStop);
         } catch (error) {
           // Minecraft may close RCON before the barrier response while the stop
           // command is already taking effect. Process exit is the authority.
@@ -390,11 +428,15 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
           }
         }
       } else {
+        if (context.verifyBeforeStop) await context.verifyBeforeStop();
+        this.assertRconLaunch(child, lease, 'stopping');
+        beforeStop();
         await this.writeStdin(child, "stop\n");
       }
       await context.onStep("waiting-for-process-exit");
       await this.waitForExit(context.signal);
       await context.onStep("stopped");
+      if (observation) observation.stopCompleted = true;
     } catch (error) {
       this.expectedStop = false;
       if (error instanceof RuntimeError && error.code === "OPERATION_TIMEOUT") {
@@ -526,9 +568,14 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     return this.stream.replay(streamId, afterSequence);
   }
 
+  getOwnedLaunchObservation(): RuntimeOwnedLaunchObservation | null {
+    return this.closed || !this.launchObservation ? null : structuredClone(this.launchObservation.value);
+  }
+
   async closeObserver(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.launchObservation = null;
     this.tailer.stop();
     this.rcon?.close();
     this.rcon = null;
@@ -566,8 +613,15 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
     }
   }
 
-  private attachChild(child: ChildProcessWithoutNullStreams): void {
+  private attachChild(child: ChildProcessWithoutNullStreams, ownerOperationId: string) {
     this.child = child;
+    const observation = { child, value: {
+      launchId: randomUUID(), serverId: this.plan.id, ownerOperationId, processId: child.pid ?? null,
+      spawned: false, ready: false, stopRequested: false, stopOperationId: null as string | null,
+      stopCompleted: false, errorObserved: false, exited: false, exitCode: null as number | null,
+      signal: null as NodeJS.Signals | null, closed: false
+    } };
+    this.launchObservation = observation;
     child.stdout.resume();
     child.stderr.on("data", (chunk: Buffer) => this.tailer.appendStderr(chunk));
     let handled = false;
@@ -591,12 +645,23 @@ export class LocalMinecraftRuntime implements MinecraftRuntime {
       this.expectedStop = false;
       resolveExit();
     };
-    child.once("exit", finish);
-    child.once("error", finish);
-    this.detachChildListener = () => {
-      child.off("exit", finish);
-      child.off("error", finish);
+    const spawned = () => { observation.value.spawned = true; observation.value.processId = child.pid ?? null; };
+    const exited = (code: number | null, signal: NodeJS.Signals | null) => {
+      observation.value.exited = true; observation.value.exitCode = code; observation.value.signal = signal; finish();
     };
+    const failed = () => { observation.value.errorObserved = true; finish(); };
+    const closed = () => { observation.value.closed = true; };
+    child.once("spawn", spawned);
+    child.once("exit", exited);
+    child.once("error", failed);
+    child.once("close", closed);
+    this.detachChildListener = () => {
+      child.off("spawn", spawned);
+      child.off("exit", exited);
+      child.off("error", failed);
+      child.off("close", closed);
+    };
+    return observation.value;
   }
 
   private async waitForSpawn(child: ChildProcessWithoutNullStreams, signal: AbortSignal): Promise<void> {

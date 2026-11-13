@@ -4,6 +4,20 @@ export interface WorldVersionObservation {
   dataVersion: number | null;
 }
 
+/** Storage locations observed in the authorized 26.3/5023 fresh-world run.
+ * This is a layout allowlist, never a claim of successful Minecraft loading.
+ * Unknown/custom dimensions and mixed legacy/namespaced storage stay closed.
+ */
+export function supportsVanillaWorldLayout(files: readonly { path: string }[], metadata: WorldVersionObservation): boolean {
+  if (!metadata.readable || metadata.version !== "26.3" || metadata.dataVersion === null ||
+      !Number.isSafeInteger(metadata.dataVersion) || metadata.dataVersion < 0) return false;
+  const namespaced = files.filter(file => file.path.toLowerCase().startsWith("dimensions/"));
+  if (!namespaced.length) return true;
+  if (metadata.dataVersion !== 5023 || namespaced.some(file =>
+    !/^dimensions\/minecraft\/(?:overworld|the_nether|the_end)\//u.test(file.path))) return false;
+  return !files.some(file => /^(?:region|entities|poi|DIM-1|DIM1)\//iu.test(file.path));
+}
+
 export type CompatibilityFinding =
   | "WORLD_METADATA_UNREADABLE"
   | "WORLD_PROFILE_UNVERIFIED"

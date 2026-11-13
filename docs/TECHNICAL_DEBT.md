@@ -1,4 +1,513 @@
-# 2026-10-26 Worlds V2 activation boundary
+## Worlds V2 first managed lifecycle (2026-11-13) — IN PROGRESS
+
+The opt-in generation API and result page can explicitly start the verified
+initial world and stop the same live launch. Fake runtime, authenticated HTTP
+and full buildApp composition passed. UI restoration preserves known stop
+and unknown-result states after refresh or instance switching. A stop timeout
+retains its completion owner until the task drains. Independent Sol High
+service/API/UI delta reviews accepted 0/0/0. Main still leaves the generation
+execution opt-in disabled. Synthetic-HTTP Chrome checks passed at three
+widths. Isolated real Java generation/publication/first managed start and stop
+passed with independent evidence review 0/0/0; recovery stayed locked. A separate
+Node buildApp/read-only HTTP reopen also passed 0/0/0 without Minecraft launch.
+Recovery settlement and real HTTP/UI integration remain
+required before phase delivery. Diagnostics were not waived. See the
+latest PROGRESS entry for exact reports and historical failures.
+
+## Lifecycle receipt storage (2026-10-30) — bounded ACCEPT
+
+Private worldLifecycle descriptors now use existing OperationStore; strict
+validation, all-state raw restart preservation, dedicated unverified cause and
+expired/case-normalized replay blocking implemented. No dispatch/seal/revision
+writer or unlock. Final30PASS/0FAIL (17new+4admission+9store); separate52PASS
+compatibility. Standalone typecheck/scopedlint/diff0; aggregate77049exit1 remains
+historical non-PASS, internal cause UNKNOWN. Independent Sol High4/4hashes,
+sameHEAD,P1/P2/P3=0/0/0 bounded ACCEPT. See
+WORLDS_V2_LIFECYCLE_RECEIPTS_2026-10-30.md. Next coherent actual dispatch +
+frozen launch/stop receipts + revision publication/consumption + compatible
+catalog/history/active admission; keep all recovery causes until verified.
+All owned sessions done; no realJava/world/system/Git changes. V2 IN PROGRESS;
+P7 STOPPED. Near-limit checkpoint: weekly99%used,5h38%used, ordinary allowed,
+not exhausted; no reset redeemed. Resume actual tree, do not repeat finished tests.
+## Ordinary owned lifecycle observer (2026-10-30) — bounded ACCEPT
+
+Added unused read-only start(A)/normal-stop(B) witness reusing registered runtime.
+Final53PASS/0FAIL (23new+30old); API typecheck/scopedlint/diff exit0. Sol High
+2/2hashes+same HEAD, P1/P2/P3=0/0/0 bounded ACCEPT. No revision writer, readiness
+release or runtime changes. Additional startup compatibility145PASS/0FAIL; not
+full regression. See WORLDS_V2_NORMAL_LIFECYCLE_2026-10-30.md. Next integrate
+durable open-run/exact lifecycle receipts + one-revision-per-launch publication
+with catalog/history/active admission. Generic current receipts have no world/
+launch binding; normal exit alone cannot authorize changed bytes or restart.
+V2 IN PROGRESS; P7 STOPPED; no realJava/world/system/Git changes.
+## Initial maturity startup classification (2026-10-30) — bounded ACCEPT
+
+Metadata-only startup classification now recognizes an exact issued schema7
+publication without marking durability, clearing recovery or opening ordinary
+start/write. Missing/damaged/unscoped evidence stays closed. Fixed an import
+cycle by extracting unchanged strict reference schemas into a leaf module.
+Integrated51PASS/0FAIL; corrected explicit5s setup-hook startup10PASS/0FAIL
+(overlapping, not summed). API build/scopedlint/diff exit0. Independent Sol High
+7/7hashes+same HEAD, P1/P2/P3=0/0/0 bounded ACCEPT. Original2/8 and9/1 reports
+retained; separate setup/body timing is not an original combined5s PASS.
+See WORLDS_V2_MATURITY_STARTUP_2026-10-30.md. Next ordinary owned normal-stop
+revision policy, then integrated readiness/API/UI/real acceptance. New read-only
+normal-lifecycle observer is in development, not a permission or revision writer.
+V2 IN PROGRESS; P7 STOPPED; no Git/realJava/system/world mutation this unit.
+## Initial maturity6→7 metadata publication accepted (2026-10-30)
+
+Actual backend CAS + explicit same-intent continuation/read-confirm implemented;
+full6/7 proofs, immutable intent/stage, bigint/content/version+directory closing
+fences, same-device, both-dir sync. Source/target failures preserve evidence.
+Final22PASS/0FAIL,182NOT RUN; independent6/6hashes,unchanged HEAD,0/0/0 ACCEPT.
+Historical4/4 nativeESM-spy failure retained. No receipt/snapshot/cause changes;
+all ordinary/start/write gates stay closed. Fresh app test provesclosed only,
+NOT successful production startup continuation. Next read-only7classification,
+then owned-stop revision policy + integrated ready/API/real acceptance. See
+WORLDS_V2_MATURITY_PUBLICATION_2026-10-30.md. P7 STOPPED;no Git/realJava.
+## Initial schema7 physical verifier (2026-10-30) — IN PROGRESS
+
+Implemented private immutable snapshot view with old exact birth/guard/stopped/
+registration/tree verifier. Active installedslot + originalbirthproof required;
+fresh recheck compares ORIGINAL full baseline; no view/oldrecheck escapes.
+Actual7 controls separate from original6snapshot; publicationVerified staysfalse.
+Source Sol High0/0/0; fresh33PASS/0FAIL,149NOT RUN; independent8/8hash readback,0/0/0 bounded ACCEPT.
+Bounded phase diagnostic shows sample3.68s setup vs0.194s physical, not a product
+perf PASS. No publishers/ready/startup/clear/API added. Historical11/1 and24/7 retained. Reviewed manual protocol physical fixture isolation
+under independent review. See WORLDS_V2_INITIAL_MATURE_PHYSICAL_2026-10-30.md.
+All owned test sessions completed. P7 STOPPED;no Git/Java/system/world changes.
+## Initial mature catalog READ/PREPARE (2026-10-29)
+
+Separate schema7 candidate/explicit inspector implemented; ordinary schema/type/
+read/head remain1..6. Exact original2entries and issued proof preserved; original
+parent/checkpoints/raw receipts reverified. Both results inspectionOnly/recovery
+required/catalogPublicationVerified:false. No7publisher, migration, startup/clear.
+Focused17PASS/0FAIL,149NOT RUN; build/typecheck/scopedlint/diff PASS. Sol High
+source0/0/0; final229PASS/0FAIL/0pending, independent4/4hashes ACCEPT. Old session43073 completed;
+report worlds-v2-initial-maturity-integration-2026-10-29.json; do not duplicate.
+Final READ/PREPARE evidence ACCEPT. See WORLDS_V2_INITIAL_MATURITY_CATALOG_2026-10-29.md.
+V2 IN PROGRESS;P7 STOPPED;no Git upload or real Java this unit.
+## Durable genesis reference issuance (2026-10-29)
+
+Backend-only issuer now seals deterministic v2 references under existing lease
+and full active proof, existing completion/snapshot only. Six immutable objects
+are strongly bound from issuance onward. Fixed-anchor reader requires external
+checksum+bigint identity; raw v2 data grants no issuer authority. No mature
+catalog/ready/clear/receipt/API change. Final18PASS plus confirmation2PASS (one
+case overlaps), remaining tests NOT RUN; static/build PASS. Sol High source0/0/0,
+final6/6hashes matched, bounded ACCEPT. Old23/1 UNKNOWN and pre-issuance limitations
+retained. See WORLDS_V2_GENESIS_ISSUER_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED.
+## Historical genesis reference reader (2026-10-29)
+
+Read-only, pathless immutable-evidence link inspector implemented, independent
+of mutable catalog/active slot. Full birth execution matches permanent execution
+anchor; original completion/CAS/birth/anchor links and fixed stage are verified.
+Reference-local bigint read witnesses reject actual replacement even if legacy
+IDs alias. Fresh15PASS/0FAIL,115NOT RUN; parser14PASS separately. Build/static PASS;
+Sol High8/8hashes, unchanged HEAD,0/0/0, bounded ACCEPT. Original23/1 retained,
+root UNKNOWN; later PASS is not its explanation. Older numeric pre-entry identity
+provenance remains unverified and must be addressed by future authenticated
+mature reference issuer. No mature catalog/ready/clear/API or real Minecraft Gate.
+See WORLDS_V2_GENESIS_REFERENCE_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED;no Git.
+## Genesis-aware history projection (2026-10-29)
+
+Pure structural projection now starts with actual generated UUID and the original
+world, without an invented activation. Same-name replacement retains retirement
+and immutable genesis metadata. Original generation operation/transaction/guard
+identifiers cannot be reused. Existing unseeded core remains compatible.
+Compatibility223PASS/0FAIL; focused37 includes36 overlapping tests; guard fix1PASS
+with114NOT RUN. API build/typecheck/scopedlint/diff exit0. Sol High source0/0/0;
+final6/6hashes matched, limited ACCEPT. No mature catalog or ready/clear/API authority.
+See WORLDS_V2_GENESIS_TRANSITION_PROJECTION_2026-10-29.md. Next: mature snapshot
+reference and ordinary owned-stop revisions before integrated admission. No Java,
+Git upload or P7 work. V2 IN PROGRESS.
+## Genesis snapshot preservation (2026-10-29)
+
+Backend-only append-only snapshot writer implemented under existing mutation
+lease/lifetime. Existing completion required; original schema6 bytes retained,
+with exact identity/hash and post-write full proof/link checks. No mature catalog,
+ready release, HTTP route, raw receipt changes or recovery-cause clearing.
+Independent Sol High6/6hashes, unchanged HEAD,0/0/0; limited evidence ACCEPT.
+Fresh integration161PASS/0FAIL/0pending (service115/execution46). Historical
+5/1(assertion error category) and8/1(default5s) preserved. Build/typecheck/scoped
+lint/diff passed. See WORLDS_V2_GENERATION_GENESIS_PERSISTENCE_2026-10-29.md.
+# 2026-10-27 Worlds V2 delivery boundaries
+
+## Next readiness design accepted, implementation pending (2026-10-29)
+
+Mature catalog/genesis preservation and normal owned-stop revision policy are
+independently accepted design directions, not implemented capabilities. Preserve
+generation origin, genuine transition seed and all evidence; unknown/offline
+content drift remains inspection. Normal start/stop use separate operation IDs,
+so the generation-only same-operation witness cannot be reused unchanged.
+See WORLDS_V2_GENERATION_READINESS_2026-10-29.md. No ready/API Gate passed.
+
+## Generation completion evidence (2026-10-29)
+
+Append-only completion + strict generation raw-receipt startup stability accepted:
+fresh150PASS/affected27PASS, independent8hashes/0/0/0, build/static PASS. Original
+100/1 retained, 5s unchanged. Unknown/partial evidence still blocks; no raw receipt
+is rewritten. Remaining: successful result projection, final readiness and normal
+subsequent-save/lifecycle policy, then API/UI/OS-crash/real Minecraft acceptance.
+Completion existence alone is never a readiness signal. P7 STOPPED; no upload.
+
+## Dedicated generation slot lease integration (2026-10-29)
+
+Final independent readback7/7hashes and140PASS accepted,0/0/0. The pending
+checkpoint below is historical; remaining settlement/readiness work is not done.
+
+Backend-only writer now holds existing instance mutation lease and owner drain;
+readonly entry does not expose write guard. Fresh140PASS, static/build PASS,
+independent source0/0/0, final7hash readback PENDING. No receipt/ready/API opened.
+Next settlement must preserve explicit continuation across partial persistence:
+current CAS intent binds original receiptDigest, so naive receipt overwrites are
+not a safe implementation. Review final-evidence policy before writes. See
+generation-slot-lease doc. Prior87 is subset; no real Java/crash acceptance added.
+
+## Generation slot CAS primitive (2026-10-29)
+
+Limited primitive accepted with87PASS/5hashes/independent0/0/0. CAS interruption
+artifacts can be explicitly inspected/continued, but the primitive is unmounted
+and requires a future dedicated instance mutation lease plus drain. No normal
+snapshot/receipt/ready is updated. Old82/86reports retained; real OS-process crash
+and actual recovery integration remain unverified. See generation-slot doc.
+
+## Protected generation startup composition (2026-10-29)
+
+Final independent readback completed:8/8hashes,0/0/0,limited ACCEPT. Earlier
+pending checkpoint below superseded for classification/no-import-work only;
+remaining user-facing recovery work below is still incomplete.
+
+Known generation-slot classification and narrow no-import compatibility implemented.
+Fresh72PASS, unaffected46+114 reused; source independent0/0/0; final8hash readback
+PENDING at checkpoint. Unknown/external stays blocked; startup never promotes.
+Next required work remains resumable CAS/receipt settlement, completion/lifecycle
+evidence policy (including legitimate subsequent saves), explicit HTTP/UI and
+scoped real acceptance. Do not treat inspection success as a usable world feature.
+Original65/1,226/1,231/1 reports retained; see generation-startup evidence doc.
+
+## Leased inspection final evidence (2026-10-29)
+
+Independent Sol High accepted4/4hashes and corrected292PASS report;0/0/0.
+Earlier pending checkpoint is superseded only for read-only inspection. Startup
+known-slot classification, actual resumable recovery and readiness/lifecycle
+policy remain incomplete; no API or real Java acceptance added. V2 IN PROGRESS.
+
+## Leased generation inspection (2026-10-29)
+
+Read-only instance-lease composition implemented, unmounted. Two initial review
+P2 findings fixed; independent delta source review0/0/0. Fresh corrected-candidate
+four-suite report and final evidence signature PENDING at this checkpoint.
+No recovery release implemented; resumable slot/receipt settlement and future-save
+policy remain required before API/UI and new real acceptance. Initial57/290PASS
+results are historical pre-correction evidence, not final acceptance.
+See WORLDS_V2_GENERATION_INSPECTION_2026-10-29.md. P7 STOPPED; no Git upload.
+
+## Current-state proof independent acceptance (2026-10-29)
+
+Independent GPT-6.1 Sol High: limited ACCEPT, P1/P2/P3=0/0/0; 7/7 candidate
+hashes verified. Affected 21 files: 639 PASS/0 FAIL; focused 49 is included.
+Original 638 PASS/1 FAIL and deliberate Fake CLEANUP_BLOCKED evidence retained.
+The proof/classification unit is accepted; earlier PENDING checkpoints below are
+historical. Delivery still requires dedicated leased, resumable slot/receipt
+settlement, final readiness invalidation and legitimate future-save policy,
+followed by real API/UI and scoped actual acceptance. No unlock is implemented
+or certified by this review. V2 IN PROGRESS; P7 STOPPED; no Git upload.
+
+## Current-state proof fresh checks (2026-10-29)
+
+Affected21files639PASS/focused49PASS(overlap);API build/typecheck/scopedlint/diff
+PASS. Original638/1fixture setup observation timeout retained, resource cause
+UNKNOWN. Event-driven fixture wait/owner-drain independently approved, no timeout
+or business assertion relaxation; deliberateFakeCLEANUP_BLOCKED evidence retained.
+Global startup classificationP2closed; final7hash/evidence signature PENDING.
+Still read-only: no slot/receipt settlement, cause replacement, clear or API recovery.
+See WORLDS_V2_GENERATION_CURRENT_STATE_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: generation current-state proof (2026-10-29)
+
+Read-only first published generation proof now binds birth actual config bytes,
+slot, oldguard, exact newborn level/identities and stable complete current tree.
+Typed startup pending descriptor preserves unknown/global-failure recovery and
+never promotes/clears; app external causes untouched. Focused49PASS; staticPASS.
+Affected integration/final independent evidence review PENDING at checkpoint.
+No new Java, slot/receipt writes, recovery endpoint or startup permission.
+Next: explicit leased recovery with resumable slot CAS and lifecycle-ready policy.
+See WORLDS_V2_GENERATION_CURRENT_STATE_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: pending generated catalog publication (2026-10-29)
+
+Schema6 preserves old entry and adds the same generated UUID with immutable birth
+binding. Dedicated history-backed inspection is available through GET/API/UI:
+inspection-required, nullactive, no mutation/activation;3language pending badge.
+No old slot promotion or generation writer production enablement.
+API624affectedPASS/Web25PASS/contracts7PASS;typecheck/scopedlint/build/diff PASS.
+Independent Sol High0/0/0 bounded ACCEPT,16/16 hashes. Newrace fixes and historical
+failed reports retained. No Java/real browser in this unit; old realPASS not reused.
+Next: completion/recovery/startup verification and actual create/generate UI wiring.
+See WORLDS_V2_GENERATION_PUBLICATION_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: birth evidence safety closure (2026-10-29)
+
+Immutable inspection-only birth evidence independently accepted Sol High0/0/0,
+6/6 hashes.13files327PASS;focused25PASS overlaps. Typecheck/scopedlint/diff PASS.
+Both P2 fixed/tested: synchronous guard after directory IO/before wx and strict
+final readback after live callback. No new Java or production mutation gate opened.
+Next: completed birth consumption/catalog publication with scoped recovery/startup
+integration. Old real PASS belongs to earlier candidate; never retroactively bind.
+See WORLDS_V2_GENERATION_BIRTH_2026-10-28.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: immutable generation birth evidence (2026-10-28)
+
+Strict same-UUID/operation/candidate/live-exit birth evidence writer implemented
+in internal runner. Exclusive persisted receipt; read inspectionOnly, no catalog
+entry/recovery release. Focused PASS; affected integration and independent Sol
+High review PENDING at checkpoint. Typecheck/scoped lint PASS. No Java in unit;
+prior real candidate PASS is historical for its earlier code, not this writer.
+Next: finish review/fault evidence, then birth consumption/catalog publication.
+See WORLDS_V2_GENERATION_BIRTH_2026-10-28.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: real candidate generation business PASS (2026-10-28)
+
+Timestamp-only fix independently accepted0/0/0,12/12 hashes;316affectedPASS.
+New fresh56d1b65c real run businessPASS:2normalownedJava closed/force0, oldtree
+unchanged, samekey no resend, manager/generation drain complete, sources unchanged.
+Diagnostics NOT_ASSESSED; historical48288d5f BLOCKED/BOM Java0 retained. Independent
+new real-evidence readback accepted0/0/0 (limited candidate business only). No birth/catalog publication or recovery release.
+Next: durable birth binding/publication, then startup/API/UI integration.
+See WORLDS_V2_GENERATION_TIMESTAMP_2026-10-28.md. V2 remains IN PROGRESS;P7 STOPPED.
+
+
+## Latest: real generation timestamp incompatibility (2026-10-28)
+
+Runner independently accepted0/0/0; actual fresh-copy run BLOCKED after2normal
+owned Java exits/force0/sourceUnchanged. Confirmed only properties generated-date
+comment changed;69values unchanged, old inventory equals pinned guard. First
+BOM-only prelaunch failureJava0 and actual failed scene both retained.
+Narrow same-file/date-only post-owned-exit fix:316affectedPASS/115focusedPASS
+(overlap), staticPASS. Independent fix review PENDING; new real validation pending.
+See [actual evidence and fix](WORLDS_V2_GENERATION_TIMESTAMP_2026-10-28.md).
+No replay of consumed scene; no world birth/publication or production enablement.
+
+
+2026-10-28 follow-up: independent GPT-6.1 Sol High is now available and accepted
+the unmounted generation runner P1/P2/P3=0/0/0,6/6 frozen hashes. Prior capacity
+failures retained as historical. Actual Minecraft generation, birth/publication
+and production integration remain OPEN; preparing one bounded isolated run.
+
+
+Generation coordinator implemented but NOT production enabled:300affectedPASS,
+final13runnerPASS (overlap), staticPASS. Required independent Sol High review
+PENDING after two same-model capacity failures. No actual Minecraft generation
+acceptance, durable birth/publication or startup integration. These remain
+MUST_FIX; do not treat clean child exit as world publication or clear inspection.
+See WORLDS_V2_GENERATION_RUN_2026-10-28.md.
+
+
+Exact owned-child exit checker accepted independently0/0/0;86affectedPASS,
+5/5 frozen hashes. Ephemeral observation only, not actual child cleanup or world
+birth. MUST_FIX remains the owned lifecycle/cleanup coordinator, sealed physical
+prelaunch proof, controlled execution and final world publication. No Java run.
+See WORLDS_V2_GENERATION_OWNED_EXIT_2026-10-28.md.
+
+
+Generation admission accepted independently0/0/0:384affectedPASS, final46PASS
+(overlap),5/5 frozen hashes. Dedicated backend-only path, no production start.
+MUST_FIX: owned-child cleanup retention, controlled execution, stopped birth and
+catalog publication; app startup external cause must remain fail-closed until
+specifically verified. Generic recoveryOwner is not a generation bypass.
+See WORLDS_V2_GENERATION_ADMISSION_2026-10-28.md.
+
+
+Execution evidence storage/startup closure332affectedPASS (24execution included),
+independent0/0/0 accepted,6/6 hashes. Dedicated execution admission, failed owned
+child retention/cleanup, actual run and final publication remain OPEN.
+
+Committed preparation proof now239affectedPASS and independent0/0/0 accepted,
+9/9 hashes. Read-only only; explicit execution still requires orphan-receipt
+no-resend, one-time catalog intent, startup masking and owned-child cleanup.
+Do not use prepared proof or ordinary world-create recoveryOwner as a shortcut.
+
+Generation latest-only runtime observation44PASS, independent delta0/0/0;
+normal exit facts no longer need to be guessed from stopped status. Durable
+birth evidence, explicit continuation and final catalog publication still OPEN.
+This internal observation is not by itself a production feature or recovery grant.
+
+2026-10-28 full first/stopped V2 preparation internal branch accepted0/0/0:
+226affectedPASS, OS3boundaries/6closedNodechildren, Java0; candidate12/12 and
+OS35/35 hashes. No production caller. Owned lifecycle witness, stopped birth
+binding, final publication and explicit recovery remain MUST_FIX for generation.
+App must drain V2 creator before adapter disposal when it is eventually mounted.
+See [preparation checkpoint](WORLDS_V2_GENERATION_PREPARATION_2026-10-28.md).
+
+2026-10-28 candidate observation116affectedPASS, static checks and independent
+0/0/0 acceptance,5/5 hashes matched. Metadata snapshot P2 closed; this does not
+prove actual owned generation. Lifecycle provenance/final catalog binding and
+production generation remain MUST_FIX/OPEN. No new product feature enabled.
+
+New-world immutable generation remains MUST_FIX for V2: current legacy creator
+does not publish a new V2 catalog identity. Synthetic test confirms fail-closed
+catalog rather than UUID rebinding. A universal catalog-presence block regressed
+HTTP creation and was withdrawn (failure report retained). Unmounted proposal
+and observation classifier10PASS. Schema14 storage119affectedPASS/delta21PASS,
+replacement110PASS and independent storage0/0/0 accepted; final readback10/10 matched.
+Unmounted catalog reservation now59affectedPASS+legacy14PASS, independent
+delta0/0/0 accepted; final hash readback7/7 matched. Dedicated birth proof and
+startup/lifecycle integration remain OPEN, not product enabled.
+Dedicated initial reservation readback now77affectedPASS and independent
+source/evidence review0/0/0; metadata only, no birth/start/recovery authority.
+See [generation checkpoint](WORLDS_V2_GENERATION_IDENTITY_2026-10-27.md).
+
+Ordinary imports plus the first replacement now have bounded group receipt
+settlement with focused16PASS/Fastify1PASS and independent0/0/0 review. Actual
+OS group recovery2boundariesPASS/4childrenclosed and affected integration224PASS;
+final independent evidence readback0/0/0 accepted, candidate10/10 matched.
+Main stays off; this closes only the ordinary-import/first-replacement group
+settlement blocker, not general mixed transitions or V2 delivery.
+Arbitrary mixed transitions/repeated replacement remain OPEN. Earlier frozen
+candidate evidence is historical after these product changes. See
+[group recovery](WORLDS_V2_IMPORT_GROUP_RECOVERY_2026-10-27.md).
+
+## Current actual replacement continuation
+
+Current: first-transition runtime/HTTP/UI candidate accepted independently0/0/0,
+HTTP212PASS/Web49PASS, real React+Fastify synthetic-browser3PASS; final browser
+readback accepted0/0/0. Main remains default-off (no write routes). Real isolated
+Vanilla first-replacement business PASS (2normal starts/stops); independent
+evidence accepted0/0/0, diagnostics NOT_ASSESSED. Full Web334PASS/Contracts34PASS,
+root static/build PASS. Mixed histories and retained ordinary import causes still
+block. These are delivery boundaries, not waived checks. See replacement HTTP/UI
+2026-10-27 evidence. Earlier unmounted checkpoint below is historical.
+
+Current-state readonly proof now allows normal active saves while checking exact
+catalog/journal, immutable protections and all retained birth sources/claims;
+179PASS and independent Sol High0/0/0. Dedicated settlement final115PASS and
+independent acceptance0/0/0; earlier113PASS/2default5s failures retained.
+Executor shutdown76PASS and independent0/0/0. New OS explicit recovery5PASS
+without replay, with all owned children closed. These are bounded unmounted
+backend checks, not full Manager startup/close or Minecraft acceptance.
+Strict replacement approval contract/full Contracts33PASS; independent final
+bounded delta review0/0/0,33source/test plus4report hashes verified.
+No routes/startup authority enabled.
+
+Mixed immutable prefix checks60PASS and independent Sol High0/0/0. First-transition
+UNMOUNTED executor now performs real isolated filesystem replacement with pinned
+guard and preserved original; affected280PASS and independent0/0/0 after exact
+owned-journal and reached-point fixes. Five owned OS crash/restart boundaries
+passed gated/no-replay reconstruction (not recovery acceptance or Minecraft).
+Remaining MUST_FIX before exposure: mixed live admission, app integration for
+dedicated recovery/shutdown, HTTP/UI and actual Minecraft replacement. Restic/new-world/schedule/
+queue/retention/final UI remain open. Old27-file candidate is historical after
+these source changes. See WORLDS_V2_REPLACEMENT_EXECUTION_2026-10-27.md.
+
+## Latest 06:18 continuation checkpoint
+
+Versioned13 admission, immutable snapshot semantics/original-file binding,
+pending-head identity CAS, installed-file proof, metadata completion/invalidation
+and exact journal freshness now implemented as UNMOUNTED primitives. Independent
+Sol High accepted bounded current259PASS candidate0/0/0; API build/scoped lint/diff
+PASS. Historical408PASS predates final deltas. MUST_FIX before exposure: actual
+executor, whole-prefix physical protection, shutdown/startup/explicit recovery,
+HTTP/UI, OS-process failure and actual isolated replacement acceptance. No V2
+FINAL PASS; restic and remaining product features still open. See
+[publication evidence](./WORLDS_V2_REPLACEMENT_PUBLICATION_2026-10-27.md).
+
+Additional test-only authority delta44PASS (five new cases), independently
+accepted0/0/0; earlier259 report excludes additions and overlaps this delta.
+Final API typecheck/scoped test lint/diff exit0;27-file candidate/report hash
+artifact saved. Independent Sol High verified27file/two-report hashes and
+accepted checkpoint0/0/0. This closes only
+the bounded proof/publication prerequisite checkpoint, not replacement exposure
+or any required executor/recovery/real-Minecraft Gate listed above.
+
+08:18 test-only activation/replacement rejection guard26PASS and independent
+Sol High0/0/0 accepted; no product change. Does not close mixed physical history,
+executor or recovery debt. Original27file/two-report candidate hashes unchanged.
+
+## 06:18 replacement dependency continuation
+
+Replacement upload ownership/discard guard now repaired, including uppercase
+UUID aliases;62PASS and independent0/0/0 acceptance. Exact durable head CAS
+invalidation implemented with final94PASS and independent0/0/0 acceptance.
+MUST_FIX immutable approval
+snapshot proof, new-world/source verification, completion, execution and recovery
+before exposure. Existing11-marker schema12 remains preparation-only, not new
+execution approval. See [current publication evidence](./WORLDS_V2_REPLACEMENT_PUBLICATION_2026-10-27.md).
+
+## 2026-10-27 replacement delivery boundary
+
+MUST_FIX before replacement exposure: complete physical new/live-world and
+approval-snapshot proof, mixed consumers, protected executor, shutdown/restart
+and explicit recovery. Structural mixed-history/inverse catalog validation and
+old-world guard protection now have51 focused PASS and independent Sol High
+P1/P2/P3=0 scoped acceptance. Pending-only reservation and retained properties
+copy also independently accepted0/0/0; final combined72PASS, earlier affected272PASS
+predates last9 cases/source delta. Independent combined evidence accepted0/0/0,
+including15source/test hash and report hash checks; preparation only.
+These do not authorize clearing schema12 recovery. No replacement
+write route exists. Restic, minute scheduling/queue/retention, new-world creation
+and final unified UI remain open; hot backup stays disabled. See
+[current evidence](./WORLDS_V2_REPLACEMENT_PROTECTION_2026-10-27.md).
+
+Replacement execution remains open. A read-only replacement preflight now
+binds immutable current identity and source revisions but explicitly returns
+execution unavailable. Final affected155PASS, Contracts32PASS and source review
+P1/P2/P3=0 with final evidence review accepted. No protected replacement, same-name
+lineage retirement or crash-recovery execution acceptance is claimed. See
+[replacement preparation](./WORLDS_V2_REPLACEMENT_PLAN_2026-10-26.md).
+
+## Latest actual checkpoint
+
+Real Vanilla26.3 activation/return business PASS after Attempt1 exact
+DataVersion5023 standard-dimension layout fix (46 focused /180 affected PASS).
+Independent OS startup recovery and fresh three-width browser PASS. Independent
+Sol High accepted scoped evidence P1/P2/P3=0. Main local entry delta accepted
+after148 focused PASS and API build/scoped lint/diff PASS; no V2 final claim.
+Strict diagnostics NOT_ASSESSED: Perflib/COM,
+service discovery and Java warnings remain separate limitations, not new waivers.
+Replacement/new-world integration, restic, scheduling/queue/retention and unified
+UI remain open. Hot backup disabled. See
+[real activation](./WORLDS_V2_REAL_ACTIVATION_2026-10-26.md).
+
+The following entries describe earlier checkpoints and pending intervals, not
+the latest real-run status.
+
+Latest checkpoint: execution UI with exact confirmation, persisted original
+request, unknown-result handling and fresh result/catalog checks now exists.
+Actual synthetic React/Fastify browser3widths PASS, not real Minecraft. Permanent
+world-activation idempotency closes the prior24h replay gap; old colliding scopes
+fail closed. A further untouched-import/first-only-hook mismatch was fixed;
+independent delta signoff completed after the reviewer's stated reset:
+P1/P2/P3=0. Main remains disabled pending real loading/stage acceptance.
+Final affected133PASS and current-source OS-process recovery4boundaries PASS
+now recorded. Required next: real world loading and stage acceptance. Earlier
+entries below are historical checkpoints, not the current completion statement.
+See [execution UI](./WORLDS_V2_ACTIVATION_EXECUTION_UI_2026-10-26.md).
+
+Real-loading harness pre-execution review is PENDING: last independent Sol High
+call returned model-at-capacity. Source preflight and script syntax/lint passed;
+no actual Java run. Two preflight P2 findings are independently closed; final
+adapter-cleanup P3 fix awaits delta signoff. This is an acceptance dependency,
+not a Windows ACL/CommandStore issue. Resume from
+[real preparation](./WORLDS_V2_REAL_ACTIVATION_PREPARATION_2026-10-26.md), retaining
+the current test grant and default-off main entry.
+
+Latest timing disposition:100 affected tests PASS,exit0,3files; three-transition
+roundtrip4720ms within unchanged5000ms after same-inspection proof reuse with
+fresh head/journal/payload validation. The earlier94PASS/1FAIL report is preserved.
+This is one module checkpoint, not a general performance guarantee or final V2
+acceptance. No checks removed, timeouts raised, or worker limits changed.
+See [timing evidence](./WORLDS_V2_TIMING_2026-10-26.md).
+MUST_COMPLETE remains: exact multi-transition startup/supersession proofs,
+OS-process interruption recovery, bounded startup/cancellation, strict activation
+API/UI and real world-loading acceptance. The repeated executor remains unmounted.
+User-approved future advanced/final reviewer is independent GPT-6.1 Sol High;
+Astra disabled for subsequent LT acceptance, historical attribution unchanged.
 
 Latest disposition: complete first-activation recognition and precise import
 supersession are now implemented and mounted READ-ONLY at startup. This closes

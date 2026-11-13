@@ -1,5 +1,15 @@
 # Project instructions
 
+## Current acceptance routing override — user approved 2026-10-26
+
+For subsequent LT work, including Worlds & Backups V2, do not invoke Astra.
+Replace applicable Astra acceptance/safety/recovery Gates with an independent
+GPT-6.1 Sol High reviewer. Existing independent review and final evidence Gates
+remain mandatory; writers cannot self-sign. If that reviewer is unavailable,
+leave the Gate PENDING. Preserve historical model attribution, all safety checks,
+test limits and evidence. This changes reviewer routing only, not completion
+criteria or account settings. P7 stays STOPPED; Git upload is not authorized.
+
 ## M3 review exception — user approved 2026-10-24
 
 For the current M3 work only: engineering defaults to GPT-6.1 Sol Medium;

@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { link, mkdir, mkdtemp, readFile, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { JsonOperationStore, type StoredOperation } from "../src/services/operation-store.js";
 
 const roots: string[] = [];
+vi.mock("node:fs/promises", async importOriginal => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, lstat: vi.fn(actual.lstat) };
+});
 const at = "2026-10-04T00:00:00.000Z";
 const record = (): StoredOperation => ({
   operation: { id: randomUUID(), serverId: "test", kind: "backup", state: "succeeded", step: "completed",
@@ -20,9 +24,41 @@ async function fixture() {
 }
 afterEach(async()=> {for(const root of roots.splice(0)) await rm(root,{recursive:true,force:true});});
 describe("operation store filesystem containment",()=> {
+  it.each(["replace", "modify", "interrupt"])("rejects %s at the final receipt path check", async fault => {
+    const f = await fixture();
+    await f.store.initialize();
+    const value = record();
+    await f.store.save(value);
+    const file = path.join(f.manager, "operations", value.operation.id + ".json");
+    const original = await readFile(file);
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    let checks = 0;
+    const probe = vi.mocked(lstat);
+    probe.mockImplementation((async (target: string, options: { bigint: true }) => {
+      if (target === file && ++checks === 2) {
+        if (fault === "interrupt") throw new Error("injected interruption");
+        if (fault === "replace") {
+          await rename(file, file + ".retained");
+          await writeFile(file, original, { flag: "wx" });
+        } else {
+          await writeFile(file, Buffer.concat([original, Buffer.from(" ")]));
+        }
+      }
+      return actual.lstat(target, options);
+    }) as typeof lstat);
+    try {
+      await expect(f.store.read(value.operation.id)).rejects.toThrow(
+        fault === "interrupt" ? "injected interruption" : "Invalid operation record");
+      expect(checks).toBe(2);
+    } finally {
+      probe.mockImplementation(actual.lstat);
+    }
+  });
   it("preserves valid records across restart and atomic updates",async()=> {
     const f=await fixture(); await f.store.initialize(); const value=record();
     await f.store.save(value); expect(await f.store.list()).toEqual([value]);
+    expect(await f.store.read(value.operation.id)).toEqual(value);
+    await expect(f.store.read("../outside")).rejects.toThrow("Invalid operation ID");
     const reopened=new JsonOperationStore(f.manager); await reopened.initialize();
     await reopened.save({...value,operation:{...value.operation,step:"updated"}});
     expect(await reopened.list()).toEqual([{...value,operation:{...value.operation,step:"updated"}}]);

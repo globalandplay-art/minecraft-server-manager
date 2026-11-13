@@ -64,6 +64,7 @@ async function main(): Promise<void> {
       transactionRecovery: transactionJournal!,
       transactionJournal: transactionJournal!,
       managerRoot,
+      worldActivationExecution: true,
       activeWorldState: new ActiveWorldStateStore(managerRoot, localAdapters)
     } : {})
   });

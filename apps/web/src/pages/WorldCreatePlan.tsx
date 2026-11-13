@@ -3,9 +3,11 @@ import { useEffect, useState } from 'react';
 import { Value } from '@sinclair/typebox/value';
 import { worldCreateRequestSchema, type WorldCreateRequest } from '@mcsm/contracts';
 import { api, ApiClientError, errorMessage, shouldRetry } from '../api';
+import { useTranslation } from 'react-i18next';
 type Submission = { key: string; savedAt: number; body: WorldCreateRequest; operationId?: string };
 
 export function WorldCreatePlan({ serverId }: { serverId: string }) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [seed, setSeed] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -27,7 +29,12 @@ export function WorldCreatePlan({ serverId }: { serverId: string }) {
       setSubmission(next); sessionStorage.setItem(storageKey, JSON.stringify(next));
     },
     onError: (error) => {
-      if (error instanceof ApiClientError && error.kind === 'http' && error.status && error.status >= 400 && error.status < 500 && error.code !== 'OPERATION_CONFLICT') {
+      // Authorization can expire after an intent was persisted. A generic4xx
+      // does not establish that preparation never began; keep its request key.
+      if (error instanceof ApiClientError && error.kind === 'http' && (
+        error.status === 400 && error.code === 'VALIDATION_ERROR' ||
+        error.status === 409 && (error.code === 'WORLD_REVISION_CONFLICT' || error.code === 'WORLD_NAME_CONFLICT')
+      )) {
         sessionStorage.removeItem(storageKey); setSubmission(null);
       }
     }
@@ -35,50 +42,52 @@ export function WorldCreatePlan({ serverId }: { serverId: string }) {
   const operation = useQuery({ queryKey: ['world-create-operation', submission?.operationId],
     queryFn: ({ signal }) => api.operation(submission!.operationId!, signal), enabled: Boolean(submission?.operationId), retry: shouldRetry,
     refetchInterval: (query) => ['succeeded', 'failed', 'interrupted'].includes(query.state.data?.data.state ?? '') ? false : 500 });
-  const terminal = ['succeeded', 'failed', 'interrupted'].includes(operation.data?.data.state ?? '');
+  const state = operation.data?.data.state;
+  const terminal = state === 'succeeded' || state === 'failed' || state === 'interrupted';
+  const canReset = state === 'succeeded' || state === 'failed';
   useEffect(() => {
     if (terminal) {
-      sessionStorage.removeItem(storageKey);
+      if (canReset) sessionStorage.removeItem(storageKey);
       void client.invalidateQueries({ queryKey: ['worlds', serverId] });
       void client.invalidateQueries({ queryKey: ['backups', serverId] });
       void client.invalidateQueries({ queryKey: ['servers'] });
     }
-  }, [terminal, storageKey, client, serverId]);
+  }, [terminal, canReset, storageKey, client, serverId]);
   const mutation = useMutation({ mutationFn: () => api.worldCreatePlan(serverId, { name, seed }) });
   const plan = mutation.data?.data;
   const reset = () => mutation.reset();
   return <section className="resource-card page-stack">
-    <div><span className="eyebrow">NEW WORLD PLAN</span><h2>规划新世界</h2></div>
-    <p className="muted">先校验名称、Seed 和目标版本。执行时保留旧世界和保护备份；完成后保持停止，只有你明确启动才生成新世界。</p>
+    <div><span className="eyebrow">{t('worldv2.create.eyebrow')}</span><h2>{t('worldv2.create.title')}</h2></div>
+    <p className="muted">{t('worldv2.create.help')}</p>
     <form className="page-stack" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
-      <label className="field-label">新世界名称<input required maxLength={64} value={name} disabled={mutation.isPending || Boolean(submission)}
+      <label className="field-label">{t('worldv2.create.name')}<input required maxLength={64} value={name} disabled={mutation.isPending || Boolean(submission)}
         onChange={(event) => { setName(event.target.value); reset(); }} /></label>
-      <label className="field-label">Seed（留空为随机）<input maxLength={20} inputMode="text" value={seed} disabled={mutation.isPending || Boolean(submission)}
+      <label className="field-label">{t('worldv2.create.seed')}<input maxLength={20} inputMode="text" value={seed} disabled={mutation.isPending || Boolean(submission)}
         onChange={(event) => { setSeed(event.target.value); reset(); }} /></label>
-      <button className="button button--secondary" type="submit" disabled={mutation.isPending || !name || Boolean(submission)}>{mutation.isPending ? '正在校验…' : '校验新世界计划'}</button>
+      <button className="button button--secondary" type="submit" disabled={mutation.isPending || !name || Boolean(submission)}>{t(mutation.isPending ? 'worldv2.checking' : 'worldv2.create.check')}</button>
     </form>
     {mutation.isError ? <p className="inline-warning" role="alert">{errorMessage(mutation.error)}</p> : null}
     {plan ? <div className="page-stack" role="status">
-      <p>计划已校验，尚未创建世界。</p>
-      <dl className="resource-grid"><div><dt>目标世界</dt><dd>{plan.name}</dd></div><div><dt>目标版本</dt><dd>{plan.minecraftVersion}</dd></div>
-        <div><dt>Seed</dt><dd>{plan.seed ?? '首次显式启动时随机生成'}</dd></div><div><dt>当前世界</dt><dd>{plan.currentWorldName}</dd></div></dl>
-      <p className="muted">{plan.requiresStop ? '后续执行需要明确允许停服。' : '实例当前停止，后续执行默认保持停止。'}实际执行前将再次校验；新世界只在你明确启动后生成。</p>
+      <p>{t('worldv2.create.checked')}</p>
+      <dl className="resource-grid"><div><dt>{t('worldv2.create.target')}</dt><dd>{plan.name}</dd></div><div><dt>{t('worldv2.create.version')}</dt><dd>{plan.minecraftVersion}</dd></div>
+        <div><dt>Seed</dt><dd>{plan.seed ?? t('worldv2.create.random')}</dd></div><div><dt>{t('worldv2.create.current')}</dt><dd>{plan.currentWorldName}</dd></div></dl>
+      <p className="muted">{t(plan.requiresStop ? 'worldv2.create.needsStop' : 'worldv2.create.stopped')} {t('worldv2.create.recheck')}</p>
     </div> : null}
     {plan?.executionAvailable && plan.worldRevision && !submission ? <div className="page-stack">
-      <label className="field-label">输入当前世界名确认切换<input value={confirm} onChange={(event) => setConfirm(event.target.value)} /></label>
-      <label className="checkbox-line"><input type="checkbox" checked={approved} onChange={(event) => setApproved(event.target.checked)} />我确认保留旧世界，并允许必要停服</label>
+      <label className="field-label">{t('worldv2.create.confirmName')}<input value={confirm} onChange={(event) => setConfirm(event.target.value)} /></label>
+      <label className="checkbox-line"><input type="checkbox" checked={approved} onChange={(event) => setApproved(event.target.checked)} />{t('worldv2.create.approve')}</label>
       <button className="button button--secondary" disabled={creation.isPending || !approved || confirm !== plan.currentWorldName} onClick={() => {
         const request: Submission = { key: crypto.randomUUID(), savedAt: Date.now(), body: { name: plan.name, seed,
           confirmWorldName: confirm, worldRevision: plan.worldRevision!, allowStop: approved } };
         setSubmission(request); sessionStorage.setItem(storageKey, JSON.stringify(request)); creation.mutate(request);
-      }}>确认创建并保持停服</button>
+      }}>{t('worldv2.create.submit')}</button>
     </div> : null}
-    {submission && !submission.operationId && !terminal ? <><p className="muted">尚未确认请求结果：目标 {submission.body.name}，当前世界 {submission.body.confirmWorldName}。再次查询使用同一请求，不会自动重试。</p>
-      <button className="button button--secondary" disabled={creation.isPending} onClick={() => creation.mutate(submission)}>确认未完成的新建请求</button></> : null}
+    {submission && !submission.operationId && !terminal ? <><p className="muted">{t('worldv2.create.unknown', { name: submission.body.name, current: submission.body.confirmWorldName })}</p>
+      <button className="button button--secondary" disabled={creation.isPending} onClick={() => creation.mutate(submission)}>{t('worldv2.create.retry')}</button></> : null}
     {creation.isError ? <p role="alert" className="inline-warning">{errorMessage(creation.error)}</p> : null}
     {operation.isError ? <p role="alert" className="inline-warning">{errorMessage(operation.error)}</p> : null}
-    {operation.data ? <p role="status">{operation.data.data.state === 'succeeded' ? '配置已切换；旧世界和保护备份已保留。服务器保持停止，请明确启动生成新世界。' : `新建状态：${operation.data.data.state} / ${operation.data.data.step}`}</p> : null}
+    {operation.data ? <p role="status">{operation.data.data.state === 'succeeded' ? t('worldv2.create.prepared') : t('worldv2.create.status', { state: t(`worldv2.state.${operation.data.data.state}`), step: operation.data.data.step })}</p> : null}
     {operation.data?.data.error ? <p role="alert" className="inline-warning">{operation.data.data.error.message}</p> : null}
-    {terminal ? <button className="button button--secondary" onClick={() => { setSubmission(null); mutation.reset(); creation.reset(); setConfirm(''); setApproved(false); }}>查看新的世界计划</button> : null}
+    {canReset ? <button className="button button--secondary" onClick={() => { setSubmission(null); mutation.reset(); creation.reset(); setConfirm(''); setApproved(false); }}>{t('worldv2.create.next')}</button> : null}
   </section>;
 }

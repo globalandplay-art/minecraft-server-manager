@@ -46,6 +46,12 @@ export interface RegisteredExecutionIdentity {
 export interface RuntimeOperationContext {
   readonly operationId: string;
   readonly signal: AbortSignal;
+  /** Trusted synchronous admission at the actual spawn boundary. */
+  readonly beforeSpawn?: () => undefined;
+  /** Read-only verification after asynchronous launch preparation. */
+  readonly verifyBeforeSpawn?: () => Promise<void>;
+  readonly verifyBeforeStop?: () => Promise<void>;
+  readonly beforeStop?: () => undefined;
   readonly onStep: (step: string) => Promise<Operation>;
   readonly onResult?: (result: NonNullable<Operation["result"]>) => Promise<void>;
 }
@@ -103,7 +109,32 @@ export interface RuntimeStreamReplay {
   readonly reason: string | null;
 }
 
+/** Private in-process facts for the latest owned launch. Not an HTTP DTO,
+ * persisted evidence, normal-exit verdict or permission to publish a world. */
+export interface RuntimeOwnedLaunchObservation {
+  readonly launchId: string;
+  readonly serverId: string;
+  readonly ownerOperationId: string;
+  readonly processId: number | null;
+  readonly spawned: boolean;
+  readonly ready: boolean;
+  readonly stopRequested: boolean;
+  readonly stopOperationId: string | null;
+  /** The stop API completed; this alone says nothing about exit code/signal. */
+  readonly stopCompleted: boolean;
+  readonly errorObserved: boolean;
+  readonly exited: boolean;
+  readonly exitCode: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly closed: boolean;
+}
+
 export interface MinecraftRuntime {
+  /** Awaits verifyBeforeSpawn when supplied, then calls beforeSpawn synchronously at spawn. */
+  readonly supportsSpawnAdmission?: true;
+  /** Verifies stop after transport preparation, then checks beforeStop at dispatch. */
+  readonly supportsStopAdmission?: true;
+  getOwnedLaunchObservation?(): RuntimeOwnedLaunchObservation | null;
   openWhitelistSession?(): Promise<WhitelistRconSession>;
   getProcessResources?(): Promise<Pick<Metrics, "cpu" | "ram">>;
   snapshot(): Promise<RuntimeSnapshot>;

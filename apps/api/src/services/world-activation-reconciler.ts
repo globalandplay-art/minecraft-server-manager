@@ -1,7 +1,6 @@
-import { readdir } from "node:fs/promises";
+import { verifyActivationProtection } from "./world-activation-protection.js";
 import path from "node:path";
 import type { AdapterRegistry } from "../adapters/registry.js";
-import { updatePropertiesText } from "../config/properties.js";
 import { worldIdentity, type ActiveWorldState } from "./active-world-state-store.js";
 import { backupDirectoryIdentity, directoryObjectIdentity } from "./backup-identity.js";
 import type { BackupService } from "./backup-service.js";
@@ -9,9 +8,9 @@ import { DomainError } from "./domain-errors.js";
 import type { OperationService } from "./operation-service.js";
 import { editablePropertyEntries } from "./properties-grammar.js";
 import { readPrivatePropertiesFile } from "./properties-private-file.js";
-import { inventoryRestoreTree, plainRestoreDirectory, restoreFilesChecksum, verifyRestoreTree } from "./restore-files.js";
+import { inventoryRestoreTree, plainRestoreDirectory, verifyRestoreTree } from "./restore-files.js";
 import type { TransactionJournalRecord, TransactionJournalStore } from "./transaction-journal.js";
-import { assessWorldCompatibility } from "./world-compatibility.js";
+import { assessWorldCompatibility, supportsVanillaWorldLayout } from "./world-compatibility.js";
 import type { WorldImportUploadService } from "./world-import-upload-service.js";
 import { readWorldMetadata } from "./world-inventory-service.js";
 import type { WorldLibraryStore } from "./world-library-store.js";
@@ -89,63 +88,20 @@ export class WorldActivationReconciler {
     if (!staged || source.checkpoints.find(point => point.name === "independent-world-installed")?.details?.filesystemIdentity !== staged ||
         await directoryObjectIdentity(targetPath) !== staged ||
         !source.checkpoints.some(point => point.name === "independent-identity-installed" && point.details?.resourceId === w.worldId && point.details.checksumSha256 === w.sourceImportChecksum)) throw fail();
-    const workspace = path.join(root, w.workspaceName), workspaceId = details("activation-config-staged").filesystemIdentity;
-    if (!workspaceId || await directoryObjectIdentity(workspace) !== workspaceId) throw fail();
-    const readCopy = async (name: string, step: string, checksum: string) => {
-      const proof = details(step), file = await readPrivatePropertiesFile(path.join(workspace, name));
-      if (!proof.filesystemIdentity || file.identity !== proof.filesystemIdentity || file.checksum !== checksum || proof.checksumSha256 !== checksum) {
-        file.bytes.fill(0); throw fail();
-      }
-      return file;
-    };
-    const before = await readCopy("properties.before", "activation-before-copy-verified", w.propertiesBefore);
-    let approved: Awaited<ReturnType<typeof readPrivatePropertiesFile>> | undefined;
-    try {
-      approved = await readCopy("properties.approved", "activation-approved-copy-verified", w.propertiesAfter);
-      const text = before.bytes.toString("utf8"), after = approved.bytes.toString("utf8");
-      const entries = editablePropertyEntries(text).filter(([key]) => key === "level-name");
-      if (!before.bytes.equals(Buffer.from(text, "utf8")) || !approved.bytes.equals(Buffer.from(after, "utf8")) || text.startsWith("\ufeff") || text.includes("\0") ||
-          entries.length !== 1 || entries[0]![1] !== w.previousName || updatePropertiesText(text, { "level-name": w.nextName }) !== after) throw fail();
-    } finally { before.bytes.fill(0); approved?.bytes.fill(0); }
-    const guard = await this.backups.exportSource(serverId, w.guardBackupId), manifest = guard.manifest;
-    const expectedGuardPath = path.join(this.managerRoot, "backups", serverId, w.guardBackupId);
-    if (guard.directory !== expectedGuardPath || !manifest.pinned || manifest.scope !== "world-set" || manifest.serverType !== "vanilla" ||
-        manifest.minecraftVersion !== "26.3" || manifest.includedRoots.length !== 1 || manifest.includedRoots[0] !== w.previousName ||
-        manifest.checksumSha256 !== details("activation-guard-verified").checksumSha256 ||
-        await backupDirectoryIdentity(expectedGuardPath) !== details("activation-guard-verified").filesystemIdentity) throw fail();
-    const guardManifest = await readPrivatePropertiesFile(path.join(expectedGuardPath, "manifest.json"), 64 * 1024 ** 2);
-    try { if (guardManifest.identity !== details("activation-guard-manifest-verified").filesystemIdentity ||
-      guardManifest.checksum !== details("activation-guard-manifest-verified").checksumSha256) throw fail(); } finally { guardManifest.bytes.fill(0); }
-    const guardFiles = manifest.files.map(file => {
-      if (!file.path.startsWith(`${w.previousName}/`)) throw fail();
-      return { ...file, path: file.path.slice(w.previousName.length + 1) };
-    });
-    if (restoreFilesChecksum(guardFiles) !== w.currentContentChecksum) throw fail();
-    const payload = path.join(expectedGuardPath, "payload"); await plainRestoreDirectory(payload);
-    const roots = await readdir(payload); if (roots.length !== 1 || roots[0] !== w.previousName) throw fail();
-    await verifyRestoreTree(path.join(payload, w.previousName), guardFiles); await verifyRestoreTree(currentPath, guardFiles);
-    const verifyProtection = async () => {
-      for (const [name, step, checksum] of [["properties.before", "activation-before-copy-verified", w.propertiesBefore],
-        ["properties.approved", "activation-approved-copy-verified", w.propertiesAfter]]) {
-        const copy = await readCopy(name!, step!, checksum!); copy.bytes.fill(0);
-      }
-      if (await backupDirectoryIdentity(expectedGuardPath) !== details("activation-guard-verified").filesystemIdentity) throw fail();
-      const fresh = await readPrivatePropertiesFile(path.join(expectedGuardPath, "manifest.json"), 64 * 1024 ** 2);
-      try { if (fresh.identity !== guardManifest.identity || fresh.checksum !== guardManifest.checksum) throw fail(); }
-      finally { fresh.bytes.fill(0); }
-      await plainRestoreDirectory(payload);
-      const children = await readdir(payload); if (children.length !== 1 || children[0] !== w.previousName) throw fail();
-      await verifyRestoreTree(path.join(payload, w.previousName), guardFiles);
-    };
+    const { workspace, workspaceId, guardFiles, recheck: verifyProtection } =
+      await verifyActivationProtection(record, root, this.managerRoot, this.backups);
+    await verifyRestoreTree(currentPath, guardFiles);
     const oldRevision = await this.library.resolve(binding, w.previousWorldId, list.revision);
     if (oldRevision.worldRevision !== w.currentWorldRevision) throw fail();
     const targetFiles = await inventoryRestoreTree(targetPath);
-    if (targetFiles.some(file => file.path.startsWith("dimensions/"))) throw fail();
+    const targetVersion = await readWorldMetadata(targetPath);
+    if (!supportsVanillaWorldLayout(targetFiles, targetVersion) ||
+        !supportsVanillaWorldLayout(guardFiles, await readWorldMetadata(currentPath))) throw fail();
     await this.uploads.withLease(async () => {
       const origin = await this.uploads.validatedSource(serverId, imported.uploadId, imported.uploadRevision, source.intent.operationId);
-      if (origin.checksumSha256 !== imported.importedChecksum ||
-          assessWorldCompatibility(await readWorldMetadata(targetPath), { serverType: "vanilla", version: "26.3",
-            dataVersion: (await readWorldMetadata(path.join(origin.directory, "world"))).dataVersion }).status !== "compatible") throw fail();
+      const originVersion = await readWorldMetadata(path.join(origin.directory, "world"));
+      if (origin.checksumSha256 !== imported.importedChecksum || !supportsVanillaWorldLayout(origin.files, originVersion) ||
+          assessWorldCompatibility(targetVersion, { serverType: "vanilla", version: "26.3", dataVersion: originVersion.dataVersion }).status !== "compatible") throw fail();
     });
     const checkLive = async () => {
       const props = await readPrivatePropertiesFile(path.join(root, "server.properties"));
@@ -174,15 +130,19 @@ export class WorldActivationReconciler {
   async verifiesSupersession(source: TransactionJournalRecord): Promise<WorldImportSupersession | null> {
     const scan = await this.journal.scan();
     const records = scan.records.filter(item => item.intent.serverId === source.intent.serverId && item.intent.worldActivation);
+    if (scan.issues.some(issue => !issue.serverId || issue.serverId === source.intent.serverId)) throw fail();
     if (!records.length) return null;
-    if (records.length !== 1 || scan.issues.some(issue => !issue.serverId || issue.serverId === source.intent.serverId)) throw fail();
-    if (records[0]!.intent.worldActivation!.worldId !== source.intent.worldLibraryImport?.worldId) return null;
+    // A never-activated import still needs its original byte-for-byte birth
+    // verification. Other worlds' activations cannot supersede that evidence.
+    if (!records.some(record => record.intent.worldActivation!.worldId === source.intent.worldLibraryImport?.worldId)) return null;
+    if (records.length !== 1) throw fail();
     return this.verify(records[0]!, source);
   }
 
-  async reconcileStartup(): Promise<void> {
+  async reconcileStartup(skipServers: ReadonlySet<string> = new Set()): Promise<void> {
     const scan = await this.journal.scan();
     for (const record of scan.records.filter(item => item.intent.worldActivation)) {
+      if (skipServers.has(record.intent.serverId)) continue;
       try {
         const source = scan.records.find(item => item.transactionId === record.intent.worldActivation!.sourceImportTransactionId);
         if (!source) throw fail();

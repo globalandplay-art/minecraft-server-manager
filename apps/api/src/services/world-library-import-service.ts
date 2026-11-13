@@ -12,13 +12,14 @@ import { backupDirectoryIdentity, directoryObjectIdentity } from "./backup-ident
 import { DomainError } from "./domain-errors.js";
 import type { OperationAdmission, OperationService } from "./operation-service.js";
 import { readPrivatePropertiesFile } from "./properties-private-file.js";
-import { copyRestoreTree, inventoryRestoreTree, restoreCapacity, syncRestoreDirectory, verifyRestoreTree } from "./restore-files.js";
+import { copyRestoreTree, inventoryRestoreTree, restoreCapacity, restoreFilesChecksum, syncRestoreDirectory, verifyRestoreTree } from "./restore-files.js";
 import type { TransactionJournalRecord, TransactionJournalStore } from "./transaction-journal.js";
-import { assessWorldCompatibility } from "./world-compatibility.js";
+import { assessWorldCompatibility, supportsVanillaWorldLayout } from "./world-compatibility.js";
 import { WorldCreatePlanService } from "./world-create-plan-service.js";
 import type { WorldImportUploadService } from "./world-import-upload-service.js";
 import { readWorldMetadata } from "./world-inventory-service.js";
 import { allocateWorldIdentity, type WorldLibraryStore } from "./world-library-store.js";
+import type { WorldActivationLiveHistory } from "./world-activation-live-history.js";
 
 export type InactiveWorldImportRequest = WorldLibraryImportRequest;
 export type WorldImportSupersession = {
@@ -38,7 +39,8 @@ export class WorldLibraryImportService {
     private readonly journal: TransactionJournalStore, private readonly library: WorldLibraryStore,
     private readonly uploads: Uploads, private readonly states: Pick<ActiveWorldStateStore, "snapshot">,
     private readonly clock: Clock, private readonly inject?: (point: string) => Promise<void>,
-    private readonly supersession?: (record: TransactionJournalRecord) => Promise<WorldImportSupersession | null>) {}
+    private readonly supersession?: (record: TransactionJournalRecord) => Promise<WorldImportSupersession | null>,
+    private readonly historyRecovery?: Pick<WorldActivationLiveHistory, "verify">) {}
 
   async available(serverId: string): Promise<boolean> {
     const adapter = this.registry.getLocal(serverId);
@@ -61,7 +63,9 @@ export class WorldLibraryImportService {
 
   private async properties(adapter: LocalMinecraftServerAdapter) {
     const file = await readPrivatePropertiesFile(path.join(adapter.plan.rootPath, "server.properties"));
-    try { return { checksum: file.checksum, levelName: parseProperties(file.bytes.toString("utf8")).get("level-name") ?? "world" }; }
+    try { return { checksum: file.checksum,
+      revision: createHash("sha256").update(file.identity).update("\0").update(file.checksum).digest("hex"),
+      levelName: parseProperties(file.bytes.toString("utf8")).get("level-name") ?? "world" }; }
     finally { file.bytes.fill(0); }
   }
 
@@ -69,11 +73,17 @@ export class WorldLibraryImportService {
     if ((await readdir(adapter.plan.rootPath)).some(item => item.normalize("NFC").toLowerCase() === name.normalize("NFC").toLowerCase())) throw conflict();
   }
 
-  private async check(serverId: string, request: { name: string; uploadId: string }, operationId?: string) {
-    if (request.name.normalize("NFC") !== request.name) throw conflict();
-    const planned = await new WorldCreatePlanService(this.registry, this.operations).plan(serverId, { name: request.name, seed: "" });
+  private async check(serverId: string, request: { name?: string; uploadId: string }, operationId?: string,
+    purpose: "independent" | "replacement-preflight" = "independent") {
+    // Only the read-only replacement planner may inspect an existing active name.
+    // The installation executor still always takes the independent/name-absent path.
+    let observedVersion: string | null;
+    if (purpose === "independent") {
+      if (!request.name || request.name.normalize("NFC") !== request.name) throw conflict();
+      observedVersion = (await new WorldCreatePlanService(this.registry, this.operations).plan(serverId, { name: request.name, seed: "" })).minecraftVersion;
+    } else observedVersion = (await this.registry.getLocal(serverId)?.getServerInfo())?.minecraftVersion ?? null;
     const adapter = this.registry.getLocal(serverId)!;
-    if (planned.minecraftVersion !== "26.3") throw new DomainError(409, "WORLD_VERSION_UNAVAILABLE", "This import profile only supports Vanilla 26.3", "world-profile-unverified");
+    if (!adapter || adapter.plan.serverInfo.type !== "vanilla" || observedVersion !== "26.3") throw new DomainError(409, "WORLD_VERSION_UNAVAILABLE", "This import profile only supports Vanilla 26.3", "world-profile-unverified");
     await this.stopped(adapter);
     const binding = { serverId, rootPath: adapter.plan.rootPath };
     const active = this.states.snapshot(serverId);
@@ -84,17 +94,20 @@ export class WorldLibraryImportService {
     if (props.levelName !== active.levelName || current.levelName !== active.levelName) throw conflict();
     const source = await this.uploads.validatedSource(serverId, request.uploadId, undefined, operationId);
     const currentMetadata = await readWorldMetadata(path.join(adapter.plan.rootPath, current.levelName));
-    if (!currentMetadata.readable || currentMetadata.version !== planned.minecraftVersion) {
+    if (!currentMetadata.readable || currentMetadata.version !== "26.3") {
       throw new DomainError(409, "WORLD_COMPATIBILITY_UNVERIFIED", "Target world version evidence is incomplete", "world-reference-version-unverified");
     }
-    const compatibility = assessWorldCompatibility(await readWorldMetadata(path.join(source.directory, "world")), {
-      serverType: "vanilla", version: planned.minecraftVersion,
+    const sourceMetadata = await readWorldMetadata(path.join(source.directory, "world"));
+    const compatibility = assessWorldCompatibility(sourceMetadata, {
+      serverType: "vanilla", version: "26.3",
       dataVersion: currentMetadata.dataVersion
     });
-    if (compatibility.status !== "compatible" || source.files.some(file => file.path.startsWith("dimensions/"))) {
+    const currentFiles = await inventoryRestoreTree(path.join(adapter.plan.rootPath, current.levelName));
+    if (compatibility.status !== "compatible" || !supportsVanillaWorldLayout(source.files, sourceMetadata) ||
+        !supportsVanillaWorldLayout(currentFiles, currentMetadata)) {
       throw new DomainError(409, "WORLD_COMPATIBILITY_UNVERIFIED", "World compatibility needs inspection", "world-import-profile-unverified");
     }
-    return { adapter, binding, active, current, source, propertiesChecksum: props.checksum,
+    return { adapter, binding, active, current, currentFiles, source, propertiesChecksum: props.checksum, propertiesRevision: props.revision,
       libraryRevision: observed.revision, rootIdentity: await backupDirectoryIdentity(adapter.plan.rootPath) };
   }
 
@@ -104,6 +117,37 @@ export class WorldLibraryImportService {
       return { ...request, mode: "independent", uploadRevision: checked.source.revision, libraryRevision: checked.libraryRevision,
         currentWorldId: checked.current.worldId, currentWorldRevision: checked.current.worldRevision };
     }));
+  }
+
+  /** Observations only: allocates no identity, claims no upload and cannot replace data. */
+  async planReplacement(serverId: string, request: { uploadId: string }) {
+    return this.operations.runReadAdmission(serverId, () => this.uploads.withLease(async () => {
+      return (await this.prepareReplacementUnderLease(serverId, request)).plan;
+    }));
+  }
+
+  /** Internal only: caller already owns instance admission AND upload lease.
+   * No identity allocation, claim, mutation or execution authority is returned. */
+  async prepareReplacementUnderLease(serverId: string, request: { uploadId: string }, operationId?: string) {
+      const checked = await this.check(serverId, request, operationId, "replacement-preflight");
+      const { adapter, binding, current, source } = checked;
+      await verifyRestoreTree(path.join(adapter.plan.rootPath, current.levelName), checked.currentFiles);
+      const finalSource = await this.uploads.validatedSource(serverId, request.uploadId, source.revision, operationId);
+      const props = await this.properties(adapter);
+      await this.stopped(adapter);
+      if (props.revision !== checked.propertiesRevision || props.levelName !== current.levelName ||
+          finalSource.checksumSha256 !== source.checksumSha256 ||
+          await backupDirectoryIdentity(binding.rootPath) !== checked.rootIdentity ||
+          JSON.stringify(this.states.snapshot(serverId)) !== JSON.stringify(checked.active) ||
+          JSON.stringify(await this.library.resolve(binding, current.worldId, checked.libraryRevision)) !== JSON.stringify(current)) throw conflict();
+      await verifyRestoreTree(path.join(adapter.plan.rootPath, current.levelName), checked.currentFiles);
+      return { ...checked, plan: { mode: "replace" as const, uploadId: request.uploadId, uploadRevision: source.revision,
+        libraryRevision: checked.libraryRevision, currentWorldId: current.worldId, currentWorldName: current.levelName,
+        currentWorldRevision: current.worldRevision, currentContentRevision: restoreFilesChecksum(checked.currentFiles),
+        propertiesRevision: checked.propertiesRevision, minecraftVersion: source.minecraftVersion,
+        fileCount: source.files.length, sizeBytes: source.sizeBytes, executionAvailable: false as const,
+        serverMustBeStopped: true as const, requiresProtectedBackup: true as const,
+        unavailableReason: "REPLACEMENT_TRANSACTION_PENDING" as const } };
   }
 
   private approved(body: InactiveWorldImportRequest, checked: Awaited<ReturnType<WorldLibraryImportService["check"]>>): void {
@@ -253,23 +297,67 @@ export class WorldLibraryImportService {
   }
 
   /** Read-only validation only. Never completes interrupted installs or repeats writes. */
-  async reconcileStartup(): Promise<void> {
+  async reconcileStartup(check: () => void = () => {}, replacementServers: ReadonlySet<string> = new Set(),
+    generationEvidence?: Parameters<WorldLibraryStore["auditImportBindings"]>[3]): Promise<void> {
+    check();
     const scan = await this.journal.scan();
     const records = scan.records.filter(record => record.intent.worldLibraryImport);
     const invalidCatalogs = new Set<string>();
     for (const adapter of this.registry.list()) {
       if (!isLocalAdapter(adapter) || adapter.plan.serverInfo.type !== "vanilla") continue;
+      if (replacementServers.has(adapter.serverId)) continue;
       try {
-        await this.library.auditImportBindings({ serverId: adapter.serverId, rootPath: adapter.plan.rootPath }, records, true);
+        const scoped = scan.records.filter(record => record.intent.serverId === adapter.serverId), parent = scoped[0];
+        const initialGeneration = scoped.length === 1 && parent?.schemaVersion === 14 && parent.state === "committed" &&
+          !scan.issues.some(issue => !issue.serverId || issue.serverId === adapter.serverId) && adapter.plan.serverInfo.minecraftVersion === "26.3";
+        const identity = initialGeneration && adapter.getRegisteredExecutionIdentity?.();
+        const evidence = generationEvidence && identity ? { ...generationEvidence,
+          registeredExecutionDigest: createHash("sha256").update(JSON.stringify(identity)).digest("hex"),
+          authorize: (): undefined => { const result: unknown = check();
+            if (result !== undefined) { void Promise.resolve(result).catch(() => undefined); throw recovery(); } return undefined; } } :
+          generationEvidence && { journal: generationEvidence.journal, receipts: generationEvidence.receipts };
+        await this.library.auditImportBindings({ serverId: adapter.serverId, rootPath: adapter.plan.rootPath }, records, true, evidence);
       } catch { invalidCatalogs.add(adapter.serverId); this.operations.requireRecovery([adapter.serverId]); }
     }
+    const historyServers = new Set<string>();
+    if (this.historyRecovery) {
+      for (const serverId of new Set(scan.records.filter(record => record.intent.worldActivation).map(record => record.intent.serverId))) {
+        check();
+        if (replacementServers.has(serverId)) continue;
+        const adapter = this.registry.getLocal(serverId);
+        try {
+          if (adapter && !await this.library.hasActivationHead({ serverId, rootPath: adapter.plan.rootPath })) continue;
+        } catch { /* A damaged head/catalog must stay in the whole-history failure path. */ }
+        historyServers.add(serverId);
+        const owned = scan.records.filter(record => record.intent.serverId === serverId && (record.intent.worldActivation || record.intent.worldLibraryImport));
+        try {
+          if (invalidCatalogs.has(serverId) || scan.issues.some(issue => !issue.serverId || issue.serverId === serverId)) throw recovery();
+          const proof = await this.historyRecovery.verify(serverId);
+          check();
+          // No await between exact proof consumption and admission marks. The
+          // reader's final scan covers every verified journal, not merely head.
+          if (proof.serverId !== serverId || proof.verifiedOperations.length !== owned.length || new Set(proof.verifiedOperations.map(item => item.operationId)).size !== owned.length ||
+              owned.some(record => !proof.verifiedOperations.some(item => item.operationId === record.intent.operationId && item.transactionId === record.transactionId &&
+                item.journalDigest === createHash("sha256").update(JSON.stringify(record)).digest("hex")))) throw recovery();
+          for (const item of proof.verifiedOperations) this.operations.confirmPhysicalTransaction(item.operationId);
+        } catch {
+          for (const record of owned) this.operations.requireTransactionRecovery(serverId, record.intent.operationId);
+        }
+      }
+    }
     for (const record of records) {
+      check();
+      if (replacementServers.has(record.intent.serverId)) {
+        this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId); continue;
+      }
+      if (historyServers.has(record.intent.serverId)) continue;
       const adapter = this.registry.getLocal(record.intent.serverId);
       if (!adapter || invalidCatalogs.has(record.intent.serverId) || record.state !== "committed" || scan.issues.some(issue => !issue.serverId || issue.serverId === record.intent.serverId)) {
         this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId); continue;
       }
       try {
         const proof = await this.verifyCommitted(record, records);
+        check();
         if (proof) this.operations.confirmPhysicalTransaction(proof.activationOperationId);
         this.operations.confirmPhysicalTransaction(record.intent.operationId);
       } catch { this.operations.requireTransactionRecovery(record.intent.serverId, record.intent.operationId); }

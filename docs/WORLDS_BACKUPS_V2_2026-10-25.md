@@ -2,6 +2,23 @@
 
 Status: IN PROGRESS. No V2 engineering or real-Minecraft PASS is claimed.
 
+2026-11-13 update. The opt-in first managed lifecycle now has authenticated
+HTTP routes and generated-world result controls for explicit start and
+matching stop. Current Fake/API/Web checks and independent Sol High delta
+reviews pass. Synthetic-HTTP browser checks and the bounded service-layer
+isolated real Java first lifecycle passed independent evidence review.
+Main remains opt-in disabled; recovery settlement, separate Node restart and
+real HTTP/UI integration remain open. Current evidence
+is indexed at the top of PROGRESS.md.
+
+Latest 2026-10-26 activation slice: inactive import, protected switch and return
+have passed isolated real Vanilla26.3 loading, independent OS startup observation
+and three-width synthetic browser checks. This is not whole V2 acceptance.
+See [current evidence](./WORLDS_V2_REAL_ACTIVATION_2026-10-26.md). The baseline and
+phase table below describe the original checkpoint; restic/queue/retention/hot
+backup/final UI remain unfinished. Local main entry delta signoff is tracked in
+PROGRESS; no Git upload.
+
 ## Baseline and boundaries
 
 Branch: `codex/phase-4-players-properties`.

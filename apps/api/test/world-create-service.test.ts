@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { cp, link, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, link, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
@@ -12,10 +12,15 @@ import { parseProperties } from "../src/config/properties.js";
 import { ActiveWorldStateStore, worldIdentity } from "../src/services/active-world-state-store.js";
 import { BackupService } from "../src/services/backup-service.js";
 import { OperationService } from "../src/services/operation-service.js";
-import { MemoryOperationStore } from "../src/services/operation-store.js";
+import { JsonOperationStore, MemoryOperationStore } from "../src/services/operation-store.js";
 import { TransactionJournalStore } from "../src/services/transaction-journal.js";
 import { WorldCreatePlanService } from "../src/services/world-create-plan-service.js";
 import { WorldCreateService } from "../src/services/world-create-service.js";
+import { WorldLibraryStore } from "../src/services/world-library-store.js";
+import { testWorldLevel } from "./fixtures/world-library-content.js";
+import * as privateFiles from "../src/services/properties-private-file.js";
+import * as worldInventory from "../src/services/world-inventory-service.js";
+import { verifyWorldGenerationPreparation } from "../src/services/world-generation-prepared.js";
 
 const roots: string[] = [];
 const clock = { now: () => new Date("2026-10-02T00:00:00Z") };
@@ -38,12 +43,13 @@ async function complete(ops: OperationService, id: string) {
   }, { timeout: 10_000 });
   return ops.get(id)!;
 }
-async function fixture(inject?: (point: string) => Promise<void>) {
+async function fixture(inject?: (point: string) => Promise<void>, generation = false) {
   const parent = await mkdtemp(path.join(tmpdir(), "mcsm-world-create-")); roots.push(parent);
   const manager = path.join(parent, "manager"); const server = path.join(parent, "server");
   await mkdir(manager); await mkdir(path.join(server, "world"), { recursive: true });
   await writeFile(path.join(server, "server.properties"), originalProperties);
   await writeFile(path.join(server, "world", "level.dat"), level());
+  if (generation) await writeFile(path.join(server, "world", "level.dat"), testWorldLevel("preserved", true, 5023));
   for (const dimension of ["region", "DIM-1/region", "DIM1/region", "dimensions/custom/deep/region", "playerdata"]) {
     await mkdir(path.join(server, "world", dimension), { recursive: true });
     await writeFile(path.join(server, "world", dimension, "fixture.dat"), "old:" + dimension);
@@ -63,11 +69,13 @@ async function fixture(inject?: (point: string) => Promise<void>) {
   const store = new MemoryOperationStore(); const ops = new OperationService(store, clock, journal); await ops.initialize();
   const states = new ActiveWorldStateStore(manager, [adapter]); expect((await states.initialize()).size).toBe(0);
   const backups = new BackupService(registry, ops, journal, manager, clock);
-  const service = new WorldCreateService(registry, ops, journal, backups, manager, states, clock, inject);
+  const library = generation ? new WorldLibraryStore(manager, clock) : undefined;
+  if (library) await library.migrateLegacy({ serverId: adapter.serverId, rootPath: server }, states.snapshot(adapter.serverId)!);
+  const service = new WorldCreateService(registry, ops, journal, backups, manager, states, clock, inject, library ? { library } : undefined);
   const plan = await new WorldCreatePlanService(registry, ops).plan(adapter.serverId, { name: "new-world", seed: "9223372036854775807" });
   const body: WorldCreateRequest = { name: plan.name, seed: plan.seed!, confirmWorldName: plan.currentWorldName,
     worldRevision: plan.worldRevision!, allowStop: false };
-  return { parent, manager, server, adapter, registry, journal, store, ops, states, backups, service, body, status, start, stop };
+  return { parent, manager, server, adapter, registry, journal, store, ops, states, backups, service, body, status, start, stop, library };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 async function restarted(f: Fixture, reconcile = true, adapter = f.adapter) {
@@ -85,14 +93,239 @@ async function makeOutcomeUncertain(f: Fixture, id: string) {
   await f.store.save({ ...stored, operation: { ...stored.operation, state: "running", step: "switching-world-config" } });
 }
 async function assertOldWorld(f: Fixture) {
-  expect(await readFile(path.join(f.server, "world", "level.dat"))).toEqual(level());
+  expect(await readFile(path.join(f.server, "world", "level.dat"))).toEqual(f.library ? testWorldLevel("preserved", true, 5023) : level());
   for (const dimension of ["region", "DIM-1/region", "DIM1/region", "dimensions/custom/deep/region", "playerdata"]) {
     expect(await readFile(path.join(f.server, "world", dimension, "fixture.dat"), "utf8")).toBe("old:" + dimension);
   }
 }
 afterEach(async () => { vi.restoreAllMocks(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
+describe("unmounted V2 world generation preparation", () => {
+  it("does not expose the mutable properties recheck baseline", async () => {
+    const f = await fixture(undefined, true), operation = await f.service.create(f.adapter.serverId, f.body, randomUUID());
+    await complete(f.ops, operation.id);
+    const proof = await verifyWorldGenerationPreparation(f.registry, f.manager, f.library!, f.journal, f.backups, f.adapter.serverId);
+    proof.propertiesProof.checksum = "0".repeat(64); proof.propertiesProof.identity = "changed-by-caller";
+    await expect(proof.recheck()).resolves.toBeUndefined(); await f.service.close();
+  });
+  it("verifies supported properties larger than 64KiB using the same limits as preparation", async () => {
+    const f = await fixture(undefined, true);
+    await writeFile(path.join(f.server, "server.properties"), originalProperties + "#" + "x".repeat(70 * 1024) + "\n");
+    const operation = await f.service.create(f.adapter.serverId, f.body, randomUUID()); await complete(f.ops, operation.id);
+    const proof = await verifyWorldGenerationPreparation(f.registry, f.manager, f.library!, f.journal, f.backups, f.adapter.serverId);
+    await proof.recheck(); expect(f.ops.getServerState(f.adapter.serverId).recoveryRequired).toBe(true); await f.service.close();
+  });
+  it("verifies the complete committed preparation without relaxing initial readback or releasing recovery", async () => {
+    const f = await fixture(undefined, true), operation = await f.service.create(f.adapter.serverId, f.body, randomUUID());
+    await complete(f.ops, operation.id);
+    const records = (await f.journal.scan()).records, file = path.join(f.manager, "world-library", f.adapter.serverId, "state.json"), before = await readFile(file);
+    const proof = await verifyWorldGenerationPreparation(f.registry, f.manager, f.library!, f.journal, f.backups, f.adapter.serverId);
+    expect(proof.reservation).toEqual(records[0]!.intent.worldChange!.generation); await proof.recheck();
+    await expect(f.library!.readGenerationReservation({ serverId: f.adapter.serverId, rootPath: f.server }, f.journal)).rejects.toThrow();
+    expect(await readFile(file)).toEqual(before); expect((await f.journal.scan()).records).toEqual(records);
+    expect(f.ops.getServerState(f.adapter.serverId).recoveryRequired).toBe(true); expect(f.start).not.toHaveBeenCalled();
+    await writeFile(path.join(f.server, "server.properties"), "level-name=external\n");
+    await expect(proof.recheck()).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" }); await f.service.close();
+  });
+  it.each(["guard-payload", "old-file", "slot", "slot-duplicate", "target", "config", "workspace-extra", "guard-checkpoint", "checkpoint-extra"])("rejects invalid prepared %s evidence without changing it", async scenario => {
+    const f = await fixture(undefined, true), operation = await f.service.create(f.adapter.serverId, f.body, randomUUID()); await complete(f.ops, operation.id);
+    const [record] = (await f.journal.scan()).records, change = record!.intent.worldChange!;
+    if (scenario === "guard-payload") await writeFile(path.join(f.manager, "backups", f.adapter.serverId, change.guardBackupId, "payload", "world", "level.dat"), "corrupt");
+    if (scenario === "old-file") await writeFile(path.join(f.server, "world", "region", "fixture.dat"), "external modification");
+    if (scenario === "slot") await writeFile(path.join(f.manager, "active-worlds", `${f.adapter.serverId}.json`), "{}");
+    if (scenario === "slot-duplicate") {
+      const file = path.join(f.manager, "active-worlds", `${f.adapter.serverId}.json`), text = await readFile(file, "utf8");
+      await writeFile(file, text.replace("{", '{"state":"active",'));
+    }
+    if (scenario === "target") await mkdir(path.join(f.server, f.body.name));
+    if (scenario === "config") await writeFile(path.join(f.server, "server.properties"), "level-name=external\n");
+    if (scenario === "workspace-extra") await writeFile(path.join(f.server, change.workspaceName, "leftover.tmp"), "retained evidence");
+    if (scenario === "guard-checkpoint" || scenario === "checkpoint-extra") {
+      const altered = structuredClone(record!);
+      altered.checkpoints[2]!.details = { ...altered.checkpoints[2]!.details!, ...(scenario === "guard-checkpoint" ? { checksumSha256: "0".repeat(64) } : { relativePath: "world" }) };
+      await writeFile(path.join(f.manager, "transactions", `${f.adapter.serverId}.${record!.transactionId}.json`), JSON.stringify(altered));
+    }
+    const properties = await readFile(path.join(f.server, "server.properties"));
+    await expect(verifyWorldGenerationPreparation(f.registry, f.manager, f.library!, f.journal, f.backups, f.adapter.serverId)).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" });
+    expect(await readFile(path.join(f.server, "server.properties"))).toEqual(properties);
+    expect(f.ops.getServerState(f.adapter.serverId).recoveryRequired).toBe(true); expect(f.start).not.toHaveBeenCalled(); expect(f.stop).not.toHaveBeenCalled(); await f.service.close();
+  });
+  it.each(["config", "workspace"])("rejects a %s change during guard verification instead of returning stale prepared proof", async scenario => {
+    const f = await fixture(undefined, true), operation = await f.service.create(f.adapter.serverId, f.body, randomUUID()); await complete(f.ops, operation.id);
+    const read = f.backups.exportSource.bind(f.backups);
+    vi.spyOn(f.backups, "exportSource").mockImplementation(async (...args) => {
+      const guard = await read(...args);
+      if (scenario === "config") await writeFile(path.join(f.server, "server.properties"), "level-name=external\n");
+      else { const [record] = (await f.journal.scan()).records; await writeFile(path.join(f.server, record!.intent.worldChange!.workspaceName, "late.tmp"), "retained"); }
+      return guard;
+    });
+    await expect(verifyWorldGenerationPreparation(f.registry, f.manager, f.library!, f.journal, f.backups, f.adapter.serverId)).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" });
+    expect(f.ops.getServerState(f.adapter.serverId).recoveryRequired).toBe(true); await f.service.close();
+  });
+  it("binds source metadata and approved revision to one private snapshot despite a stale revision observation", async () => {
+    const f = await fixture(undefined, true), changed = testWorldLevel("externally changed", true, 5023);
+    await writeFile(path.join(f.server, "world", "level.dat"), changed);
+    vi.spyOn(worldInventory, "readWorldRevision").mockResolvedValue(f.body.worldRevision);
+    const operation = await f.service.create(f.adapter.serverId, f.body, randomUUID());
+    expect((await complete(f.ops, operation.id)).state).toBe("interrupted");
+    expect(await readFile(path.join(f.server, "server.properties"), "utf8")).toBe(originalProperties);
+    expect(await readFile(path.join(f.server, "world", "level.dat"))).toEqual(changed);
+    expect((await f.journal.scan()).records[0]?.state).toBe("recovery-required"); await f.service.close();
+  });
+  it("releases the admitted owner when initial operation persistence fails", async () => {
+    const f = await fixture(undefined, true);
+    vi.spyOn(f.store, "save").mockRejectedValueOnce(new Error("injected receipt write failure"));
+    await expect(f.service.create(f.adapter.serverId, f.body, randomUUID())).rejects.toThrow("injected receipt write failure");
+    await f.service.close(); expect((await f.journal.scan()).records).toEqual([]); expect(await f.store.list()).toEqual([]);
+    expect(await readFile(path.join(f.server, "server.properties"), "utf8")).toBe(originalProperties);
+  });
+  it.each(["live-config", "staged-config"])("refuses late %s drift before configuration publication", async scenario => {
+    const external = "level-name=external\n";
+    const f = await fixture(async point => {
+      if (point !== "config-switch-intent") return;
+      const [record] = (await f.journal.scan()).records;
+      await writeFile(scenario === "live-config" ? path.join(f.server, "server.properties") :
+        path.join(f.server, record!.intent.worldChange!.workspaceName, "properties.after"), external);
+    }, true);
+    const operation = await f.service.create(f.adapter.serverId, f.body, randomUUID());
+    expect((await complete(f.ops, operation.id)).state).toBe("interrupted");
+    expect(await readFile(path.join(f.server, "server.properties"), "utf8")).toBe(scenario === "live-config" ? external : originalProperties);
+    expect(f.states.snapshot(f.adapter.serverId)?.state).toBe("active"); await assertOldWorld(f); await f.service.close();
+  });
+  it.each(["properties", "active-slot", "old-directory", "target", "root"])("refuses precommit %s drift and retains owned data", async scenario => {
+    let retainedRoot: string | undefined;
+    const f = await fixture(async point => {
+      if (point !== "before-commit") return;
+      if (scenario === "properties") await writeFile(path.join(f.server, "server.properties"), "level-name=external\n");
+      if (scenario === "active-slot") await writeFile(path.join(f.manager, "active-worlds", `${f.adapter.serverId}.json`), "{}");
+      if (scenario === "target") await mkdir(path.join(f.server, f.body.name));
+      if (scenario === "old-directory") {
+        retainedRoot = path.join(f.server, "RetainedOld"); await rename(path.join(f.server, "world"), retainedRoot);
+        await mkdir(path.join(f.server, "world")); await writeFile(path.join(f.server, "world", "level.dat"), testWorldLevel("preserved", true, 5023));
+      }
+      if (scenario === "root") { retainedRoot = path.join(f.parent, "RetainedServer"); await rename(f.server, retainedRoot); await mkdir(f.server); }
+    }, true);
+    const operation = await f.service.create(f.adapter.serverId, f.body, randomUUID());
+    expect((await complete(f.ops, operation.id)).state).toBe("interrupted");
+    const [record] = (await f.journal.scan()).records;
+    expect(record!.state).toBe("recovery-required"); expect(f.ops.getServerState(f.adapter.serverId).recoveryRequired).toBe(true);
+    const levelFile = scenario === "root" ? path.join(retainedRoot!, "world", "level.dat") : scenario === "old-directory" ?
+      path.join(retainedRoot!, "level.dat") : path.join(f.server, "world", "level.dat");
+    expect(await readFile(levelFile)).toEqual(testWorldLevel("preserved", true, 5023));
+    const manifest = JSON.parse(await readFile(path.join(f.manager, "backups", f.adapter.serverId, record!.intent.worldChange!.guardBackupId, "manifest.json"), "utf8"));
+    expect(manifest.pinned).toBe(true); expect(f.start).not.toHaveBeenCalled(); expect(f.stop).not.toHaveBeenCalled(); await f.service.close();
+  });
+  it("observes close arriving during async catalog recheck before any config publication", async () => {
+    let armed = false, enter!: () => void, release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; }), pause = new Promise<void>(resolve => { release = resolve; });
+    const f = await fixture(async point => { if (point === "config-switch-intent") armed = true; }, true);
+    const read = privateFiles.readPrivatePropertiesFile;
+    vi.spyOn(privateFiles, "readPrivatePropertiesFile").mockImplementation(async (file, limit) => {
+      const value = await read(file, limit);
+      if (armed && file === path.join(f.manager, "world-library", f.adapter.serverId, "state.json")) {
+        armed = false; enter(); await pause;
+      }
+      return value;
+    });
+    const operation = await f.service.create(f.adapter.serverId, f.body, randomUUID()); await entered;
+    let closed = false; const closing = f.service.close().then(() => { closed = true; });
+    await Promise.resolve(); expect(closed).toBe(false); release(); await closing;
+    expect((await complete(f.ops, operation.id)).state).toBe("interrupted");
+    expect(await readFile(path.join(f.server, "server.properties"), "utf8")).toBe(originalProperties); await assertOldWorld(f);
+  });
+  it("prepares the same reserved UUID, config and guard while every public outcome stays gated", async () => {
+    const f = await fixture(undefined, true), key = randomUUID(), events: string[] = [];
+    const catalogFile = path.join(f.manager, "world-library", f.adapter.serverId, "state.json");
+    const initial = JSON.parse(await readFile(catalogFile, "utf8"));
+    f.ops.subscribe(operation => events.push(operation.state));
+    const operation = await f.service.create(f.adapter.serverId, f.body, key), outcome = await complete(f.ops, operation.id);
+    expect(outcome.state).toBe("interrupted"); expect(events).not.toContain("succeeded");
+    const [record] = (await f.journal.scan()).records, g = record!.intent.worldChange!.generation!;
+    expect(record).toMatchObject({ schemaVersion: 14, state: "committed", intent: { resourceId: g.worldId } });
+    expect(g.worldId).not.toBe(initial.entries[0].worldId); expect(g.previousWorldId).toBe(initial.entries[0].worldId);
+    expect(record!.checkpoints[0]).toMatchObject({ name: "generation-reserved", details: { resourceId: g.worldId } });
+    const saved = JSON.parse(await readFile(catalogFile, "utf8"));
+    expect(saved.schemaVersion).toBe(4); expect(saved.generation.reservation).toEqual(g); expect(saved.entries).toEqual(initial.entries);
+    expect(f.states.snapshot(f.adapter.serverId)).toMatchObject({ state: "pending-generation", levelName: f.body.name });
+    expect(parseProperties(await readFile(path.join(f.server, "server.properties"), "utf8")).get("level-name")).toBe(f.body.name);
+    expect(await readdir(f.server)).not.toContain(f.body.name);
+    expect((await f.backups.exportSource(f.adapter.serverId, g.guardBackupId)).manifest.pinned).toBe(true);
+    expect((await f.service.create(f.adapter.serverId, f.body, key)).id).toBe(operation.id);
+    expect((await f.service.create(f.adapter.serverId, f.body, key)).state).toBe("interrupted");
+    await expect(f.ops.requestLifecycle(f.adapter.serverId, "start", randomUUID(), async () => {})).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" });
+    expect(() => f.ops.confirmPhysicalTransaction(operation.id)).toThrow();
+    await expect(f.ops.resolveOwnedRecovery(f.adapter.serverId, [operation.id])).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" });
+    expect(f.start).not.toHaveBeenCalled(); expect(f.stop).not.toHaveBeenCalled(); await assertOldWorld(f); await f.service.close();
+  });
+  it.each(["intent-created", "generation-reserved", "guard-verified", "config-ready", "config-switch-intent", "config-installed", "active-state-installed", "after-commit"])("retains evidence and never replays preparation after interruption at %s", async point => {
+    const f = await fixture(async name => { if (name === point) throw new Error("injected preparation interruption"); }, true), key = randomUUID();
+    const operation = await f.service.create(f.adapter.serverId, f.body, key);
+    expect((await complete(f.ops, operation.id)).state).toBe("interrupted");
+    const records = (await f.journal.scan()).records;
+    expect(records).toHaveLength(1); expect(records[0]!.schemaVersion).toBe(14);
+    expect(records[0]!.intent.worldChange!.generation!.operationId).toBe(operation.id);
+    expect(f.ops.getServerState(f.adapter.serverId).recoveryRequired).toBe(true);
+    expect((await f.service.create(f.adapter.serverId, f.body, key)).id).toBe(operation.id);
+    expect((await f.journal.scan()).records).toEqual(records);
+    expect(f.start).not.toHaveBeenCalled(); expect(f.stop).not.toHaveBeenCalled(); await assertOldWorld(f); await f.service.close();
+  });
+  it("Manager reconstruction preserves pending evidence even when a target level.dat appeared", async () => {
+    const f = await fixture(undefined, true), operation = await f.service.create(f.adapter.serverId, f.body, randomUUID());
+    await complete(f.ops, operation.id); await f.service.close();
+    await mkdir(path.join(f.server, f.body.name)); await writeFile(path.join(f.server, f.body.name, "level.dat"), level("external synthetic generation"));
+    const file = path.join(f.manager, "active-worlds", `${f.adapter.serverId}.json`), before = await readFile(file);
+    const states = new ActiveWorldStateStore(f.manager, [f.adapter]);
+    const app = buildApp({ mode: "local", adapters: [f.adapter], managerRoot: f.manager, transactionJournal: f.journal,
+      operationStore: f.store, activeWorldState: states, clock, backupSchedulerTimers: false });
+    try {
+      await app.ready(); await app.managerRecovery.wait();
+      expect(await readFile(file)).toEqual(before); expect(states.snapshot(f.adapter.serverId)).toBeNull();
+      const response = await app.inject({ url: `/api/v1/operations/${operation.id}`, headers: { host: "127.0.0.1:8080" } });
+      expect(response.statusCode).toBe(200); expect(response.json().data.state).toBe("interrupted");
+    } finally { await app.close(); }
+    expect(f.start).not.toHaveBeenCalled(); expect(f.stop).not.toHaveBeenCalled(); await assertOldWorld(f);
+  });
+  it("drains admitted preparation on close without publishing configuration after the paused boundary", async () => {
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; }), pause = new Promise<void>(resolve => { release = resolve; });
+    const f = await fixture(async point => { if (point === "config-ready") { enter(); await pause; } }, true);
+    const operation = await f.service.create(f.adapter.serverId, f.body, randomUUID()); await entered;
+    let closed = false; const closing = f.service.close().then(() => { closed = true; });
+    await Promise.resolve(); expect(closed).toBe(false); release(); await closing;
+    expect((await complete(f.ops, operation.id)).state).toBe("interrupted");
+    expect(await readFile(path.join(f.server, "server.properties"), "utf8")).toBe(originalProperties);
+    expect(f.ops.getServerState(f.adapter.serverId).recoveryRequired).toBe(true); await assertOldWorld(f);
+  });
+  it("refuses running instances instead of adding a new stop/start policy", async () => {
+    const f = await fixture(undefined, true); f.status.state = "running"; f.status.ownership = "managed";
+    await expect(f.service.create(f.adapter.serverId, { ...f.body, allowStop: true }, randomUUID())).rejects.toMatchObject({ code: "RECOVERY_REQUIRED" });
+    expect((await f.journal.scan()).records).toEqual([]); expect(await f.store.list()).toEqual([]); expect(f.stop).not.toHaveBeenCalled();
+  });
+});
+
 describe("P3.3b guarded new-world configuration transaction", () => {
+  it("keeps immutable catalog closed after legacy generation instead of rebinding old identity", async () => {
+    const f = await fixture(), library = new WorldLibraryStore(f.manager, clock);
+    const binding = { serverId: f.adapter.serverId, rootPath: f.server };
+    await library.migrateLegacy(binding, f.states.snapshot(f.adapter.serverId)!);
+    const original = await library.list(binding, f.states.snapshot(f.adapter.serverId));
+    expect(original.state).toBe("ready"); expect(original.activeWorldId).toMatch(/^worldv2-/u);
+    const catalogFile = path.join(f.manager, "world-library", f.adapter.serverId, "state.json");
+    const catalog = await readFile(catalogFile);
+    const operation = await f.service.create(f.adapter.serverId, f.body, randomUUID());
+    expect((await complete(f.ops, operation.id)).state).toBe("succeeded");
+    expect(f.states.snapshot(f.adapter.serverId)?.state).toBe("pending-generation");
+    // Isolated synthetic generation, not a Minecraft loading acceptance.
+    await mkdir(path.join(f.server, f.body.name));
+    await writeFile(path.join(f.server, f.body.name, "level.dat"), level("new-generation"));
+    await f.states.reconcileAfterStart(f.adapter.serverId);
+    const after = await library.list(binding, f.states.snapshot(f.adapter.serverId));
+    expect(after).toMatchObject({ state: "inspection-required", activeWorldId: null, mutationsAvailable: false });
+    expect(await readFile(catalogFile)).toEqual(catalog);
+    expect(f.start).not.toHaveBeenCalled(); expect(f.stop).not.toHaveBeenCalled(); await assertOldWorld(f);
+    const guards = await f.backups.list(f.adapter.serverId);
+    expect(guards).toHaveLength(1); expect(guards[0]?.pinned).toBe(true);
+  });
   it("preserves every old dimension, pins a full guard and persists pending generation without starting", async () => {
     const f = await fixture(); const key = randomUUID(); const op = await f.service.create(f.adapter.serverId, f.body, key);
     const result = await complete(f.ops, op.id);
@@ -250,8 +483,102 @@ describe("P3.3b guarded new-world configuration transaction", () => {
 });
 
 describe("P3.3b composed HTTP create and journal startup", () => {
+  it("rejects revoked preparation admission before creating a receipt or journal", async () => {
+    const f = await fixture(undefined, true);
+    const status = f.adapter.getStatus.bind(f.adapter);
+    let allowed = true;
+    vi.spyOn(f.adapter, "getStatus").mockImplementation(async () => {
+      allowed = false;
+      return status();
+    });
+    await expect(f.service.create(f.adapter.serverId, f.body, randomUUID(), () => {
+      if (!allowed) throw new Error("injected revocation");
+      return undefined;
+    })).rejects.toThrow("injected revocation");
+    expect(await f.store.list()).toEqual([]);
+    expect((await f.journal.scan()).records).toEqual([]);
+    expect(f.start).not.toHaveBeenCalled();
+  });
   const readHeaders = { host: "127.0.0.1:8080" };
   const writeHeaders = { ...readHeaders, origin: "http://127.0.0.1:3000", "x-manager-intent": "local-ui" };
+  it("keeps generation dispatch unavailable without configured authentication", async () => {
+    const f = await fixture(undefined, true);
+    const app = buildApp({ adapters: [f.adapter], mode: "local", clock,
+      operationStore: new JsonOperationStore(f.manager), transactionJournal: f.journal,
+      managerRoot: f.manager, activeWorldState: f.states, worldGenerationPreparation: true, worldGenerationExecution: true });
+    try {
+      const response = await app.inject({ method: "POST", url: `/api/v1/servers/${f.adapter.serverId}/worlds/generate`,
+        headers: { ...writeHeaders, "idempotency-key": randomUUID() }, payload: {} });
+      expect(response.statusCode).toBe(404);
+      expect(f.start).not.toHaveBeenCalled();
+    } finally { await app.close(); }
+  });
+  it("does not expose the legacy writer when generation opt-in lacks a receipt store", async () => {
+    const f = await fixture();
+    const app = buildApp({ adapters: [f.adapter], mode: "local", clock,
+      transactionJournal: f.journal, managerRoot: f.manager, activeWorldState: f.states, worldGenerationPreparation: true });
+    try {
+      const response = await app.inject({ method: "POST", url: `/api/v1/servers/${f.adapter.serverId}/worlds`,
+        headers: { ...writeHeaders, "idempotency-key": randomUUID() }, payload: f.body });
+      expect(response.statusCode).toBe(404);
+      expect((await f.journal.scan()).records).toHaveLength(0);
+    } finally { await app.close(); }
+  });
+  it("prepares a protected generation reservation through the opt-in HTTP entry", async () => {
+    const f = await fixture(undefined, true);
+    const store = new JsonOperationStore(f.manager);
+    const app = buildApp({ adapters: [f.adapter], mode: "local", clock, operationStore: store,
+      transactionJournal: f.journal, managerRoot: f.manager, activeWorldState: f.states, worldGenerationPreparation: true });
+    try {
+      const response = await app.inject({ method: "POST", url: `/api/v1/servers/${f.adapter.serverId}/worlds`,
+        headers: { ...writeHeaders, "idempotency-key": randomUUID() }, payload: f.body });
+      expect(response.statusCode).toBe(202);
+      const id = response.json().data.operation.id;
+      await vi.waitFor(async () => {
+        expect((await store.read(id)).operation.state).toBe("succeeded");
+      }, { timeout: 3000 });
+      const reservation = await new WorldLibraryStore(f.manager, clock)
+        .readPreparedGeneration({ serverId: f.adapter.serverId, rootPath: f.server }, f.journal);
+      expect(reservation).toBeTruthy();
+      expect(f.start).not.toHaveBeenCalled();
+    } finally { await app.close(); }
+  });
+  it("drains an admitted preparation when the HTTP app closes", async () => {
+    const f = await fixture(undefined, true);
+    const store = new JsonOperationStore(f.manager);
+    const save = store.save.bind(store);
+    let entered!: () => void, release!: () => void;
+    const running = new Promise<void>(resolve => { entered = resolve; });
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    vi.spyOn(store, "save").mockImplementation(async value => {
+      if (value.operation.state === "running") { entered(); await hold; }
+      await save(value);
+    });
+    const app = buildApp({ adapters: [f.adapter], mode: "local", clock, operationStore: store,
+      transactionJournal: f.journal, managerRoot: f.manager, activeWorldState: f.states, worldGenerationPreparation: true });
+    let closed: Promise<void> | undefined;
+    try {
+      const response = await app.inject({ method: "POST", url: `/api/v1/servers/${f.adapter.serverId}/worlds`,
+        headers: { ...writeHeaders, "idempotency-key": randomUUID() }, payload: f.body });
+      expect(response.statusCode).toBe(202);
+      await running;
+      const drain = vi.spyOn(WorldCreateService.prototype, "close");
+      let finished = false;
+      closed = app.close().then(() => { finished = true; });
+      await vi.waitFor(() => expect(drain).toHaveBeenCalled());
+      expect(finished).toBe(false);
+      release();
+      await closed;
+      expect((await store.read(response.json().data.operation.id)).operation).toMatchObject({
+        state: "interrupted", error: { code: "RECOVERY_REQUIRED" }
+      });
+      expect(f.start).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await (closed ?? app.close());
+      vi.restoreAllMocks();
+    }
+  });
   function httpApp(f: Fixture) {
     return buildApp({ adapters: [f.adapter], mode: "local", clock, operationStore: f.store,
       transactionJournal: f.journal, managerRoot: f.manager, activeWorldState: f.states });

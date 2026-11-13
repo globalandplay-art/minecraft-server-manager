@@ -1,6 +1,1435 @@
-# 2026-10-26 Worlds V2 activation preparation — IN PROGRESS
+## Managed-world start dispatch (2026-11-06)
 
-## Latest: structural activation-chain checks added; repeated writes still pending
+Service/API continuation (2026-11-13). WorldGenerationService retains the
+exact first-launch witness and builds its matching stop receipt from the
+verified world name and original start record. A stop timeout retains the
+background completion owner; close reports CLEANUP_BLOCKED until it drains.
+Independent Sol High closed the retained-owner P2 and reviewed the new
+explicit first-managed-start/stop HTTP routes at P1/P2/P3 0/0/0. The routes
+require explicit confirmation, UUID/key and Session/CSRF under the existing
+generation execution opt-in. Main does not enable that opt-in. Real Fastify
+with actual authentication and Fake runtime completed the service roundtrip.
+Expanded API checks passed 4/4 and existing lifecycle 39/39
+(`world-generation-managed-http-final.json`,
+`world-generation-managed-http-compat.json`). Full buildApp startup and
+route composition passed 1/1 (`world-generation-managed-buildapp.json`).
+The generated-world result page now offers explicit first start and matching
+stop after finalization. Requests persist before send; lost responses block
+automatic replay. Parent-level remount and instance-switch tests preserve
+the stop/unknown entry without permitting another start. Web 20/20 passed
+(`world-generation-first-managed-ui-resume.json`). Earlier UI failures and
+the stop-owner P2 reports remain retained. Independent Sol High service,
+HTTP and UI delta reviews accepted P1/P2/P3 0/0/0. API/Web typecheck and
+build, scoped lint and diff passed; Web retains its chunk-size warning.
+Chrome UI acceptance now passed 360/768/1440, including explicit start/stop,
+refresh restoration, three languages and horizontal overflow checks. This
+browser suite uses synthetic HTTP, independently of the real buildApp/Fake
+runtime test above. Evidence is in
+`worlds-v2-first-managed-browser-360` and
+`worlds-v2-first-managed-browser-wide`. Initial browser failures from missing
+Host and an inconsistent Mock/local fixture remain in the earlier output
+directories. The fixture now uses finally cleanup even on setup failures.
+The Vite shutdown required ending the exact WebServer PID reported by each
+successful run; both runners exited 0 and those observed server PIDs have
+exited (primary executor observation; no persisted independent process audit).
+Independent Sol High browser evidence review: P1/P2/P3 = 0/0/0 within this
+synthetic-HTTP scope. Recovery settlement and isolated real Minecraft
+acceptance remain open. The first real attempt generated and stopped two
+isolated worlds normally, then hit a legacy reader in the harness; it remains
+BLOCKED. The corrected published-evidence reader passed independent review;
+a fresh-UUID attempt passed the service-layer real-Java generation/publication
+and first managed start/stop checks. Three Java children saved and closed
+normally; no forced cleanup, source unchanged, recovery gate retained.
+Independent Sol High evidence review: P1/P2/P3 = 0/0/0. This does not certify
+real HTTP/UI, diagnostics or Phase 1 completion. A subsequent independent
+Node process reopened the same isolated manager: buildApp plus read-only
+HTTP retained inspection-required, activeWorldId null and writes/activation
+disabled, with zero Minecraft launches. The pinned Java version probe was
+permitted. `reopen-13568.json` passed independent Sol High evidence review
+0/0/0; this is not an OS reboot or recovery unlock. See
+`WORLDS_V2_MANAGED_REAL_2026-11-13.md` for preserved evidence and boundaries.
+
+Next implementation: dedicated generated-world recovery settlement, together
+with the settled catalog's ordinary-reader acceptance and legal successor
+semantics. Independent Sol High requires these coupled boundaries before any
+unlock; clearing only OperationService causes or globally accepting schema7
+is not permitted. Preserve raw receipts and expose verified terminal status
+through a consistent projection. Design findings and minimum targeted cases
+are recorded in the real-acceptance report. Settlement data/storage is now
+implemented. Historical evidence issuance is also implemented and reviewed;
+schema8 publication, terminal projection and recovery release remain open.
+`world-generation-settlement-store.json`: 59/59 passed
+(8 new settlement, 12 operation-store, 39 lifecycle). API typecheck, scoped
+lint and diff passed. Independent Sol High storage review: P1/P2/P3 = 0/0/0.
+The write-once sidecar preserves raw receipts and confers no admission.
+Its matcher checks lifecycle/schema2 confirmation/revision bindings; the
+future same-lease issuer/consumer must independently prove preparation,
+execution, catalog/genesis objects and exact causes. Real-Java evidence
+predates this OperationStore edit and is not current whole-tree acceptance.
+
+Paused upload checkpoint (2026-11-13): explicit user authorization covers this
+development-branch upload only; it does not resume development or authorize
+main merge. Historical settlement issuance uses the existing inspection lease,
+strict schema2 confirmation and post-write physical/catalog checks. Independent
+Sol High closed the schema1 callback-contract P3: P1/P2/P3 = 0/0/0.
+`world-generation-settlement-issuance-v2.json`: 2 passed / 247 filtered;
+`world-generation-settlement-confirmation-version.json`: 39/39 passed.
+Genesis-aware original-record history checks: 70/70; immutable snapshot/journal
+integration: 1 passed / 248 filtered. These are targeted runs, not full-regression
+PASS. API typecheck and scoped lint passed. The new no-Minecraft-launch
+`--record-settlement` real-fixture acceptance mode has not executed; its final
+preflight review remains PENDING after the pause. No Phase 1 or V2 Final PASS.
+
+Resumed first-managed-stop integration (2026-11-13). A live first-start
+handoff retains its exact generation/lifecycle recovery cause set. The
+existing owned stop can admit only the matching launch, adds its own stop
+cause, and checks the persisted one-start/one-stop scope before stopping
+and sealing the revision. The ephemeral handoff is cleared on initialization.
+Fake first-start/stop tests passed 2/2
+(`world-generation-first-managed-stop.json`), and existing lifecycle tests
+passed 39/39 (`world-generation-first-managed-stop-compat.json`).
+API typecheck, scoped lint and diff passed. Independent Sol High source review
+accepted P1/P2/P3 0/0/0. A follow-up negative case rejects an extra lifecycle
+receipt before stop without increasing runtime calls or writing the stop
+receipt. Its first report failed because the spy included generation-era
+calls; the corrected call-count comparison passed and was independently
+reviewed (`world-generation-first-managed-stop-scope-recheck.json`, 2/2).
+The final fixture also reloads OperationService and finds the exact sealed
+start/stop pair, with recovery still required
+(`world-generation-first-managed-stop-restart.json`, 2/2).
+Production routes, recovery release and real acceptance remain open.
+
+The internal first-start path can now dispatch through the existing runtime
+within the same generation recovery lease. It creates a running intent,
+checks the exact scoped receipt and physical baseline before spawn, and
+reads back the launch seal. The Fake runtime covers both successful launch
+and a second same-instance receipt blocking spawn. The no-dispatch path
+still stages a queued intent. Review identified a final read ordering issue,
+a missing shutdown cancellation signal, and late runtime capability
+validation. The census now follows the exact receipt read; the owner signal
+cancels the runtime wait; capability is checked before intent creation.
+First-start 4/4 and shared lifecycle 39/39
+(`world-generation-first-start-dispatch-recheck.json`,
+`world-owned-start-shared-dispatch-recheck.json`) passed, along with API typecheck,
+scoped lint and diff. Independent Sol High delta review accepted P1/P2/P3
+0/0/0. Matching stop, production
+routes and real Vanilla acceptance remain open.
+
+First-start staging now rechecks the physical and publication baseline after
+the intent is written and read back, under the same generation lease. The
+baseline reader allows only the exact newly persisted lifecycle receipt in
+its otherwise closed scope. If publication evidence disappears during
+creation, the call fails and preserves the intent and recovery causes.
+Independent review found a final receipt drift window. The lease now
+rechecks the exact persisted lifecycle scope after the physical check.
+Targeted 4/4 (`world-generation-managed-start-post-write-final.json`), API
+typecheck, scoped ESLint and diff passed. Independent Sol High delta review
+accepted P1/P2/P3 0/0/0.
+This checkpoint remains staging only.
+
+The existing owned-start runtime path now separates runtime preparation
+from receipt admission and dispatch. The dispatcher pins the exact expected
+recovery causes; the runtime preparation rejects a mismatched operation ID.
+The existing lifecycle tests passed 39/39
+(`world-owned-launch-dispatch-boundary.json`), with API typecheck, scoped
+lint and diff passing. Independent Sol High source review accepted
+P1/P2/P3 0/0/0. The generated start path
+still stages its receipt; scoped admission and matching stop remain open.
+
+The internal first-managed-start path now writes and reads back a queued
+lifecycle intent inside the generation recovery lease. It derives the
+registration, world directory, catalog and stopped-tree bindings from the
+verified published baseline, rechecks it before writing, and retains the
+generation causes alongside the new lifecycle cause. The fixture rejects a
+second attempt without dispatching Java. Independent review found that a
+confirmed receipt could remain unindexed if authorization expired during
+creation. The receipt is now indexed after exact readback and before the
+final authorization check. Tests cover that window and restart without replay
+(`world-generation-managed-start-stage-restart.json`, 2/2). API typecheck,
+scoped ESLint and diff passed. Independent Sol High delta review accepted
+P1/P2/P3 0/0/0. Runtime dispatch remains open.
+
+WorldGenerationService now inspects the first managed start inside the
+existing generation recovery lease and shutdown owner. It checks the
+execution ID and returns the verified world, registration, catalog and
+stopped-tree digests without exposing a lease callback. The fixture
+rejects a foreign execution ID and confirms that no launch is dispatched.
+Targeted 2/2 (`world-generation-managed-start-lease.json`), API typecheck,
+scoped lint and diff passed. Independent Sol High source review accepted
+P1/P2/P3 0/0/0 for this inspection method.
+The existing owned-start dispatcher still requires a clean recovery set.
+Its handoff must preserve generation causes and admit only the exact
+new start receipt during the final physical recheck.
+
+Added a read-only baseline verifier for the first managed start. It combines
+the initial physical maturity proof with the published catalog object and
+intent fence, and keeps its own publication binding for rechecks. The
+isolated fixture accepts the published baseline. Independent review found
+that rechecks also needed to pin the intent object's identity. The verifier
+now retains that identity and checksum, and the fixture rejects both a
+missing intent and a byte-identical replacement
+(`world-generation-managed-start-intent-fence.json`, 2/2). API typecheck,
+scoped lint and diff passed. No start admission or recovery release uses
+this baseline yet. Independent Sol High delta review accepted P1/P2/P3
+0/0/0.
+
+New stop confirmations require a protected journal and use schema2.
+They bind the exact stop chain plus the journal location and scoped records,
+so a new Manager baseline cannot silently rebind a confirmation to a
+replacement journal. Schema1 stays readable for inspection. A newly created
+schema2 receipt cannot read back as schema1. The restart fixture rejects an
+alternate location with identical records. Targeted schema7 1/1 and
+lifecycle/store 51/51 passed (`world-stop-confirmation-v2-final-restart.json`,
+`world-stop-confirmation-v2-final-compat.json`). API typecheck, scoped ESLint
+and diff passed. Independent Sol High found and closed a P2 for missing
+scanner permitting schema1 writes. Final delta review accepted P1/P2/P3
+0/0/0. No recovery release.
+
+Stop confirmation now binds the Manager and transaction directory identities
+captured at OperationService startup. A replacement directory is rejected
+even if its records match. The first implementation added directory reads to
+ordinary initialization; the mature journal tampering case failed at its
+existing time boundary in both the combined and isolated runs. The final
+implementation limits startup identity capture to OperationService and
+preserves the ordinary scan path. Targeted API 2/2 and journal/lifecycle
+50/50 passed (`world-stop-journal-location-final.json`,
+`world-stop-journal-location-final-store.json`). API typecheck, scoped lint
+and diff passed. Independent Sol High delta review accepted P1/P2/P3 0/0/0.
+This remains confirmation evidence with recovery held.
+
+Stop confirmation now checks the current scoped journal against the startup
+baseline while holding the inspection lease. A missing historical parent
+blocks confirmation before a receipt is written. The new read-only
+`scanExisting` checks journal directory identities and uses bounded
+identity-checked record reads. The initial review found an unsafe linked
+journal read in the proposed path; the protected reader and junction case
+closed it. Independent Sol High delta review accepted P1/P2/P3 0/0/0.
+Confirmation and lifecycle tests passed 40/40
+(`world-stop-confirmation-protected-journal.json`); journal tests passed
+10/10 (`world-stop-protected-journal-store.json`). API typecheck, scoped
+lint and diff passed. This remains confirmation, with recovery still held.
+
+Stopped-world observations now reread `level.dat` after tree inventory and
+compare its checksum and file identity. Replacing it with identical bytes
+during the second observation fails closed. Lifecycle tests passed 39/39
+(`world-stop-level-identity-recheck.json`); API typecheck, scoped ESLint and
+diff passed. Independent Sol High source review accepted P1/P2/P3 0/0/0.
+Recovery release and isolated real acceptance remain open.
+
+The authenticated generation fixture now observes completion after the
+terminal receipt has been saved and then reads the persisted receipt once.
+This removes the test's concurrent polling of the file being rewritten.
+The combined run passed both HTTP generation variants and reported 54
+passed / 1 failed (`world-generation-terminal-observer.json`). The schema7
+case failed in its setup hook and passed in isolation under its existing
+limit (`world-generation-terminal-observer-schema7.json`). Scoped lint and
+diff passed. The earlier intermittent preparation failure has no confirmed
+root cause. The existing isolated real runner only covers generation
+business behavior and requires extension for recovery release acceptance.
+
+The in-flight generation controls digest now binds the preparation workspace
+directory identity and the verified guard checksum. Its persisted non-slot
+digest format is unchanged. The new failure injection moves the original
+properties file into a replacement directory after owned stop; generation
+retains recovery. The first run passed 4 of 5
+(`world-generation-workspace-binding.json`); the same-Manager HTTP case
+again stopped after `stop-confirmed`, before guard verification. A bounded
+diagnostic rerun passed all 5 (`world-generation-guard-probe.txt`) and did
+not reproduce that failure. Temporary diagnostics were removed. Typecheck,
+scoped lint and diff passed. Independent Sol High delta review accepted
+P1/P2/P3 0/0/0 for the in-flight digest change. The intermittent HTTP failure
+remains open.
+
+The scoped diagnostic rerun passed 54 cases
+(`world-generation-control-probe.txt`), so it did not isolate either
+intermittent cause. Temporary probes were removed. A deterministic fixture
+now replaces the active-slot file with byte-identical contents after owned
+stop and verifies that generation stays interrupted, both files remain and
+recovery stays active. The focused run passed all four cases
+(`world-generation-active-slot-drift.json`), including both authenticated
+HTTP variants. Scoped lint and diff passed. This covers one rejection path;
+the historical intermittent failures remain unexplained.
+
+The same-Manager authenticated generation diagnostic distinguished two
+failure boundaries. The structured fixture report
+(`world-generation-live-preparation-diagnosis.json`) ended with
+`RECOVERY_REQUIRED` after `generation-reserved` and `stop-confirmed`, before
+guard verification. A separate isolated run reached one Fake start and stop,
+then failed the post-stop preparation control/record digest comparison in
+`WorldGenerationService.execute`. Three subsequent single-case runs passed.
+The differing failures remain unresolved. Temporary product diagnostics were
+removed; the test retains terminal error code and journal checkpoint names
+for future failures. No real Minecraft acceptance or unlock was attempted.
+
+The stop-confirmation lease now checks the current persisted lifecycle scope
+before trusting the startup pair. A third same-instance receipt invalidates
+confirmation reads and writes even if it appeared after startup. Independent
+Sol High source review accepted P1/P2/P3 0/0/0. Recovery release still needs a
+durable settlement that preserves the immutable pair and handles generated
+catalog admission separately.
+API typecheck, scoped lint and diff passed. The two targeted runs reported
+72/1 and 53/1 (`world-stop-confirmation-scope-census.json` and
+`world-stop-confirmation-scope-recheck.json`). Both reproduced the same
+same-Manager authenticated generation failure before stop confirmation:
+the preparation operation was interrupted rather than succeeded. The
+new scope case and schema7 stop inspection passed. Investigate the
+preparation operation's error before isolated real acceptance.
+
+After restart, stopped-world inspection now reports whether the confirmation
+still matches the exact evidence chain. The UI displays an existing
+confirmation without submitting a write. Independent review found an ENOENT
+ambiguity; the read-only path now rechecks the chain before reporting an
+absent confirmation. Moving the entire isolated operations directory during
+readback returns 409. API 51/51 and Web 4/4 passed
+(`world-stop-confirmation-reopen-final.json`,
+`world-stop-confirmation-reopen-web-reviewed.json`), with contracts build,
+typecheck, scoped ESLint and diff passing. Independent Sol High delta review
+accepted P1/P2/P3 0/0/0.
+Recovery release still requires a separate transaction.
+
+World library now offers an explicit action to record a successful stop
+inspection. It sends the inspected stop ID, checks the response binding and
+keeps the recovery warning. Schema7 can advertise a separate inspection
+target without setting an active world. The Web test covers an in-flight
+confirmation while switching servers. Web 4/4 and API/Contracts 22/22 passed
+(`world-stop-confirmation-web.json`, `world-stop-confirmation-target-api.json`).
+The initial root test invocation used a Node environment for Web and failed
+on missing sessionStorage (`world-stop-confirmation-ui.json`); the Web
+workspace run uses the configured browser-like environment. Contracts build,
+API/Web typecheck, scoped ESLint and diff passed. Independent review found a
+P3 where a pending-generation slot could advertise inspection. The route now
+requires a matching active slot and rechecks the binding before returning a
+target. API/Contracts recheck passed 22/22
+(`world-stop-confirmation-target-active.json`). Independent Sol High delta
+review accepted P1/P2/P3 0/0/0.
+
+The stopped-revision endpoint now accepts explicit confirmation of the current
+stop operation ID. It persists and rereads the immutable receipt under the
+inspection lease. Same-evidence repeats succeed, and stale IDs or mismatched
+receipts return 409. Independent review found and closed one P2 in the order
+of the final evidence and confirmation reads. Final source review accepted
+P1/P2/P3 0/0/0. Lifecycle and operation-store suites passed 51/51
+(`world-stop-confirmation-final-readback.json`); API typecheck, scoped ESLint
+and diff passed. UI confirmation, restart consumption and recovery release
+remain open.
+
+Added the immutable stop-confirmation sidecar to the operation store. Its
+digest binds both lifecycle intents and both seals. Tests reopen the store,
+verify the receipt, reject duplicate publication and distinguish changed
+stop evidence. Lifecycle and operation-store suites passed 51/51
+(`world-stop-confirmation-store.json`), with API typecheck, scoped ESLint and
+diff passing. Independent Sol High source review accepted P1/P2/P3 0/0/0.
+The inspection endpoint remains
+read-only. Explicit confirmation under the inspection lease, restart
+consumption and recovery release remain open.
+
+The schema7 stopped-revision path now reuses the startup publication verifier
+under its inspection lease. It checks the published catalog object and its
+intent after rereading generation and lifecycle evidence. A missing intent
+after startup returns HTTP 409 with recovery still required. Targeted API
+tests passed (`world-owned-schema7-publication-recheck.json`), as did API
+typecheck, scoped ESLint and diff. Independent Sol High source review accepted
+P1/P2/P3 0/0/0. This is point-in-time inspection evidence only. Durable revision
+confirmation and recovery release remain open.
+
+Startup auditing and the explicit stopped-revision inspection now recognize an
+exact schema7 start/stop pair alongside its linked historical generation
+recovery causes. Both paths reread the sealed evidence. Inspection leaves all
+recovery causes in place. The first HTTP test used a placeholder registration
+root digest and failed with 409 (`world-owned-schema7-stop-http.json`). The
+fixture now uses the production directory identity helper. The recheck passed
+7 tests with 229 unselected (`world-owned-schema7-stop-http-recheck.json`);
+API typecheck, scoped ESLint and diff checks passed. Independent Sol High found
+one P2: the historical-generation branch could accept an ordinary ready
+catalog. The route now requires the schema7 inspection projection with the
+matching world and revision for that branch. The regression checks that an
+ordinary ready projection returns 409. Seven targeted tests passed with 229
+unselected (`world-owned-schema7-stop-http-scope.json`), along with the same
+static checks. Independent Sol High source re-review accepted P1/P2/P3 0/0/0.
+Publication-object revalidation and recovery release remain outside this check.
+
+Schema7 read-only catalog projection now accepts the exact startup lifecycle
+pair bound to its generated UUID, revision, root, directory and registration.
+The pair's two raw receipts must match, with no extra scoped lifecycle tags
+or unrelated pending operations. Launch and stop seals are reread before the
+projection is returned. Five targeted tests passed in
+`test-results/world-owned-schema7-catalog-reviewed.json`, including physical
+seal drift and an extra terminal lifecycle tag. API typecheck, scoped lint and
+diff passed. Independent Sol High re-review accepted 0/0/0. The catalog remains inspection-only;
+generated lifecycle admission, revision consumption and real acceptance remain
+open. Prior catalog readback and inspection UI review accepted 0/0/0.
+
+World library UI now shows a stopped-revision check when the opt-in API
+advertises matching startup evidence for the active UUID/revision. The
+explicit action uses authenticated POST and displays that recovery is still
+required. It binds the result to the selected server and world. Guarded
+ordinary catalog reads now re-read revision and file identity after physical
+checks, rejecting even a same-byte file replacement. API54 and Web10 passed
+(`world-owned-stop-catalog-ui-api.json`, `world-owned-stop-catalog-ui-web.json`
+under test-results), contracts build, workspace typecheck, scoped lint and
+diff passed. Independent catalog and UI delta review pending. Normal managed
+lifecycle admission and generated schema7 integration remain open.
+
+Stopped-revision HTTP inspection now also checks the active slot against the
+current catalog UUID and exact catalog revision before and after physical
+verification. The legacy catalog fixture uses a real persisted catalog and
+rejects a mismatched revision. `test-results/world-owned-stop-catalog-http.json`
+records 53PASS, API typecheck passed. Prior HTTP route independent review
+accepted 0/0/0. Catalog delta review pending. Generated schema7 maturity and
+startup leases still reject unrelated lifecycle records/causes. Integration
+needs a dedicated admission policy binding the exact verified lifecycle pair.
+
+Authenticated opt-in API now mounts `POST /worlds/stopped-revision-inspection`
+under the server scope. It derives the level name from the pinned active slot,
+uses the exact stop inspection lease, and projects only server/world/stop IDs
+and inspection/recovery flags. Route injection checks authorization denial,
+successful no-store response and retained recovery. 74PASS in
+`test-results/world-owned-stop-inspection-http.json`; API typecheck passed.
+The startup physical lease independent review was ACCEPT0/0/0. HTTP delta
+review pending. Ordinary lifecycle and catalog revision admission remain open.
+
+Restart inspection now uses an exclusive read-only lease for exactly the
+matching start and stop recovery causes. It revalidates the registered runtime,
+reads the stopped world twice using the same physical checks as live stop, and
+compares both observations to the saved revision. It rereads the evidence chain
+before handoff. Matching evidence is inspection-only. Drift, external process
+status and additional recovery causes fail closed. Independent review found
+that release could wait behind a competing mutation. Finalization now checks
+authorization and the exact scope within the serialized release, with a test
+that introduces a recovery cause while release is queued. Final report
+`test-results/world-owned-stop-startup-physical-closed.json` has 74PASS;
+API typecheck, scoped lint and diff passed. Independent Sol High accepted both
+the structural chain and physical inspection source deltas 0/0/0. Catalog admission
+and product route integration remain open.
+
+Operation startup now identifies a single coherent persisted start/stop chain
+as an inspection candidate. Both intent digests, the world binding, the launch
+seal and the stopped revision seal must match. Candidate use rereads the files
+and compares the startup snapshot digest. Invalid or changed evidence is left
+for inspection and no recovery cause is released. The matching rule is shared
+with live stop admission. Report `test-results/world-owned-stop-startup-chain-final.json`
+records 74PASS, 0FAIL; API typecheck, scoped lint and diff passed. Independent
+review pending. A structurally matching chain can still contain a stale world
+revision. Physical startup verification and catalog admission remain open.
+
+The ordinary stop bridge now persists a separate exclusive `.stop.json` seal
+bound to the immutable stop intent digest and verified saved-world checksums
+and identities. Physical and receipt checks run around the write, with the
+seal readback and synchronous ownership/witness checks before handoff.
+The independent reviewer found that consumer recheck did not reread the seal.
+It now rereads the exact seal last and keeps its expected copy private.
+`test-results/world-owned-stop-seal-reviewed.json`: 74PASS, 0FAIL, including
+fresh-store readback and disk drift after publication or handoff. Restart still
+projects recovery required for intact and drifted evidence. API typecheck,
+scoped lint and diff passed. Independent Sol High accepted the bounded source
+delta (P1/P2/P3=0/0/0). Startup evidence consumption,
+catalog revision admission and ordinary product routes remain open.
+
+Internal stop now observes the saved world under the same stop lease. It
+checks normal owned exit, current stopped status, safe level-name, registered
+root/world directory identities, properties and Level NBT, then compares
+two bounded tree observations before handing off the revision. Recovery stays
+held. The independent reviewer found a stale receipt window during the final
+tree scan. Handoff now rereads the stop/start/seal after the scan and rechecks
+ownership and stopped witness synchronously. Final report
+`test-results/world-owned-stop-revision-reviewed.json` has 60PASS, including
+saved content changes, changed level-name refusal and seal drift during scan.
+API typecheck, scoped lint and diff passed. Independent Sol High accepted
+the stop and revision observation source delta (P1/P2/P3=0/0/0).
+Durable revision publication and product routing remain open.
+
+Internal ordinary stop now creates a distinct immutable intent under the exact
+start recovery cause. It verifies the original intent, launch seal, and live
+child, then rechecks the records after RCON authentication or stdin preparation.
+The synchronous transport guard consumes that verification once. A normal
+exit and close produce an internal stop witness. Both recovery causes remain
+held pending revision verification. Test report `test-results/world-owned-stop-reviewed.json`
+records 123PASS, 0FAIL including new stop receipt and parent seal drift, distinct
+stop authorization, and RCON/stdin dispatch checks. API typecheck, scoped lint
+and diff passed. The reviewer found a stale parent-seal readback gap. The code
+now reads the stop receipt before the parent intent and launch seal. The
+reviewer reached its usage limit during re-review, so signoff remains pending.
+Post-stop revision publication and product routing remain open.
+
+Ordinary launch witness is now sealed in a separate exclusive operation-store
+file, bound to the original immutable intent digest and observed launch UUID.
+The bridge verifies the live runtime before and after writing, then hands the
+read-back seal to its internal consumer. Recovery remains held. Independent
+Sol High closed two findings (async witness acceptance and seal readback order),
+P1/P2/P3=0/0/0 for the bounded source delta. Final focused report
+`test-results/world-owned-launch-seal-reviewed.json`: 68PASS, 0FAIL, including
+actual seal drift during intent recheck, async witness rejection, live launch
+drift and collision preservation. API typecheck, scoped lint and diff passed.
+Next: a distinct stop intent must reread the start intent and launch seal,
+bind the same process, and verify the stopped world revision before release.
+
+Independent Sol High reviewed the ordinary start bridge and closed the spawn
+findings (P1/P2/P3=0/0/0). Runtime rejects observed external or uncertain
+ownership immediately before spawn. The bridge rechecks the stopped world
+and exact disk receipt after asynchronous runtime preparation. The synchronous
+guard consumes that verification once and rejects a runtime that skips it.
+Final report `test-results/world-owned-spawn-verification-closed.json` records
+99PASS, 0FAIL. API typecheck, scoped lint and diff passed. Launch/stop sealing,
+verified world revision publication and ordinary route wiring remain open.
+
+Internal ordinary-start composition now binds the durable intent to a registered
+Vanilla runtime, verifies the stopped world during admission and before start,
+and forwards the ownership and authorization guard to the actual spawn boundary.
+It hands the live launch witness to a trusted consumer while retaining the
+recovery gate. The receipt/observer suites passed 51 tests, including composed
+launch and last-moment authorization refusal. API typecheck, scoped lint and
+diff passed. Independent source review pending. Durable launch and stop seals,
+verified revision publication and ordinary route wiring remain open.
+
+Spawn admission review follow-up: generation requires a runtime that honors
+the synchronous spawn guard. The generation owner becomes responsible for
+child cleanup only once the guard succeeds. Closing while startup is still
+preparing therefore releases the owner and retains recovery evidence. Local
+runtime emits starting after child ownership is established and propagates
+admission errors without changing the stopped state. Runtime/receipt 71PASS,
+generation targeted 5PASS (`test-results/world-generation-spawn-admission.json`),
+API typecheck, scoped lint and diff passed. Independent Sol High closed the
+remaining review findings (P1/P2/P3=0/0/0). Capability is checked in preflight
+and before saving the execution receipt. A refused request leaves the receipt
+set intact and can be retried with the same key after capability is restored.
+Final targeted report: `test-results/world-generation-spawn-preflight.json`.
+
+The immutable dispatch candidate below passed independent Sol High source
+review (P1/P2/P3=0/0/0). A subsequent delta adds synchronous admission at the
+runtime spawn boundary after asynchronous preparation. Generation rechecks
+authorization and its registered adapter/runtime there. Rejected admission
+releases the no-child generation owner while keeping durable recovery evidence.
+The ordinary dispatch callback now receives a synchronous guard for the same
+boundary. Runtime/receipt tests 71PASS and generation revocation tests 2PASS
+(231 not selected). API typecheck, scoped lint and diff checks passed. Source
+review of the spawn delta is pending. No ordinary lifecycle route or durable
+launch/stop seal yet.
+
+Review follow-up: independent Sol High identified two P2 findings in the
+initial experiment below. Operation subscriptions now share the inspection
+projection used by GET. The read-then-replace race prompted a change to an
+exclusive, immutable running intent. Dispatch rereads that intent and checks
+the active operation and authorization immediately before the internal callback.
+Neither success nor failure of the callback replaces the receipt or releases
+recovery. A test mutates the real file after admission readback and verifies
+that dispatch is refused and the bytes are preserved. The replacement candidate
+passed 37 focused tests (`test-results/world-lifecycle-immutable-dispatch.json`).
+Re-review pending. Normal lifecycle routing and observed-launch/stop sealing
+remain open. The prior create-form interruption retention passed source review.
+
+Initial experiment, superseded by the immutable intent above:
+
+The existing owned-start intent path can hand off to the operation executor
+after the queued and running receipts are persisted and checked. The dispatch
+boundary rechecks authorization, registration, active operation ownership and
+the exact recovery cause. Lifecycle receipt updates verify the previous record
+first, preserving mismatched evidence for inspection. 37 focused tests passed
+(`test-results/world-lifecycle-start-dispatch.json`). API typecheck, scoped lint
+and diff check passed. Independent review pending. The callback has no route
+caller yet. Next bind verified world identity and the observed launch, then
+verify an owned stop and its resulting world revision before any recovery release.
+
+## Initial generated catalog visibility (2026-11-05)
+
+Follow-up 2026-11-06: the create form now clears a pending request only for
+the canonical preflight HTTP status/code pairs. Independent Sol High closed
+the defensive 5xx finding (P1/P2/P3=0/0/0 for that predicate). The form also
+retains an interrupted operation ID across remount and suppresses the reset
+button while inspection is required. Create/generation component suites passed
+17 tests. Scoped ESLint and diff checks passed. Interrupted-state delta review
+remains pending. Ordinary managed lifecycle integration remains open.
+
+Initial schema7 catalogs can now be listed as inspection-required after explicit
+registration/legacy-slot binding and strict metadata/directory rechecks. Public
+entries retain generated UUIDs and old backup associations; null activeWorldId,
+no activation/mutation permission, no recovery release. Ordinary1–6 writers stay
+unchanged. Independent Sol High source/evidence ACCEPT, P1/P2/P3=0/0/0.
+Reports: visible-list1PASS, refusal4PASS, library compatibility150PASS, separate
+counts. APItypecheck/scopedlint/diff0. See
+WORLDS_V2_GENERATION_UI_2026-11-05.md. No Java or Git publication.
+
+Generation UI/client also have independent bounded source ACCEPT0/0/0. Browser
+and Vanilla acceptance for this integration remain NOT RUN. Existing create-plan
+UI now uses the same three-language resources. Switching languages preserves
+the name and seed without submission. The form retains the pending request on
+authorization loss and other uncertain HTTP errors. Latest create-plan report
+7PASS/0FAIL, Web typecheck/scoped lint exit0. Safety delta review PENDING.
+Next coherent task remains ordinary owned lifecycle + generated active identity
+admission; do not treat read-only display or a test batch as Phase1 completion.
+Reuse existing lifecycle dispatch, instance locks and receipts for a durable
+open-run intent, observed launch binding, distinct owned stop and verified
+post-stop revision. World identity remains stable during normal saves. The
+offline-drift gate compares the last verified stopped revision before next use.
+
+## Explicit generation client and UI checkpoint (2026-11-05)
+
+The earlier HTTP finalization timeout remains historical. The later bounded
+diagnostic report verifies 1 PASS / 0 FAIL / 227 NOT RUN, measured body 4835ms;
+independent Sol High accepts this route evidence only (real session/CSRF,
+real finalizer and Fake runtime, not full buildApp or real Minecraft).
+
+Added typed generation target/dispatch/inspection clients through existing
+authentication. Independent client review P1/P2/P3=0/0/0 ACCEPT. Local Worlds
+page now has an explicit generation panel: server-issued target, confirmation,
+session request write/readback before dispatch, no automatic resend/reset,
+bound operation/finalization responses and retained recovery messaging.
+Worlds is local-only for this panel; default backend opt-in flags remain off.
+New UI plus client and existing create-plan tests: 19 PASS / 0 FAIL.
+Contracts build, Web typecheck, scoped lint and diff checks pass at this
+checkpoint; subsequent UI delta source review ACCEPT0/0/0 (no browser/real Java
+signoff). No real Java run, no Git publication.
+
+Phase 1 is NOT complete. Next integrate verified schema7 catalog/active UUID
+mapping with ordinary owned-run persistence and post-stop world revisions.
+Do not clear generation recovery causes alone: ServerService generic start
+would otherwise open before that protocol is ready. Readiness and real Vanilla
+acceptance remain required. No Phase 2/restic completion is claimed.
+
+## Generation finalization HTTP checkpoint
+
+Retained completion reuse independent source ACCEPT0/0/0. Five between-writer
+faults pass. Fresh restored-controls fullchain report passes default5s body.
+Authenticated finalization POST added under existing opt-in route composition.
+Positive HTTP finalization test hit default5s and remains FAIL. Do not extend
+the deadline or claim HTTP acceptance. Sol High found pre-AJV strict-field gap;
+added exact single-string preValidation, API typecheck passes. Final HTTP
+positive/retry/cross-instance and strict-field evidence remain pending.
+Recovery held, no realJava. Next measure HTTP setup vs finalizer phases and
+remove proven duplicate work within the reviewed lease boundary.
+## Generation finalizer continuation checkpoint
+
+Finalizer recognizes a fully verified installed schema7 and confirms using its
+stored issuer and exact publication intent. Fresh-app confirmation test passed
+with default5s body and separately bounded5s setup. API typecheck/scopedlint
+passed. Added no-rename assertion awaiting rerun. Independent review pending.
+Full chain integration twice exceeded default5s. A20s diagnostic completed but
+is NOT acceptance under AGENTS. Restored default5s, retain failure and investigate
+phase timing before exposing finalizer via HTTP. Recovery remains held.
+## Worlds V2 pending generation catalog via HTTP
+
+Target lookup independent ACCEPT 0/0/0. Enabled existing schema6 pending
+publication in the trusted opt-in HTTP composition. Three focused tests pass
+including generated UUID readback and inspection-required GET. The earlier
+interrupted attempt remains unexplained; latest intermediate run completed
+publication but failed when the fixture still used the schema5 birth reader.
+Scope review pending. Next compose slot commit, genesis/reference sealing and
+maturity publication with protected continuation. Recovery remains held.
+## Worlds V2 generation target and pending publication
+
+Target lookup uses a pre-await registration digest and rejects in-place
+identity drift. Three focused cases pass, including authenticated HTTP
+preparation/dispatch/replay and reconstructed refusal. API typecheck passes.
+Independent target delta review pending. Opt-in publication experiment
+(09:23:54) ended interrupted in the composed HTTP fixture. Reverted the
+publication toggle only. Next locate the first failing publication boundary
+with the same fixture and preserve its recovery evidence. V2 in progress.
+## Worlds V2 Phase 1 authenticated generation HTTP
+
+Sol High source ACCEPT 0/0/0 for opt-in route composition. Two isolated HTTP
+cases pass with real session/CSRF, JsonOperationStore and Fake runtime. Same
+Manager prepares and dispatches once, stops the owned child, seals birth and
+replays the same operation ID. Reconstructed prepared-only Manager returns
+409 generation-owner-unverified with no launch. Tests use a fixture-derived
+execution target. Next add reviewed client target acquisition and complete
+publication/recovery admission, then isolated Vanilla acceptance. No real Java
+run or production flag change. V2 remains in progress.
+## Worlds V2 Phase 1 dispatch and HTTP preparation
+
+Independent Sol High accepted the running-only dispatch gate, P1/P2/P3 0/0/0.
+Seven selected Fake runtime cases passed. Added trusted app option
+worldGenerationPreparation to connect the existing create HTTP route to durable
+generation preparation. Default remains off. API typecheck and the 77 existing
+create-service tests passed. New opt-in HTTP test passed separately after fixing
+its fixture to use a fresh reader and the committed preparation reader.
+Composition review pending. No Java run. Next verify app shutdown ownership and
+connect the authenticated generation execution entry, then verify publication,
+recovery and isolated Vanilla acceptance. V2 remains in progress.
+## Lifecycle receipt storage (2026-10-30) — bounded ACCEPT
+
+Private worldLifecycle descriptors now use existing OperationStore; strict
+validation, all-state raw restart preservation, dedicated unverified cause and
+expired/case-normalized replay blocking implemented. No dispatch/seal/revision
+writer or unlock. Final30PASS/0FAIL (17new+4admission+9store); separate52PASS
+compatibility. Standalone typecheck/scopedlint/diff0; aggregate77049exit1 remains
+historical non-PASS, internal cause UNKNOWN. Independent Sol High4/4hashes,
+sameHEAD,P1/P2/P3=0/0/0 bounded ACCEPT. See
+WORLDS_V2_LIFECYCLE_RECEIPTS_2026-10-30.md. Next coherent actual dispatch +
+frozen launch/stop receipts + revision publication/consumption + compatible
+catalog/history/active admission; keep all recovery causes until verified.
+All owned sessions done; no realJava/world/system/Git changes. V2 IN PROGRESS;
+P7 STOPPED. Near-limit checkpoint: weekly99%used,5h38%used, ordinary allowed,
+not exhausted; no reset redeemed. Resume actual tree, do not repeat finished tests.
+## Ordinary owned lifecycle observer (2026-10-30) — bounded ACCEPT
+
+Added unused read-only start(A)/normal-stop(B) witness reusing registered runtime.
+Final53PASS/0FAIL (23new+30old); API typecheck/scopedlint/diff exit0. Sol High
+2/2hashes+same HEAD, P1/P2/P3=0/0/0 bounded ACCEPT. No revision writer, readiness
+release or runtime changes. Additional startup compatibility145PASS/0FAIL; not
+full regression. See WORLDS_V2_NORMAL_LIFECYCLE_2026-10-30.md. Next integrate
+durable open-run/exact lifecycle receipts + one-revision-per-launch publication
+with catalog/history/active admission. Generic current receipts have no world/
+launch binding; normal exit alone cannot authorize changed bytes or restart.
+V2 IN PROGRESS; P7 STOPPED; no realJava/world/system/Git changes.
+## Initial maturity startup classification (2026-10-30) — bounded ACCEPT
+
+Metadata-only startup classification now recognizes an exact issued schema7
+publication without marking durability, clearing recovery or opening ordinary
+start/write. Missing/damaged/unscoped evidence stays closed. Fixed an import
+cycle by extracting unchanged strict reference schemas into a leaf module.
+Integrated51PASS/0FAIL; corrected explicit5s setup-hook startup10PASS/0FAIL
+(overlapping, not summed). API build/scopedlint/diff exit0. Independent Sol High
+7/7hashes+same HEAD, P1/P2/P3=0/0/0 bounded ACCEPT. Original2/8 and9/1 reports
+retained; separate setup/body timing is not an original combined5s PASS.
+See WORLDS_V2_MATURITY_STARTUP_2026-10-30.md. Next ordinary owned normal-stop
+revision policy, then integrated readiness/API/UI/real acceptance. New read-only
+normal-lifecycle observer is in development, not a permission or revision writer.
+V2 IN PROGRESS; P7 STOPPED; no Git/realJava/system/world mutation this unit.
+## Initial maturity6→7 metadata publication accepted (2026-10-30)
+
+Actual backend CAS + explicit same-intent continuation/read-confirm implemented;
+full6/7 proofs, immutable intent/stage, bigint/content/version+directory closing
+fences, same-device, both-dir sync. Source/target failures preserve evidence.
+Final22PASS/0FAIL,182NOT RUN; independent6/6hashes,unchanged HEAD,0/0/0 ACCEPT.
+Historical4/4 nativeESM-spy failure retained. No receipt/snapshot/cause changes;
+all ordinary/start/write gates stay closed. Fresh app test provesclosed only,
+NOT successful production startup continuation. Next read-only7classification,
+then owned-stop revision policy + integrated ready/API/real acceptance. See
+WORLDS_V2_MATURITY_PUBLICATION_2026-10-30.md. P7 STOPPED;no Git/realJava.
+## Initial schema7 physical verifier (2026-10-30) — IN PROGRESS
+
+Implemented private immutable snapshot view with old exact birth/guard/stopped/
+registration/tree verifier. Active installedslot + originalbirthproof required;
+fresh recheck compares ORIGINAL full baseline; no view/oldrecheck escapes.
+Actual7 controls separate from original6snapshot; publicationVerified staysfalse.
+Source Sol High0/0/0; fresh33PASS/0FAIL,149NOT RUN; independent8/8hash readback,0/0/0 bounded ACCEPT.
+Bounded phase diagnostic shows sample3.68s setup vs0.194s physical, not a product
+perf PASS. No publishers/ready/startup/clear/API added. Historical11/1 and24/7 retained. Reviewed manual protocol physical fixture isolation
+under independent review. See WORLDS_V2_INITIAL_MATURE_PHYSICAL_2026-10-30.md.
+All owned test sessions completed. P7 STOPPED;no Git/Java/system/world changes.
+## Initial mature catalog READ/PREPARE (2026-10-29)
+
+Separate schema7 candidate/explicit inspector implemented; ordinary schema/type/
+read/head remain1..6. Exact original2entries and issued proof preserved; original
+parent/checkpoints/raw receipts reverified. Both results inspectionOnly/recovery
+required/catalogPublicationVerified:false. No7publisher, migration, startup/clear.
+Focused17PASS/0FAIL,149NOT RUN; build/typecheck/scopedlint/diff PASS. Sol High
+source0/0/0; final229PASS/0FAIL/0pending, independent4/4hashes ACCEPT. Old session43073 completed;
+report worlds-v2-initial-maturity-integration-2026-10-29.json; do not duplicate.
+Final READ/PREPARE evidence ACCEPT. See WORLDS_V2_INITIAL_MATURITY_CATALOG_2026-10-29.md.
+V2 IN PROGRESS;P7 STOPPED;no Git upload or real Java this unit.
+## Durable genesis reference issuance (2026-10-29)
+
+Backend-only issuer now seals deterministic v2 references under existing lease
+and full active proof, existing completion/snapshot only. Six immutable objects
+are strongly bound from issuance onward. Fixed-anchor reader requires external
+checksum+bigint identity; raw v2 data grants no issuer authority. No mature
+catalog/ready/clear/receipt/API change. Final18PASS plus confirmation2PASS (one
+case overlaps), remaining tests NOT RUN; static/build PASS. Sol High source0/0/0,
+final6/6hashes matched, bounded ACCEPT. Old23/1 UNKNOWN and pre-issuance limitations
+retained. See WORLDS_V2_GENESIS_ISSUER_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED.
+## Historical genesis reference reader (2026-10-29)
+
+Read-only, pathless immutable-evidence link inspector implemented, independent
+of mutable catalog/active slot. Full birth execution matches permanent execution
+anchor; original completion/CAS/birth/anchor links and fixed stage are verified.
+Reference-local bigint read witnesses reject actual replacement even if legacy
+IDs alias. Fresh15PASS/0FAIL,115NOT RUN; parser14PASS separately. Build/static PASS;
+Sol High8/8hashes, unchanged HEAD,0/0/0, bounded ACCEPT. Original23/1 retained,
+root UNKNOWN; later PASS is not its explanation. Older numeric pre-entry identity
+provenance remains unverified and must be addressed by future authenticated
+mature reference issuer. No mature catalog/ready/clear/API or real Minecraft Gate.
+See WORLDS_V2_GENESIS_REFERENCE_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED;no Git.
+## Genesis-aware history projection (2026-10-29)
+
+Pure structural projection now starts with actual generated UUID and the original
+world, without an invented activation. Same-name replacement retains retirement
+and immutable genesis metadata. Original generation operation/transaction/guard
+identifiers cannot be reused. Existing unseeded core remains compatible.
+Compatibility223PASS/0FAIL; focused37 includes36 overlapping tests; guard fix1PASS
+with114NOT RUN. API build/typecheck/scopedlint/diff exit0. Sol High source0/0/0;
+final6/6hashes matched, limited ACCEPT. No mature catalog or ready/clear/API authority.
+See WORLDS_V2_GENESIS_TRANSITION_PROJECTION_2026-10-29.md. Next: mature snapshot
+reference and ordinary owned-stop revisions before integrated admission. No Java,
+Git upload or P7 work. V2 IN PROGRESS.
+## Genesis snapshot preservation (2026-10-29)
+
+Backend-only append-only snapshot writer implemented under existing mutation
+lease/lifetime. Existing completion required; original schema6 bytes retained,
+with exact identity/hash and post-write full proof/link checks. No mature catalog,
+ready release, HTTP route, raw receipt changes or recovery-cause clearing.
+Independent Sol High6/6hashes, unchanged HEAD,0/0/0; limited evidence ACCEPT.
+Fresh integration161PASS/0FAIL/0pending (service115/execution46). Historical
+5/1(assertion error category) and8/1(default5s) preserved. Build/typecheck/scoped
+lint/diff passed. See WORLDS_V2_GENERATION_GENESIS_PERSISTENCE_2026-10-29.md.
+## Generation genesis metadata inspector (2026-10-29)
+
+Pure bounded schema-6 snapshot inspector implemented; deterministic frozen seed
+binds original catalog SHA, world UUID, preparation/execution identity and origin.
+Targeted1PASS/0FAIL;104NOT RUN. API typecheck/scopedlint/diff exit0. Independent
+Sol High limited ACCEPT, P1/P2/P3=0/0/0. No snapshot persistence/mature catalog/ready unlock implemented.
+See WORLDS_V2_GENERATION_GENESIS_2026-10-29.md. Latest quota primary8%used,
+weekly63%used, execution allowed; no reset redeemed. No Java or Git upload.
+# 2026-10-27 Worlds & Backups V2 — IN PROGRESS
+
+## Next readiness architecture checkpoint (2026-10-29)
+
+Independent Sol High accepted the bounded design, not an unlock permit. Need a
+distinct mature catalog with immutable genesis snapshot/reference; real genesis
+seed for later transition history; observed revisions after owned normal stop,
+with unknown/offline drift still blocked. Reuse runtime ownership/launch UUID;
+do not misapply the same-operation generation stop witness to normal start/stop.
+No implementation added. See WORLDS_V2_GENERATION_READINESS_2026-10-29.md.
+Last quota read primary86%used/weekly60%, execution allowed; later read aborted
+before dispatch, so no exhaustion claim or reset redemption. All owned test
+runner sessions completed; no Java started. Historical intentional Fake
+CLEANUP_BLOCKED fixtures remain retained; no unknown process cleanup performed.
+
+## Append-only generation completion evidence accepted (2026-10-29)
+
+Dedicated completion record now preserves original CAS-bound receipts; both
+entry points fence existing/late completion against pending-slot replay. Startup
+keeps strict generation raw receipts unchanged, with causes/interrupted projection
+and nonterminal denial intact. Advancing-clock new Manager/service re-read passes;
+ordinary backup normalization unchanged. Fresh150PASS plus affected27PASS;
+API build/typecheck/scopedlint/diff PASS. Independent Sol High8/8hashes,0/0/0,
+limited ACCEPT. Initial100/1(default5s) retained; repeated full CAS scans replaced
+by one complete post-write proof plus exact metadata checks, deadline unchanged.
+No success projection, recovery clear, ready or API is enabled. Next: reviewed
+normal post-generation lifecycle/save policy and final readiness projection,
+then actual HTTP/UI and isolated real acceptance. V2 IN PROGRESS;P7 STOPPED.
+See WORLDS_V2_GENERATION_COMPLETION_2026-10-29.md. No Git upload.
+
+## Dedicated generation slot lease integration (2026-10-29)
+
+Final independent Sol High acceptance:7/7hashes,140PASS/0FAIL/0pending,
+P1/P2/P3=0/0/0, limited ACCEPT. Pending checkpoint below superseded only for
+backend lease/owner composition. No API/ready/receipt/real Java gate passed.
+
+Backend commitPublishedSlot now owns a dedicated mutation lease and close-drain
+lifetime, distinct from read-only inspection. Pending typed descriptor remains
+strict; installed active requires its original durable intent. Write guards
+cannot escape or be reused by later leases. No snapshots/receipts/causes/cache
+are changed, and no route is mounted. Fresh140PASS (service94+execution46);
+API build/typecheck/scopedlint/diff PASS; source independent0/0/0; final7hash
+readback PENDING at checkpoint. Prior87 is an overlapping subset, not added.
+Next: crash-resumable final evidence/receipt protocol (original receiptDigest
+is bound by immutable CAS intent), then readiness/lifecycle policy and HTTP/UI.
+See WORLDS_V2_GENERATION_SLOT_LEASE_2026-10-29.md. P7 STOPPED; no Git upload.
+
+## Generation slot CAS primitive accepted (2026-10-29)
+
+Unmounted backend slot writer now binds a dedicated immutable intent, opened
+stage/intent identities, old-slot CAS, fresh pre/post physical proofs and all
+non-slot controls. Explicit pre-rename continuation and post-rename read-only
+confirmation tested; orphan/drift evidence retained. Final87PASS; API build/lint/
+diff PASS; independent Sol High5/5hashes, P1/P2/P3=0/0/0, limited ACCEPT.
+No production mutation lease/API/receipt settlement/ready or real OS crash
+acceptance. Original82/86reports retained. Next: dedicated write-lease/lifetime
+composition before settlement and lifecycle-ready policy. V2 IN PROGRESS.
+See WORLDS_V2_GENERATION_SLOT_2026-10-29.md. P7 STOPPED; no Git upload.
+
+## Protected generation startup composition (2026-10-29)
+
+Final independent Sol High evidence readback:8/8hashes, P1/P2/P3=0/0/0,
+limited ACCEPT. The pending checkpoint below is historical. New72PASS and reused
+160 remain separate; this is Fastify/Fake evidence, not actual Minecraft. No
+slot CAS, receipt settlement, ready or recovery API is signed off.
+
+Real app startup now classifies the known pending generation descriptor into a
+reserved cause without deleting external/unknown gates. Dedicated inspection
+receives that exact cloned descriptor and performs full physical proof. The old
+import auditor recognizes only fully evidenced schema6 with no import work;
+other/failed/missing/mixed evidence remains blocked. Fresh state-store and cached
+state-store Fastify reconstruction covered, actions closed, no slot promotion.
+Fresh72PASS; unchanged execution46/import114 reused separately. Earlier65/1,
+226/1,231/1 retained; no fresh232PASS claim. Source review0/0/0, API build/static
+PASS; final8hash independent evidence readback PENDING at this checkpoint.
+See WORLDS_V2_GENERATION_STARTUP_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED.
+
+## Leased inspection accepted (2026-10-29)
+
+Independent Sol High final readback:4/4hashes,4files292PASS/0FAIL/0pending,
+P1/P2/P3=0/0/0, limited ACCEPT. Build/typecheck/scopedlint/diff PASS.
+Prior review quota failure and initial57/290reports retained. No recovery unlock,
+slot/receipt settlement or Java/API acceptance. Next: accurately classify the
+known protected-generation startup cause without waiving unknown/external causes,
+then compose resumable recovery. No Git upload; P7 STOPPED.
+
+## Leased generation inspection checkpoint (2026-10-29)
+
+Implemented unmounted runGenerationInspection / inspectPublished: existing
+instance lease covers read-only current-state proof and recheck; exact owner
+receipts/journal/causes, repeated sync authorization and close-drain checks.
+No slot/receipt settlement, recovery unlock, startup permission or HTTP wiring.
+Independent Sol High initial review found two P2s (release-await cause drift,
+unrelated historical receipts wrongly rejected); both fixed, delta source review
+P1/P2/P3=0/0/0. Fresh evidence signature still PENDING at this checkpoint.
+Initial focused57PASS and affected290PASS preserved; neither certifies the later
+two corrections. Fresh four-suite reviewed report is running; do not overlap it.
+API build/typecheck/scopedlint PASS; final report must be read before signoff.
+Five-hour usage99%, weekly47%, ordinaryUsageAllowed=true; not claimed exhausted.
+No reset redeemed. See WORLDS_V2_GENERATION_INSPECTION_2026-10-29.md.
+
+## Current-state proof independent acceptance (2026-10-29)
+
+Independent GPT-6.1 Sol High: limited ACCEPT, P1/P2/P3=0/0/0; 7/7 candidate
+hashes verified. Affected 21 files: 639 PASS/0 FAIL; focused 49 is included.
+Original 638 PASS/1 FAIL and deliberate Fake CLEANUP_BLOCKED evidence retained.
+Supersedes the earlier PENDING checkpoints below only for read-only current-state
+proof and typed startup explanation. No recovery unlock, slot/receipt settlement,
+startup permission or real Java acceptance. Next: dedicated leased, resumable
+recovery composition and legitimate post-generation save policy before API/UI.
+V2 remains IN PROGRESS. No Git upload. P7 STOPPED.
+
+## Current-state proof fresh checks (2026-10-29)
+
+Affected21files639PASS/focused49PASS(overlap);API build/typecheck/scopedlint/diff
+PASS. Original638/1fixture setup observation timeout retained, resource cause
+UNKNOWN. Event-driven fixture wait/owner-drain independently approved, no timeout
+or business assertion relaxation; deliberateFakeCLEANUP_BLOCKED evidence retained.
+Global startup classificationP2closed; final7hash/evidence signature PENDING.
+Still read-only: no slot/receipt settlement, cause replacement, clear or API recovery.
+See WORLDS_V2_GENERATION_CURRENT_STATE_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: generation current-state proof (2026-10-29)
+
+Read-only first published generation proof now binds birth actual config bytes,
+slot, oldguard, exact newborn level/identities and stable complete current tree.
+Typed startup pending descriptor preserves unknown/global-failure recovery and
+never promotes/clears; app external causes untouched. Focused49PASS; staticPASS.
+Affected integration/final independent evidence review PENDING at checkpoint.
+No new Java, slot/receipt writes, recovery endpoint or startup permission.
+Next: explicit leased recovery with resumable slot CAS and lifecycle-ready policy.
+See WORLDS_V2_GENERATION_CURRENT_STATE_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: pending generated catalog publication (2026-10-29)
+
+Schema6 preserves old entry and adds the same generated UUID with immutable birth
+binding. Dedicated history-backed inspection is available through GET/API/UI:
+inspection-required, nullactive, no mutation/activation;3language pending badge.
+No old slot promotion or generation writer production enablement.
+API624affectedPASS/Web25PASS/contracts7PASS;typecheck/scopedlint/build/diff PASS.
+Independent Sol High0/0/0 bounded ACCEPT,16/16 hashes. Newrace fixes and historical
+failed reports retained. No Java/real browser in this unit; old realPASS not reused.
+Next: completion/recovery/startup verification and actual create/generate UI wiring.
+See WORLDS_V2_GENERATION_PUBLICATION_2026-10-29.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: birth evidence safety closure (2026-10-29)
+
+Immutable inspection-only birth evidence independently accepted Sol High0/0/0,
+6/6 hashes.13files327PASS;focused25PASS overlaps. Typecheck/scopedlint/diff PASS.
+Both P2 fixed/tested: synchronous guard after directory IO/before wx and strict
+final readback after live callback. No new Java or production mutation gate opened.
+Next: completed birth consumption/catalog publication with scoped recovery/startup
+integration. Old real PASS belongs to earlier candidate; never retroactively bind.
+See WORLDS_V2_GENERATION_BIRTH_2026-10-28.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: immutable generation birth evidence (2026-10-28)
+
+Strict same-UUID/operation/candidate/live-exit birth evidence writer implemented
+in internal runner. Exclusive persisted receipt; read inspectionOnly, no catalog
+entry/recovery release. Focused PASS; affected integration and independent Sol
+High review PENDING at checkpoint. Typecheck/scoped lint PASS. No Java in unit;
+prior real candidate PASS is historical for its earlier code, not this writer.
+Next: finish review/fault evidence, then birth consumption/catalog publication.
+See WORLDS_V2_GENERATION_BIRTH_2026-10-28.md. V2 IN PROGRESS;P7 STOPPED.
+
+
+## Latest: real candidate generation business PASS (2026-10-28)
+
+Timestamp-only fix independently accepted0/0/0,12/12 hashes;316affectedPASS.
+New fresh56d1b65c real run businessPASS:2normalownedJava closed/force0, oldtree
+unchanged, samekey no resend, manager/generation drain complete, sources unchanged.
+Diagnostics NOT_ASSESSED; historical48288d5f BLOCKED/BOM Java0 retained. Independent
+new real-evidence readback accepted0/0/0 (limited candidate business only). No birth/catalog publication or recovery release.
+Next: durable birth binding/publication, then startup/API/UI integration.
+See WORLDS_V2_GENERATION_TIMESTAMP_2026-10-28.md. V2 remains IN PROGRESS;P7 STOPPED.
+
+
+## Latest: real generation timestamp incompatibility (2026-10-28)
+
+Runner independently accepted0/0/0; actual fresh-copy run BLOCKED after2normal
+owned Java exits/force0/sourceUnchanged. Confirmed only properties generated-date
+comment changed;69values unchanged, old inventory equals pinned guard. First
+BOM-only prelaunch failureJava0 and actual failed scene both retained.
+Narrow same-file/date-only post-owned-exit fix:316affectedPASS/115focusedPASS
+(overlap), staticPASS. Independent fix review PENDING; new real validation pending.
+See [actual evidence and fix](WORLDS_V2_GENERATION_TIMESTAMP_2026-10-28.md).
+No replay of consumed scene; no world birth/publication or production enablement.
+
+
+2026-10-28 follow-up: independent GPT-6.1 Sol High is now available and accepted
+the unmounted generation runner P1/P2/P3=0/0/0,6/6 frozen hashes. Prior capacity
+failures retained as historical. Actual Minecraft generation, birth/publication
+and production integration remain OPEN; preparing one bounded isolated run.
+
+
+## Latest: unmounted controlled generation coordinator (2026-10-28)
+
+Coordinator implemented: one-attempt receipt/seal, sealed physical recheck,
+registered identity, owned start/stop, exact exit/close, candidate-only observation.
+Unsafe cleanup retains owner/CLEANUP_BLOCKED; no replay/kill/recovery release.
+12files300PASS; final13runnerPASS overlaps; typecheck/scoped lint/diff PASS.
+Required independent Sol High review PENDING (two Sol High capacity failures; no substitute).
+No Java/production route/birth publication. Do not enable before mandatory Gate.
+See [runner checkpoint](WORLDS_V2_GENERATION_RUN_2026-10-28.md).
+
+
+## Latest: exact owned-child exit verification (2026-10-28)
+
+Read-only in-process launch binding now checks the same adapter/runtime/launch/PID,
+ready/spawn, execution owner, owned stop completion and actual exit0/null-signal/
+close without errors. No stopped-status inference or reconstructed witness.
+86affectedPASS (Fake closure30/candidate12/owned Node runtime44), static PASS;
+independent Sol High0/0/0 bounded ACCEPT,5/5 hashes. No Java/start/stop or recovery
+release added. Next: compose an owned lifecycle/cleanup coordinator with sealed
+physical proof before controlled start, then stopped birth/catalog publication.
+See [owned exit checkpoint](WORLDS_V2_GENERATION_OWNED_EXIT_2026-10-28.md).
+
+
+## Latest: dedicated generation admission (2026-10-28)
+
+Backend-only admission now persists strict one-attempt receipts before callback,
+rechecks exact parent/causes/store after preflight, requires runtime authorization
+and owner callbacks, and preserves permanent replay/unknown gates. Affected17files
+384PASS; final strengthened46PASS overlaps. API typecheck/scoped lint/diff PASS.
+Independent GPT-6.1 Sol High0/0/0 ACCEPT,5/5 hashes. No Java or production route.
+Next: owned-child lifecycle/cleanup retention, controlled run and birth publication.
+See [admission checkpoint](WORLDS_V2_GENERATION_ADMISSION_2026-10-28.md).
+
+
+## Latest: one-time execution storage (2026-10-28)
+
+Strict execution receipt metadata + orphan/startup masking + permanent replay,
+schema5 seal/anchor/closed receipt set implemented. Affected13files332PASS,
+execution24PASS included; static PASS, independent Sol High0/0/0 ACCEPT,
+6/6 candidate hashes. No execution admission/start/birth/recovery opening.
+Next: dedicated admission binding and owned-child cleanup, then controlled run.
+See [execution evidence](WORLDS_V2_EXECUTION_STORAGE_2026-10-28.md).
+
+## Latest: complete preparation proof (2026-10-28)
+
+Dedicated committed14/seven-checkpoint metadata and physical guard/controls
+verifier implemented, still read-only/no execution permission. Existing initial
+readback remains strict. Affected nine-suite239PASS/0FAIL; lint/typecheck/diff
+PASS. Sol High0/0/0 proof ACCEPT,9/9 frozen hashes matched. Execution marker,
+orphan-receipt protection, owned-child cleanup and actual start/birth/publication
+are still OPEN. See preparation document's follow-up section.
+
+## Latest: private owned launch facts (2026-10-28)
+
+Existing runtime latest-only internal launch observation implemented; separate
+spawn/error/exit/close and exact owner/child/ready/stop facts, no success inference.
+Runtime44PASS, lint/typecheck/diff PASS; independent Sol High delta0/0/0 ACCEPT,
+frozen readback5/5 matched. No generation caller or real Java run. Next: explicit
+generation lifecycle coordinator and same-UUID birth/publication, retaining
+inspection on lost witness. See [owned launch](WORLDS_V2_OWNED_LAUNCH_2026-10-28.md).
+
+## Latest 2026-10-28: complete V2 preparation (default not mounted)
+
+Existing creator now has a stopped/first-only internal V2 branch: one UUID14,
+catalog4 reservation, pinned guard, config/pending slot, committed preparation.
+Live GET/replay/events stay gated; app startup cannot promote generation pending.
+Nine affected suites226PASS; OS3boundariesPASS/6ownedchildrenclosed/Java0.
+Static checks PASS; independent Sol High0/0/0 ACCEPT, candidate12/12 and
+OS35/35 hashes matched. No production caller, actual birth/start/publication or
+recovery clearance. Next: dedicated owned lifecycle evidence and birth binding.
+See [preparation acceptance](WORLDS_V2_GENERATION_PREPARATION_2026-10-28.md).
+
+## 2026-10-28 continuation
+
+Unmounted read-only generation candidate observation implemented; bounded
+NBT metadata is parsed from exact captured file bytes. Independent review P2
+race closed. Affected six-suite116PASS/0FAIL, static checks PASS; Sol High
+final0/0/0 ACCEPT,5/5 candidate hashes matched. No actual birth/loading/start/
+publication/recovery authority or production caller. Next: creator/controlled
+lifecycle continuation using same UUID and existing protections. See
+[candidate observation](WORLDS_V2_GENERATION_OBSERVATION_2026-10-28.md).
+Earlier quota-exhaustion entries below are historical; latest query allowed use.
+
+Dedicated initial reservation metadata readback17PASS, Sol High0/0/0 ACCEPT;
+unchanged gates, no physical birth/start permission. Typecheck/scoped lint/diff
+PASS; affected head/store/readback integration77PASS/0FAIL. Current quota weekly99% used,
+ordinary allowed. Next: physical birth verification and constrained lifecycle
+continuation, not a relaxation of initial reservation readback.
+
+Generation catalog schema4 reservation implemented but UNMOUNTED: exact UUID
+from persisted14, no new present entry/physical identity, old consumers closed.
+Affected head/catalog59PASS + legacy store14PASS; lint/typecheck/diff PASS.
+Independent Sol High delta0/0/0 accepts bounded unit, final hash readback7/7 matched.
+No production caller/start/birth confirmation; next is dedicated reservation
+readback and stopped-world birth verification, then lifecycle/startup integration.
+
+Generation schema14 journal storage now preserves/binds the exact reserved UUID;
+generic startup/confirmation keeps it gated. Unmounted: no catalog/start writer.
+Affected five-suite119PASS and strengthened delta21PASS (overlapping); scoped
+lint/typecheck/diff PASS. Sol High delta0/0/0 accepts storage; replacement
+regression110PASS. Final Sol High frozen readback10/10 hashes,0/0/0 ACCEPT.
+Previous group freeze is historical after these shared changes. See generation
+identity checkpoint below; Phase1/V2 remains IN PROGRESS.
+
+New-world identity continuation: rejected a catalog-presence guard after
+76PASS/4FAIL; exact rollback restored legacy77PASS. Synthetic gap test1PASS;
+unmounted strict reservation proposal/classifier10PASS, API typecheck/scoped
+lint/diff PASS. No durable generation identity or new startup authority yet.
+Independent Sol High pure-data review0/0/0 ACCEPT. See
+[generation identity](WORLDS_V2_GENERATION_IDENTITY_2026-10-27.md).
+
+Latest continuation: first replacement + ordinary import group settlement now
+has 16 focused PASS and 1 authenticated Fastify reconstruction PASS; independent
+Sol High bounded review0/0/0. This changes the older frozen runtime candidate.
+Affected integration224PASS and OS group recovery2boundariesPASS/4childrenclosed;
+final Sol High readback0/0/0, candidate10/10 and OS source31/31 matched.
+Bounded checkpoint ACCEPT. Production main stays
+disabled. Mixed activation/replacement histories remain gated. See
+[group recovery checkpoint](WORLDS_V2_IMPORT_GROUP_RECOVERY_2026-10-27.md).
+
+## Current continuation: mixed protection and actual replacement executor
+
+Latest runtime/HTTP/UI continuation: app-owned startup/close accepted0/0/0;
+HTTP212PASS, Web49PASS and independent bounded review0/0/0. Broader Web334PASS,
+Contracts34PASS; root lint/typecheck/build/diff PASS. Real frontend+
+Fastify synthetic-browser360/768/1440 all3PASS, owned children closed/forced0,
+Java0; browser readback accepted0/0/0. Default production main flag stays absent and
+write routes are not mounted. Mixed histories/import causes remain gated.
+Real isolated Vanilla replacement business PASS:2normal Java starts/stops,
+source/world boundaries preserved, no forced cleanup. Independent result
+readback accepted0/0/0; diagnostics NOT_ASSESSED, existing host/network warnings kept.
+Same-process Manager reconstruction is distinct from the5OS-boundary checks. See
+[HTTP/UI evidence](./WORLDS_V2_REPLACEMENT_HTTP_UI_2026-10-27.md).
+The following earlier UNMOUNTED checkpoint is preserved historical evidence.
+
+Current candidate: test-results/worlds-v2-replacement-runtime-candidate-2026-10-27.json.
+Independent final bounded readback0/0/0 accepted52source/test+15report/log hashes,
+67/67matched. This is not Phase1/V2 Final or production enablement.
+This continuation's owned tests/browser/Java processes all exited; isolated data,
+guards and logs are retained. No commit/push. Next: mixed transition/import
+recovery and new-world immutable identity, before broad production enablement;
+then restic/scheduling/queue/retention/final UI. Do not reset to old HEAD or
+repeat the completed first-replacement acceptance without a source-related need.
+
+Safe continuation checkpoint: latest quota primary98%used/2%remaining,
+weekly78%used/22%remaining, ordinary use allowed. No reset redeemed. All tests
+started in this continuation exited; owned OS child close confirmed. No Java or
+real world mutation. Next writer resumes application recovery/close integration
+from this dirty tree and accepted execution candidate; do not restart Phase0.
+
+Latest: current-state/birth proof179PASS and dedicated outcome settlement115PASS
+accepted independently by Sol High0/0/0. Historical113PASS/2default5s failures and
+focused2PASS (68notrun) remain preserved; no deadlines/assertions weakened.
+Executor shutdown76PASS, independent Sol High0/0/0: close waits for owned work,
+deadline reports CLEANUP_BLOCKED without releasing leases; late close blocks both
+world renames. Fresh independent OS reconstruction/explicit settlement5PASS;
+four incomplete boundaries stay gated, only complete publication can explicitly
+settle, no file replay. Latest report71585dae-604a-49e6-bd44-57c135aaa706.
+Strict replacement approval contract added; full Contracts33PASS. Independent
+Sol High final bounded review0/0/0;33source/test and4report hashes matched.
+All new replacement execution/recovery
+remains UNMOUNTED: app shutdown/startup, mixed live history, HTTP/UI and real
+Minecraft replacement acceptance remain open. No overall recovery or V2 PASS.
+
+Mixed immutable prefix integration60PASS, independent Sol High0/0/0 after the
+late-phase test coverage fix. Actual first-transition replacement backend now
+implemented as an UNMOUNTED candidate, with live inspection retained even after
+publication. First executor24PASS/6FAIL exposed owned active-journal classification;
+minimal correction and mandatory reached-point assertions now under validation.
+Fresh affected280PASS and independent Sol High0/0/0 now close that bounded
+executor correction. Five owned OS interruption/restart cases passed with
+retained data/guards, stable replay ID and recovery still closed, all children
+closed, Java0; independent process evidence readback pending.
+No runtime write endpoint or user-facing replacement availability. Earlier hashes
+are historical for this changed candidate. See
+[execution continuation](./WORLDS_V2_REPLACEMENT_EXECUTION_2026-10-27.md).
+
+## 2026-10-27 06:18 continuation: publication prerequisites
+
+Quota naturally reset; no competing test runner found. Upload journal ownership
+now includes replacement references and canonical UUID matching; independent
+P2 case mismatch fixed Attempt1, final62PASS and Sol High0/0/0 accepted.
+Exact revision/history CAS invalidation implemented; final94PASS and independent
+Sol High source/evidence0/0/0 acceptance (metadata gate tightening only).
+At the start of this continuation completion/executor/recovery were unavailable.
+The completion primitive is now implemented below; executor/recovery remain open.
+Mandatory immutable approval and full physical verification requirements remain.
+See [publication continuation](./WORLDS_V2_REPLACEMENT_PUBLICATION_2026-10-27.md).
+
+Latest follow-up: explicit schema13 approval storage accepted100PASS; retained
+file-copy proof accepted63PASS after active/archive P2 fix. Pure catalog approval
+and combined immutable snapshots accepted72PASS after mixed-schema downgrade P2
+fix,0/0/0 each. Original-file admission binding now has72PASS and static checks;
+its independent review subsequently accepted0/0/0. New schema13 pending admission
+requires exact first5 markers/digest/phase and original catalog identity through
+the final commit read. Corrected CAS/race focused130PASS; final delta review
+subsequently accepted0/0/0. Bounded installed-file29PASS and completion83PASS
+primitives also accepted0/0/0; post-publication failure keeps recovery closed.
+Latest journal freshness/current focused candidate259PASS across8suites accepted
+by independent Sol High0/0/0. API build/scoped lint/diff PASS. Broader408PASS is
+predelta, not current full-suite proof. Executor/HTTP/UI/startup recovery and
+actual replacement acceptance remain open; these new primitives are unmounted.
+
+Final test-only journal-authority delta:44PASS, independent Sol High0/0/0;
+five added cases are not included in the earlier259 report. Reports overlap,
+so do not sum them as one run. Final API typecheck/scoped test lint/diff exit0.
+27-file candidate/report hash artifact saved under test-results as
+worlds-v2-replacement-publication-candidate-2026-10-27.json; independent Sol High
+verified all27file/two-report hashes and accepted bounded checkpoint0/0/0.
+Continue executor/prefix physical integration and
+dedicated recovery next, not a new Phase0. V2 remains IN PROGRESS.
+
+08:18 test-only follow-up: activation-only projector rejects schema12/13
+replacement kind/payload/both without mutation. Focused26PASS, API typecheck,
+scoped lint/diff exit0; independent Sol High0/0/0 accepted. Product unchanged;
+original27file/two-report hashes rechecked. This is a rejection guard, not mixed
+history integration. Latest quota3% primary/38% weekly remaining; checkpoint safe.
+
+## 2026-10-27 current: replacement history and protection
+
+Mixed structural history/catalog checks implemented, including inverse retirement
+bindings. Added unmounted immutable old-world guard/preserved-tree verifier,
+with correct distinct manifest-prefix and world-relative digests. Final focused
+51PASS/0FAIL, API typecheck/scoped lint PASS; independent old-world protection
+review P1/P2/P3=0 accepted. Pending-only reservation review closed its P3 coverage
+gap, accepted67PASS. Properties-copy delta accepted17PASS; both independent Sol
+High reviews P1/P2/P3=0. Latest combined72PASS/0FAIL, API typecheck/build/scoped
+lint/diff PASS; independent combined evidence accepted0/0/0 after15hash/report
+readback. Earlier affected272PASS
+predates last9 tests/source delta and is not current full-suite acceptance.
+Replacement remains unavailable and schema12 recovery remains closed.
+No Minecraft started in this unit; existing real activation evidence is separate.
+See [protection checkpoint](./WORLDS_V2_REPLACEMENT_PROTECTION_2026-10-27.md).
+
+## 2026-10-27 current: replacement intent inspection
+
+Schema12 strict intent and permanent world-replace request evidence implemented;
+all states remain recovery gated, no executor or writable route. Two independent
+P2 startup/receipt findings repaired with actual buildApp and stored-evidence
+tests. Focused32PASS, affected106PASS, Contracts32PASS; API/Web typecheck, API
+build/scoped lint/diff PASS. Sol High source/final evidence P1/P2/P3=0; inspection
+checkpoint accepted. Mixed-transition structural reading is now under review;
+physical retired-world proof and all replacement execution remain unavailable.
+See [replacement intent](./WORLDS_V2_REPLACEMENT_INTENT_2026-10-27.md).
+
+## 2026-10-27 current: unified transition preparation
+
+01:16 scheduled continuation resumed after natural quota reset. Explicit
+retirement projection, old activation adapter and strict catalogschema3 unified
+head compatibility implemented; replacement execution remains absent.
+Focused64PASS, affected192PASS; API typecheck/build/scoped lint/diff PASS.
+Fresh4boundary OS recovery PASS(23hashes/eightclosedchildren/zeroJava), browser
+360/768/1440 all3PASS with gracefulownedcleanup. Independent Sol High final
+source/evidence review P1/P2/P3=0 for activation-only schema3 compatibility.
+Actual replacement intent/execution and full V2 remain incomplete. See
+[transition checkpoint](./WORLDS_V2_TRANSITION_HEAD_2026-10-27.md).
+
+## Current development: replacement preflight
+
+Read-only replacement-plan API and strict contracts are implemented, binding
+current immutable lineage and uploaded source. Execution explicitly unavailable;
+no replacement data writes, backups or new identity allocation. Final affected
+155PASS/0FAIL, Contracts32PASS; API typecheck/scoped lint/diff PASS.
+Independent GPT-6.1 Sol High source/final evidence review P1/P2/P3=0; bounded
+read-only preflight checkpoint accepted. Actual replacement remains unavailable.
+Next is protected replacement execution and its identity/history/recovery safety
+design review; do not infer execution authority from the preview. See
+[replacement checkpoint](./WORLDS_V2_REPLACEMENT_PLAN_2026-10-26.md).
+
+## Latest: activation confirmation and execution UI — IN PROGRESS
+
+Real pre-execution review subsequently closed P1/P2/P3=0. First real run
+identified Vanilla26.3/DataVersion5023 standard namespaced dimensions rejected
+by the conservative old layout gate. Attempt1 repaired this exact case;
+custom/unknown/mixed layouts remain blocked. Focused46PASS, affected180PASS.
+Real retry PASS: original/imported/returned worlds loaded in three normal
+Minecraft starts/stops, both dormant worlds intact, source unchanged. A separate
+OS Manager recovery observation PASS with unchanged world/config bytes and no
+Minecraft start. Fresh synthetic browser360/768/1440 all3PASS. Independent Sol
+High accepted these scoped business/evidence results with P1/P2/P3=0.
+Main local activation composition is now wired. Final entry/API/auth checks:
+148PASS/0FAIL/0pending across3files; API build, scoped main lint and diff PASS.
+Independent GPT-6.1 Sol High accepted local exposure P1/P2/P3=0 after parsing
+the final report and reviewing the one-line local-only composition delta.
+Strict diagnostics NOT_ASSESSED; V2 remains IN PROGRESS.
+See [real activation](./WORLDS_V2_REAL_ACTIVATION_2026-10-26.md). Prior unavailable
+review and first blocked run remain historical evidence, not erased.
+
+Exact name/dialog confirmation, persisted original approval/key, manual same-key
+unknown checks, GET-only operation resume, fresh operation+catalog verification
+and instance/language isolation are implemented. Frontend31PASS; affected API
+148PASS/5files before final untouched-import fix; final affected133PASS/3files.
+Current-source independent OS interruption4boundaries PASS, all children closed,
+partial2gated/complete2confirmed, zero Java. Actual React+Fastify synthetic
+browser360/768/1440 PASS, no Java, graceful owned fixture exit0. Historical failed
+reports/traces preserved. Independent Sol High final delta review completed after
+the reported quota reset: P1/P2/P3=0, including current22/22hash OS evidence.
+Earlier unavailable/PENDING interval remains recorded. Those interruption
+results predate the standard-layout repair; they are historical, not a fresh
+current-source crash signoff. V2 final remains incomplete. See
+[execution UI](./WORLDS_V2_ACTIVATION_EXECUTION_UI_2026-10-26.md).
+
+## Previous: read-only activation UI preparation — IN PROGRESS
+
+Library now exposes a separate default-off activation capability for Vanilla
+26.3; frontend target selection and three-language preflight use existing APIs.
+No activation mutation is sent by the UI. Contracts31PASS, affected web12PASS,
+API composition/default2PASS; typecheck/scoped lint/diff PASS. Independent Sol
+review version-capability P3 corrected; final delta2PASS, independent Sol High
+P1/P2/P3=0 for this checkpoint. Confirmation,
+durable UI request/unknown handling, browser and real loading remain incomplete.
+See [UI checkpoint](./WORLDS_V2_ACTIVATION_UI_2026-10-26.md).
+
+## Previous: explicit return-world source provenance — repeated writes still pending
+
+Latest shared composition: trusted buildApp flag worldActivationExecution
+(defaultabsent/false, main does not supply it) composes activation with the same
+OperationService used by standard GET and WebSocket. No request/env activation
+switch. Explicit construction mounts executor after local dependencies; plan
+availability reflects executor presence, loadVerified staysfalse. Full composed
+GET/WS/replay scenario1PASS and composed authentication negative1PASS. Contracts31
+PASS, API typecheck/build/scoped lint/diff PASS after mechanical test DTO cleanup.
+Independent Sol High source/composition delta P1/P2/P3=0 within this checkpoint.
+Final affected4suites132PASS/0FAIL,exit0,123.39s (world102,app27,WS1,stream2).
+After mechanical unused-variable test DTO cleanup, three composition/auth/default
+off cases PASS again,exit0. Full report and delta report retained separately:
+`test-results/worlds-v2-shared-composition-final-2026-10-26.json`,
+`test-results/worlds-v2-shared-composition-delta-2026-10-26.json`.
+These are affected modules, not full API/repository regression or real Minecraft.
+See [shared composition](./WORLDS_V2_SHARED_COMPOSITION_2026-10-26.md).
+Main activation remains closed pending UI/capability/browser and real world
+loading acceptance. Not final V2 or full repository PASS; no Git/P7/Java actions.
+
+Previous HTTP execution test checkpoint: manually mounted candidate now exercises
+actual WorldActivationService through real Fastify/auth/session, durable head,
+journal and isolated files. Covers success/replay/conflict, stale revision,
+8negativewritevariants, revoked/expired sessions after source awaits, and unknown
+result replay protection. Final affected HTTP/startup selection10PASS/89filtered,
+exit0; not a full API run. API typecheck/scoped lint/diff PASS. Independent Sol
+High candidate test/evidence review P1/P2/P3=0, limited to this fixture.
+See [HTTP execution evidence](./WORLDS_V2_HTTP_EXECUTION_2026-10-26.md).
+Production GET/WS still uses the app's own service while the candidate executor
+fixture has a separate service. MUST_COMPLETE: one shared production operation
+composition, event/query tests, truthful availability, then route/UI exposure.
+No production activation write route, Java/real loading, final V2 or Git upload.
+
+Previous startup checkpoint: production read-only startup now uses head-aware
+history recovery under the existing coordinator, preserving schema1 first-only
+compatibility, phase order, closed admission, cancellation before confirmations
+and close/join behavior. Affected138PASS/4files,exit0; strengthened close proof
+and API preparation2PASS/91filtered. Independent Sol High startup/source/evidence
+P1/P2/P3=0 after closing one close-test P3.
+
+Strict activation plan/approval contracts and an UNMOUNTED route candidate now
+exist. Contracts31PASS; API typecheck/scoped lint/diff PASS. Plan explicitly
+executionAvailable=false; absent executor rejects without journal/config changes.
+Independent Sol High candidate review P1/P2/P3=0, not positive execution signoff.
+See [startup/API checkpoint](./WORLDS_V2_STARTUP_API_2026-10-26.md).
+Next: actual executor HTTP integration with stale/session/CSRF/unknown-result
+tests, then truthful availability and UI. No production activation writer or UI,
+real Java acceptance, final V2 PASS, Git publication or P7 change.
+
+Previous continuation: importer optional whole-history recovery consumes exact
+server/operation/transaction/journal-digest proof and synchronously confirms only
+owned imports/activations. Failure preserves gates; unrelated causes are never
+cleared. Fresh actual4OS-process cases: partial2interrupted/gated; complete2
+succeeded with exactworldId and no own gate. No replay,0Java,allchildrenclosed.
+Independent Sol High source/process delta P1/P2/P3=0;22/22hashes match.
+Final affected2suites97PASS/0FAIL,exit0,94.38s; roundtrip4225ms/5000ms.
+API typecheck/build/scoped lint/diff PASS. See
+[history consumption](./WORLDS_V2_HISTORY_CONSUMPTION_2026-10-26.md).
+Production startup option remains unmounted: next is bounded startup/order and
+cancellation integration with real Fastify verification, then strict API/UI.
+Not full V2 PASS; P7 STOPPED; no Git publication.
+
+Previous continuation: unmounted live-history reader verifies durable head,
+protections, persistent active slot/config, original import sources and
+active/inactive world contents. It performs no operation confirmation/repair.
+Four actual owned Node process interruption/restart boundaries PASS across
+three transitions each; partial heads reject, complete heads physically verify,
+all operation recovery gates remain closed.0Java starts; children closed.
+Source hashes22/22 match, independent GPT-6.1 Sol High scoped P1/P2/P3=0 after
+three source-validation P2s were fixed; seven focused cases PASS.
+Final affected2suites93 PASS/0FAIL,exit0,93.30s; roundtrip4151ms under unchanged
+5000ms. API typecheck/build/scoped lint/diff PASS; final report
+`test-results/worlds-v2-live-history-final-2026-10-26.json`.
+See [live history evidence](./WORLDS_V2_LIVE_HISTORY_2026-10-26.md).
+Importer proof consumption, exact final operation confirmation and full startup
+integration remain pending. This is not production recovery or final V2 PASS.
+
+Previous checkpoint: bounded timing diagnosis and same-inspection proof reuse
+completed. Fresh affected regression100 PASS/0FAIL/3files,exit0,89.03s; three-hop
+roundtrip4720ms under unchanged5000ms with maxWorkers2. API typecheck/build,
+scoped lint/diff PASS. Report:
+`test-results/worlds-v2-sol-timing-final-2026-10-26.json`.
+The earlier94PASS/1FAIL result remains historical evidence, not overwritten.
+Two fresh source checks plus late journal/head/physical checks remain; no
+cross-request cache or public proof DTO. New stale-proof/fresh unfinished-journal
+negative tests pass. Independent GPT-6.1 Sol High source delta P1/P2/P3=0.
+
+User2026-10-26 disabled Astra for subsequent LT acceptance. Applicable advanced
+and final Gates now use independent GPT-6.1 Sol High, with all checks and prior
+attribution preserved; AGENTS/model routing updated. No Astra invocation here.
+See [timing/routing evidence](./WORLDS_V2_TIMING_2026-10-26.md).
+This clears the current module timing check only, not performance under every
+load or repeated startup recovery. Next: multi-transition OS-process recovery,
+then bounded startup/cancellation and confirmation API/UI. V2 IN PROGRESS,
+activation writer/UI unmounted, no Java or Git publication; P7 STOPPED.
+
+Previous execution checkpoint: historical physical protection is shared with the
+existing first reconciler. An optional, unmounted repeated executor now binds
+guard provenance, reserves/completes the catalog head, and checks both live trees
+and protection at publication boundaries. Final-check failure persists pending
+inspection without rewriting terminal journals. No production writer/API/UI or
+repeated restart acceptance is enabled.
+
+Latest affected validation:94 PASS /1 FAIL across3 files, exit1; the three-step
+roundtrip exceeded unchanged5000ms (5042ms). Report:
+`test-results/worlds-v2-repeated-executor-final-2026-10-26.json`.
+Earlier targeted7PASS included4598ms roundtrip and6 publication corruption cases,
+but does not override this failure. API typecheck/build/scoped lint/diff PASS.
+Subsequent independent review also closed full-journal publication integrity:
+the actual committed snapshot is compared before/after physical checks and used
+for the head. Two targeted checkpoint-corruption cases PASS; the latest matrix
+is separately retained, not a replacement for the failed affected run. Scoped
+source reviews have no remaining P1/P2/P3; timing Gate remains failed.
+Repeated activation remains BLOCKED for timing and unfinished startup proof.
+Next: bounded cumulative-time diagnosis preserving all checks and5000ms, then
+exact multi-transition startup recovery. No Git upload or real Java execution.
+
+Current continuation: catalog schema2 adds a durable activation head using the
+existing protected publication/revision mechanism. Reservation persists pending;
+completion pins the full ordered history, preceding prefix and exact intent.
+Pending heads gate list readiness/new imports. Structural audits reject missing
+tails, altered history or a catalog-only rollback. Schema1 remains unchanged;
+old activation history is not silently adopted. No head writer is mounted.
+
+Affected5 suites122 PASS before the final revision-binding fix; the six head
+tests passed again after it. API typecheck/scoped lint/diff PASS. Independent
+Sol High and advanced reviews found no remaining P1/P2/P3 in their source scope;
+one stale journal-approval P2 was fixed and independently closed. This is not
+crash/repeated-activation/real Minecraft acceptance. Coordinated rollback of both
+catalog and journal, or total evidence deletion, cannot be disproved locally.
+See the durable-head section of the history checkpoint. Next is guarded history
+physical verification and repeated executor wiring, still not activation UI.
+
+Schema11 now persists activation-guard provenance with explicitly null import
+fields; schema10 import evidence remains compatible. A source selector binds
+an inactive world to its latest departure guard or unique original import.
+History validation verifies exact prior guard transaction, identity and content
+bindings. No activation writer/API/UI is enabled. Durable head and full repeated
+physical recovery remain pending, not waived by structural checks.
+
+Focused source/history/journal/operation tests55 PASS; affected import/journal
+integration78 PASS before the final guard cross-reference extension. Reports:
+`test-results/worlds-v2-source-final-2026-10-26.json` and
+`test-results/worlds-v2-source-provenance-2026-10-26.json`.
+Independent source delta reviews P1/P2/P3=0 after closing a masked-test P3.
+No real Minecraft or new browser acceptance. Changes after bd0f932 are local;
+no further Git publication is authorized.
+
+## Previous: structural activation-chain checks added; repeated writes still pending
 
 Sequence/predecessor validation now rejects gaps/forks, inconsistent permanent
 world/name/directory bindings and reused operation/guard evidence. First-only

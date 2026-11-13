@@ -334,6 +334,16 @@ async function readLevelData(worldRoot: string, relativeFile = "level.dat", sele
   }
 }
 
+/** Parse only the caller's captured bytes; never reopen a mutable pathname. */
+function parseCapturedLevelData(compressed: Uint8Array, selection: Selection): SelectedCompound | null {
+  if (compressed.length > LEVEL_DAT_COMPRESSED_LIMIT || compressed.length < 2 || compressed[0] !== 0x1f || compressed[1] !== 0x8b) return null;
+  try {
+    const decompressed = gunzipSync(compressed, { maxOutputLength: LEVEL_DAT_DECOMPRESSED_LIMIT });
+    try { return new NbtReader(decompressed).parseSelectedRoot(selection); }
+    finally { decompressed.fill(0); }
+  } catch { return null; }
+}
+
 async function worldSize(directory: string): Promise<number> {
   let entries = 0;
   let total = 0;
@@ -575,6 +585,12 @@ export async function readWorldRevision(serverId: string, levelName: string, wor
     if (offset > LEVEL_DAT_COMPRESSED_LIMIT) throw unsafeWorld("invalid-level-data");
     bytes = bytes.subarray(0, offset);
   } finally { await handle.close(); }
+  return worldRevisionFromBytes(serverId, levelName, bytes);
+}
+
+/** Same revision format, bound to the exact captured bytes used by the caller. */
+export function worldRevisionFromBytes(serverId: string, levelName: string, bytes: Uint8Array): string {
+  if (bytes.length > LEVEL_DAT_COMPRESSED_LIMIT) throw unsafeWorld("invalid-level-data");
   return createHash("sha256").update("world-revision-v1\0").update(worldIdentity(serverId, levelName))
     .update("\0").update(levelName).update("\0").update(bytes).digest("hex");
 }
@@ -593,6 +609,15 @@ export async function readWorldMetadata(worldRoot: string): Promise<{
   const root = await readLevelData(worldRoot, "level.dat", {
     Data: { DataVersion: true, Version: { Name: true } }
   });
+  return worldMetadataFromRoot(root);
+}
+
+/** Bounded metadata from an already identity-checked private file snapshot. */
+export function parseWorldMetadata(bytes: Uint8Array) {
+  return worldMetadataFromRoot(parseCapturedLevelData(bytes, { Data: { DataVersion: true, Version: { Name: true } } }));
+}
+
+function worldMetadataFromRoot(root: SelectedCompound | null) {
   const data = compound(root?.Data);
   const value = data?.DataVersion;
   return {

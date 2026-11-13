@@ -53,6 +53,61 @@ async function lifecycleFixture(inject?: (point: string) => Promise<void>, autom
   const service = new WorldImportUploadService(registry,f.operations,f.manager,inject,journal,clock,automatic);
   return { ...f,service,journal,clock,registry,advance:(days: number) => { time += days * 86400000; } };
 }
+async function replacementReference(f: Awaited<ReturnType<typeof lifecycleFixture>>, uploadId: string, serverId = "test") {
+  const operationId = randomUUID(), guardBackupId = randomUUID(), worldId = `worldv2-${randomUUID()}`, workspaceName = `.manager-world-replace-${operationId}`;
+  return f.journal.createIntent({ operationId, serverId, kind: "world-replace", scope: "world-set", resourceId: worldId,
+    allowStop: false, originalState: "stopped", createdAt: f.clock.now().toISOString(),
+    paths: [{ role: "source", namespace: "server", relativePath: "world" }, { role: "target", namespace: "server", relativePath: "world" },
+      { role: "staging", namespace: "server", relativePath: workspaceName }, { role: "archive", namespace: "server", relativePath: `${workspaceName}/previous-world` },
+      { role: "rollback", namespace: "manager", relativePath: `backups/${serverId}/${guardBackupId}` }],
+    worldReplacement: { rootIdentity: "1".repeat(64), catalogId: randomUUID(), worldId, previousWorldId: `worldv2-${randomUUID()}`,
+      levelName: "world", confirmationName: "world", libraryRevision: "2".repeat(64), currentWorldRevision: "3".repeat(64), currentContentChecksum: "4".repeat(64),
+      currentDirectoryIdentity: "5".repeat(64), currentObjectIdentity: "6".repeat(64), propertiesRevision: "7".repeat(64), propertiesChecksum: "8".repeat(64),
+      uploadId, uploadRevision: "9".repeat(64), importedChecksum: "a".repeat(64), minecraftVersion: "26.3", guardBackupId, sequence: 1,
+      predecessorTransactionId: null, workspaceName } });
+}
+describe("replacement uploads retain journal ownership without a consumed marker", () => {
+  it.each(["committed", "rolled-back"] as const)("canonicalizes uppercase upload references in %s evidence", async state => {
+    const f = await lifecycleFixture(), uploaded = await f.service.upload("test", "source.zip", Readable.from([zip()]));
+    const source = await f.service.withLease(() => f.service.validatedSource("test", uploaded.id));
+    const record = await replacementReference(f, uploaded.id.toUpperCase());
+    await f.journal.setState("test", record.transactionId, state, f.clock.now().toISOString());
+    await expect(f.service.withLease(() => f.service.validatedSource("test", uploaded.id, source.revision, randomUUID())))
+      .rejects.toMatchObject({ code: "IMPORT_STAGING_UNSAFE" });
+    const item = (await f.service.list("test")).items[0]!;
+    expect(item).toMatchObject({ state: "consumed", discardAllowed: false });
+    f.advance(10); await f.service.cleanupExpired("test");
+    await expect(f.service.discard("test", uploaded.id, { confirmUploadId: uploaded.id, revision: item.revision }))
+      .rejects.toMatchObject({ code: "IMPORT_STAGING_UNSAFE" });
+    expect(await readFile(path.join(source.directory, "upload.zip"))).toEqual(zip());
+  });
+  it.each(["active", "committed", "rolled-back", "recovery-required"] as const)("retains source with a %s replacement journal", async state => {
+    const f = await lifecycleFixture(), uploaded = await f.service.upload("test", "source.zip", Readable.from([zip()]));
+    const source = await f.service.withLease(() => f.service.validatedSource("test", uploaded.id));
+    const record = await replacementReference(f, uploaded.id);
+    if (state !== "active") await f.journal.setState("test", record.transactionId, state, f.clock.now().toISOString());
+    const bytes = await readFile(path.join(source.directory, "world", "level.dat"));
+    await expect(f.service.withLease(() => f.service.validatedSource("test", uploaded.id, source.revision, randomUUID())))
+      .rejects.toMatchObject({ code: "IMPORT_STAGING_UNSAFE" });
+    await expect(f.service.withLease(() => f.service.validatedSource("test", uploaded.id, source.revision, record.intent.operationId)))
+      .resolves.toMatchObject({ revision: source.revision });
+    const item = (await f.service.list("test")).items[0]!;
+    expect(item).toMatchObject({ state: "consumed", discardAllowed: false });
+    f.advance(10); await f.service.cleanupExpired("test");
+    await expect(f.service.discard("test", uploaded.id, { confirmUploadId: uploaded.id, revision: item.revision }))
+      .rejects.toMatchObject({ code: "IMPORT_STAGING_UNSAFE" });
+    expect(await readFile(path.join(source.directory, "world", "level.dat"))).toEqual(bytes);
+  });
+  it.each(["other-instance", "ambiguous"])("rejects %s journal ownership without deleting the source", async problem => {
+    const f = await lifecycleFixture(), uploaded = await f.service.upload("test", "source.zip", Readable.from([zip()]));
+    const source = await f.service.withLease(() => f.service.validatedSource("test", uploaded.id));
+    const record = await replacementReference(f, uploaded.id, problem === "other-instance" ? "other" : "test");
+    if (problem === "ambiguous") await replacementReference(f, uploaded.id);
+    await expect(f.service.withLease(() => f.service.validatedSource("test", uploaded.id, source.revision, record.intent.operationId)))
+      .rejects.toMatchObject({ code: "IMPORT_STAGING_UNSAFE" });
+    expect(await readFile(path.join(source.directory, "upload.zip"))).toEqual(zip());
+  });
+});
 describe("staging expiry is not deletion authority",() => {
   it.each(["root-replaced","junction","hardlink"])("retains expired %s without deleting external data",async (kind) => {
     const f = await lifecycleFixture(),uploaded = await f.service.upload("test","ok.zip",Readable.from([zip()]));f.advance(10);

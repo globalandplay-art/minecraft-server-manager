@@ -397,7 +397,7 @@ export const worldLibraryEntrySchema = strictObject({
   worldId: Type.String({ pattern: "^worldv2-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }),
   levelName: Type.String({ minLength: 1, maxLength: 128 }),
   state: Type.Union([Type.Literal("present"), Type.Literal("retired")]),
-  origin: Type.Union([Type.Literal("legacy-observation"), Type.Literal("import")]),
+  origin: Type.Union([Type.Literal("legacy-observation"), Type.Literal("import"), Type.Literal("generation")]),
   createdAt: timestampSchema,
   legacySlotId: Type.Union([Type.String({ pattern: "^world-[0-9a-f]{24}$" }), Type.Null()]),
   legacyBackupAssociation: Type.Literal("unverified")
@@ -410,7 +410,10 @@ export const worldLibraryResponseSchema = strictObject({ data: strictObject({
   revision: Type.Union([Type.String({ pattern: "^[0-9a-f]{64}$" }), Type.Null()]),
   activeWorldId: Type.Union([worldLibraryEntrySchema.properties.worldId, Type.Null()]),
   items: Type.Array(worldLibraryEntrySchema, { maxItems: 1000 }),
-  mutationsAvailable: Type.Boolean()
+  mutationsAvailable: Type.Boolean(),
+  activationAvailable: Type.Optional(Type.Boolean()),
+  stoppedRevisionInspectionAvailable: Type.Optional(Type.Boolean()),
+  stoppedRevisionInspectionWorldId: Type.Optional(worldLibraryEntrySchema.properties.worldId)
 }), meta: responseMetaSchema });
 export type WorldLibraryResponse = Static<typeof worldLibraryResponseSchema>;
 
@@ -629,6 +632,7 @@ export const operationKindSchema = Type.Union([
   Type.Literal("world-import"),
   Type.Literal("world-library-import"),
   Type.Literal("world-activate"),
+  Type.Literal("world-replace"),
   Type.Literal("world-import-recovery"),
   Type.Literal("world-archive"),
   Type.Literal("properties-write"),
@@ -914,6 +918,50 @@ export const worldLibraryImportPlanResponseSchema = strictObject({ data: strictO
   serverMustBeStopped: Type.Literal(true), changesActiveWorld: Type.Literal(false)
 }), meta: responseMetaSchema });
 export type WorldLibraryImportPlanResponse = Static<typeof worldLibraryImportPlanResponseSchema>;
+
+export const worldReplacementPlanRequestSchema = strictObject({ uploadId: uploadIdSchema });
+export type WorldReplacementPlanRequest = Static<typeof worldReplacementPlanRequestSchema>;
+/** Approval only; execution requires trusted application construction. */
+export const worldReplacementApprovalSchema = strictObject({
+  uploadId: uploadIdSchema, uploadRevision: importRevisionSchema, libraryRevision: importRevisionSchema,
+  currentWorldId: worldLibraryEntrySchema.properties.worldId, currentWorldRevision: importRevisionSchema,
+  currentContentRevision: importRevisionSchema, propertiesRevision: importRevisionSchema,
+  confirmWorldName: Type.String({ minLength: 1, maxLength: 128 })
+});
+export type WorldReplacementApproval = Static<typeof worldReplacementApprovalSchema>;
+export const worldReplacementPlanResponseSchema = strictObject({ data: strictObject({
+  mode: Type.Literal("replace"), uploadId: uploadIdSchema, uploadRevision: importRevisionSchema,
+  libraryRevision: importRevisionSchema, currentWorldId: worldLibraryEntrySchema.properties.worldId,
+  currentWorldName: Type.String({ minLength: 1, maxLength: 128 }), currentWorldRevision: importRevisionSchema,
+  currentContentRevision: importRevisionSchema, propertiesRevision: importRevisionSchema,
+  minecraftVersion: Type.Union([Type.String(), Type.Null()]), fileCount: Type.Integer({ minimum: 1 }),
+  sizeBytes: Type.Integer({ minimum: 0 }), executionAvailable: Type.Boolean(),
+  serverMustBeStopped: Type.Literal(true), requiresProtectedBackup: Type.Literal(true),
+  unavailableReason: Type.Union([Type.Null(), Type.Literal("REPLACEMENT_TRANSACTION_PENDING")])
+}), meta: responseMetaSchema });
+export type WorldReplacementPlanResponse = Static<typeof worldReplacementPlanResponseSchema>;
+export const worldReplacementVerificationRequestSchema = strictObject({
+  operationId: uploadIdSchema, intent: Type.Literal("confirm-current-state")
+});
+export type WorldReplacementVerificationRequest = Static<typeof worldReplacementVerificationRequestSchema>;
+
+export const worldActivationPlanRequestSchema = strictObject({ worldId: worldLibraryEntrySchema.properties.worldId });
+export type WorldActivationPlanRequest = Static<typeof worldActivationPlanRequestSchema>;
+export const worldActivationApprovalSchema = strictObject({
+  worldId: worldLibraryEntrySchema.properties.worldId, libraryRevision: importRevisionSchema,
+  currentWorldId: worldLibraryEntrySchema.properties.worldId, currentWorldRevision: importRevisionSchema,
+  targetWorldRevision: importRevisionSchema, currentContentRevision: importRevisionSchema,
+  targetContentRevision: importRevisionSchema, propertiesRevision: importRevisionSchema,
+  confirmWorldName: Type.String({ minLength: 1, maxLength: 128 })
+});
+export type WorldActivationApproval = Static<typeof worldActivationApprovalSchema>;
+export const worldActivationPlanResponseSchema = strictObject({ data: strictObject({
+  ...Type.Omit(worldActivationApprovalSchema, ["confirmWorldName"]).properties,
+  serverId: serverParamsSchema.properties.serverId, levelName: Type.String({ minLength: 1, maxLength: 128 }),
+  serverMustBeStopped: Type.Literal(true), loadVerified: Type.Literal(false),
+  executionAvailable: Type.Boolean(), unavailableReason: Type.Union([Type.Null(), Type.Literal("ACTIVATION_TRANSACTION_PENDING")])
+}), meta: responseMetaSchema });
+export type WorldActivationPlanResponse = Static<typeof worldActivationPlanResponseSchema>;
 export const worldImportRequestSchema = strictObject({ ...worldImportPlanRequestSchema.properties,
   uploadRevision: importRevisionSchema, worldRevision: importRevisionSchema,
   confirmWorldName: Type.String({ minLength: 1, maxLength: 128 }), allowStop: Type.Boolean() });
@@ -1147,3 +1195,35 @@ export const tailscaleControlResponseSchema = strictObject({ data: strictObject(
   lastErrorCode: Type.Union([Type.String({ pattern: "^(ACCESS|TAILSCALE)_[A-Z_]+$", maxLength: 96 }), Type.Null()])
 }), meta: responseMetaSchema });
 export type TailscaleControlResponse = Static<typeof tailscaleControlResponseSchema>;
+
+export const worldGenerationTargetSchema = strictObject({
+  preparationOperationId: Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }),
+  preparationTransactionId: Type.String({ pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }),
+  worldId: Type.String({ pattern: "^worldv2-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }),
+  preparedRecordDigest: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+  registeredExecutionDigest: Type.String({ pattern: "^[0-9a-f]{64}$" })
+});
+export const worldGenerationTargetResponseSchema = strictObject({
+  data: worldGenerationTargetSchema, meta: responseMetaSchema
+});
+export type WorldGenerationTarget = Static<typeof worldGenerationTargetSchema>;
+export type WorldGenerationTargetResponse = Static<typeof worldGenerationTargetResponseSchema>;
+export const worldGenerationFinalizeResponseSchema = strictObject({
+  data: strictObject({
+    serverId: Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }),
+    operationId: worldGenerationTargetSchema.properties.preparationOperationId,
+    worldId: worldGenerationTargetSchema.properties.worldId,
+    inspectionOnly: Type.Literal(true),
+    recoveryRequired: Type.Literal(true)
+  }),
+  meta: responseMetaSchema
+});
+export type WorldGenerationFinalizeResponse = Static<typeof worldGenerationFinalizeResponseSchema>;
+export const worldStoppedRevisionResponseSchema = strictObject({
+  data: strictObject({
+    ...worldGenerationFinalizeResponseSchema.properties.data.properties,
+    confirmationRecorded: Type.Boolean()
+  }),
+  meta: responseMetaSchema
+});
+export type WorldStoppedRevisionResponse = Static<typeof worldStoppedRevisionResponseSchema>;

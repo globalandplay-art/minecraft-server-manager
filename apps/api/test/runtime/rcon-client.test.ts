@@ -150,6 +150,12 @@ describe("RconClient", () => {
     });
     const client = new RconClient({ host: "127.0.0.1", port: server.port, getPassword: async () => "secret" });
     try {
+      const admit = vi.fn(() => undefined);
+      await expect(client.executeGuarded("stop", admit, async () => {
+        expect(authenticated).toBe(true);
+        throw new Error("receipt-changed");
+      })).rejects.toThrow("receipt-changed");
+      expect(admit).not.toHaveBeenCalled();
       await expect(client.executeGuarded("whitelist add Player_One", () => {
         expect(authenticated).toBe(true); throw new Error("admission-rejected");
       })).rejects.toThrow("admission-rejected");

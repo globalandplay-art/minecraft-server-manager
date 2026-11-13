@@ -3,9 +3,10 @@ import { gzipSync } from "node:zlib";
 function string(value: string) { const bytes = Buffer.from(value); const length = Buffer.alloc(2); length.writeUInt16BE(bytes.length); return Buffer.concat([length, bytes]); }
 function tag(type: number, name: string, value: Buffer) { return Buffer.concat([Buffer.from([type]), string(name), value]); }
 function compound(name: string, children: Buffer[]) { return tag(10, name, Buffer.concat([...children, Buffer.from([0])])); }
-export function testWorldLevel(marker: string, withDataVersion = true) {
-  // Synthetic matching DataVersion: not the authoritative real Minecraft mapping.
-  const data = Buffer.alloc(4); data.writeInt32BE(100);
+export function testWorldLevel(marker: string, withDataVersion = true, dataVersion = 100) {
+  // Synthetic NBT, even when selecting a value observed in a real run. Never
+  // substitute this fixture for actual Minecraft loading evidence.
+  const data = Buffer.alloc(4); data.writeInt32BE(dataVersion);
   return gzipSync(Buffer.concat([Buffer.from([10]), string(""), compound("Data", [
     compound("Version", [tag(8, "Name", string("26.3"))]), tag(8, "LevelName", string(marker)),
     ...(withDataVersion ? [tag(3, "DataVersion", data)] : [])]), Buffer.from([0])]));

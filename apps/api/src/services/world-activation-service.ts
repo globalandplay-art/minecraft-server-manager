@@ -17,10 +17,12 @@ import { copyRestoreTree, inventoryRestoreTree, makeRestoreDirectory, plainResto
 import type { TransactionJournalRecord, TransactionJournalStore } from "./transaction-journal.js";
 import type { WorldActivationPlanService } from "./world-activation-plan-service.js";
 import type { WorldLibraryStore } from "./world-library-store.js";
+import type { WorldActivationHistoryProtection, WorldActivationHistoryProof } from "./world-activation-history-protection.js";
+import { activationSourceEvidence } from "./world-activation-source.js";
+import { orderedActivationHistory } from "./world-activation-history.js";
 
-type Plan = Awaited<ReturnType<WorldActivationPlanService["plan"]>>;
-export type WorldActivationApproval = Pick<Plan, "worldId" | "libraryRevision" | "currentWorldId" | "currentWorldRevision" |
-  "targetWorldRevision" | "currentContentRevision" | "targetContentRevision" | "propertiesRevision"> & { confirmWorldName: string };
+export type { WorldActivationApproval } from "@mcsm/contracts";
+import type { WorldActivationApproval } from "@mcsm/contracts";
 const hash = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const conflict = () => new DomainError(409, "WORLD_REVISION_CONFLICT", "Activation approval has changed", "world-activation-approval-changed");
 const recovery = () => new DomainError(409, "RECOVERY_REQUIRED", "Activation requires inspection; protection evidence retained", "world-activation-interrupted", true);
@@ -32,7 +34,8 @@ export class WorldActivationService {
     private readonly journal: TransactionJournalStore, private readonly library: WorldLibraryStore,
     private readonly plans: WorldActivationPlanService, private readonly states: Pick<ActiveWorldStateStore, "snapshot" | "installImportedWorld">,
     private readonly backups: Pick<BackupService, "exportSource">, private readonly managerRoot: string,
-    private readonly clock: Clock, private readonly inject?: (point: string) => Promise<void>) {}
+    private readonly clock: Clock, private readonly inject?: (point: string) => Promise<void>,
+    private readonly historyProtection?: WorldActivationHistoryProtection) {}
 
   async activate(serverId: string, body: WorldActivationApproval, key: string, admission?: OperationAdmission) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(key)) throw conflict();
@@ -42,12 +45,14 @@ export class WorldActivationService {
   }
 
   private async check(serverId: string, body: WorldActivationApproval) {
-    const plan = await this.plans.inspectUnderLease(serverId, body.worldId);
+    let observedHistory: WorldActivationHistoryProof | undefined;
+    const plan = await this.plans.inspectUnderLease(serverId, body.worldId, proof => { observedHistory = proof; });
     for (const key of ["worldId", "libraryRevision", "currentWorldId", "currentWorldRevision", "targetWorldRevision",
       "currentContentRevision", "targetContentRevision", "propertiesRevision"] as const) if (plan[key] !== body[key]) throw conflict();
     if (body.confirmWorldName !== plan.levelName) throw conflict();
     const scan = await this.journal.scan();
-    if (scan.issues.some(issue => !issue.serverId || issue.serverId === serverId) || scan.records.some(record => record.intent.serverId === serverId && record.intent.worldActivation)) {
+    if (scan.issues.some(issue => !issue.serverId || issue.serverId === serverId) ||
+        (!this.historyProtection && scan.records.some(record => record.intent.serverId === serverId && record.intent.worldActivation))) {
       throw new DomainError(409, "ACTION_UNAVAILABLE", "Subsequent activation history is not implemented", "world-activation-history-pending");
     }
     if (scan.records.some(record => record.intent.serverId === serverId && record.intent.worldArchive)) {
@@ -56,10 +61,23 @@ export class WorldActivationService {
     const adapter = this.registry.getLocal(serverId)!, binding = { serverId, rootPath: adapter.plan.rootPath };
     const current = await this.library.activationBinding(binding, body.currentWorldId, body.libraryRevision);
     const target = await this.library.activationBinding(binding, body.worldId, body.libraryRevision);
-    const owners = scan.records.filter(record => record.intent.serverId === serverId && record.intent.operationId === target.operationId && record.intent.worldLibraryImport);
-    if (owners.length !== 1 || owners[0]!.state !== "committed" || owners[0]!.intent.worldLibraryImport!.worldId !== body.worldId ||
-        owners[0]!.intent.worldLibraryImport!.importedChecksum !== body.targetContentRevision || current.catalogId !== target.catalogId) throw recovery();
-    return { plan, adapter, binding, current, target, source: owners[0]! };
+    let historyProof: WorldActivationHistoryProof | undefined;
+    if (scan.records.some(record => record.intent.serverId === serverId && record.intent.worldActivation) && this.historyProtection) {
+      if (scan.records.some(record => record.intent.serverId === serverId && ["active", "recovery-required"].includes(record.state))) throw recovery();
+      if (observedHistory && JSON.stringify(observedHistory.records) === JSON.stringify(orderedActivationHistory(serverId, scan.records))) {
+        await this.library.auditActivationHead(binding, scan.records);
+        await observedHistory.recheckProtection();
+        historyProof = observedHistory;
+      } else historyProof = await this.historyProtection.verify(serverId);
+    }
+    const history = historyProof?.records ?? [];
+    if (this.historyProtection && !history.length) await this.library.auditActivationHead(binding, scan.records);
+    const evidence = activationSourceEvidence(serverId, { ...target, worldId: body.worldId,
+      rootIdentity: await backupDirectoryIdentity(binding.rootPath) }, scan.records);
+    const source = scan.records.find(record => record.transactionId === evidence.transactionId && record.intent.serverId === serverId);
+    if (!source || evidence.checksum !== body.targetContentRevision || current.catalogId !== target.catalogId ||
+        (history.length && history.at(-1)!.intent.worldActivation!.worldId !== body.currentWorldId)) throw recovery();
+    return { plan, adapter, binding, current, target, source, evidence, history, historyProof };
   }
 
   private async snapshot(file: string, bytes: Buffer) {
@@ -98,11 +116,22 @@ export class WorldActivationService {
         worldActivation: { rootIdentity, catalogId: target.catalogId, worldId: body.worldId, previousWorldId: body.currentWorldId,
           previousName: current.levelName, nextName: target.levelName, libraryRevision: body.libraryRevision, currentWorldRevision: body.currentWorldRevision,
           targetWorldRevision: body.targetWorldRevision, currentContentChecksum: body.currentContentRevision, targetContentChecksum: body.targetContentRevision,
-          currentDirectoryIdentity: current.directoryIdentity, targetDirectoryIdentity: target.directoryIdentity, sourceImportTransactionId: checked.source.transactionId,
-          sourceImportChecksum: checked.source.intent.worldLibraryImport!.importedChecksum, predecessorTransactionId: null, sequence: 1,
+          currentDirectoryIdentity: current.directoryIdentity, targetDirectoryIdentity: target.directoryIdentity,
+          sourceImportTransactionId: checked.evidence.kind === "import" ? checked.evidence.transactionId : null,
+          sourceImportChecksum: checked.evidence.kind === "import" ? checked.evidence.checksum : null,
+          ...(checked.evidence.kind === "activation-guard" ? { sourceGuard: { transactionId: checked.evidence.transactionId,
+            guardBackupId: checked.evidence.guardBackupId, checksum: checked.evidence.checksum } } : {}),
+          predecessorTransactionId: checked.history.at(-1)?.transactionId ?? null, sequence: checked.history.length + 1,
           guardBackupId, propertiesBefore: before.checksum, propertiesAfter: hash(after), workspaceName } });
     } catch (error) { before.bytes.fill(0); after.fill(0); throw error; }
+    let headReserved = false;
     try {
+      let libraryRevision = body.libraryRevision;
+      if (this.historyProtection) {
+        libraryRevision = await this.library.reserveActivation(checked.binding, libraryRevision, record, checked.history);
+        headReserved = true;
+        await this.inject?.("activation-head-reserved");
+      }
       const originalState = this.states.snapshot(serverId);
       const currentFiles = await inventoryRestoreTree(currentPath), targetFiles = await inventoryRestoreTree(targetPath);
       if (restoreFilesChecksum(currentFiles) !== body.currentContentRevision || restoreFilesChecksum(targetFiles) !== body.targetContentRevision) throw conflict();
@@ -120,7 +149,7 @@ export class WorldActivationService {
         try { if (props.identity !== before.identity || props.checksum !== before.checksum ||
           JSON.stringify(this.states.snapshot(serverId)) !== JSON.stringify(originalState)) throw recovery(); } finally { props.bytes.fill(0); }
         await verifyRestoreTree(currentPath, currentFiles); await verifyRestoreTree(targetPath, targetFiles);
-        await this.library.resolve(checked.binding, body.worldId, body.libraryRevision);
+        await this.library.resolve(checked.binding, body.worldId, libraryRevision);
       };
       await this.checkpoint(record, "activation-intent-persisted"); await unchanged();
       await plainRestoreDirectory(this.managerRoot); await makeRestoreDirectory(path.join(this.managerRoot, "backups"));
@@ -191,6 +220,7 @@ export class WorldActivationService {
       await unchanged();
       await verifyGuard();
       await verifyCopies();
+      await checked.historyProof?.recheckProtection();
       if (await directoryObjectIdentity(workspace) !== workspaceIdentity) throw recovery();
       const finalStage = await readPrivatePropertiesFile(path.join(workspace, "properties.after"));
       try { if (finalStage.identity !== staged.identity || finalStage.checksum !== staged.checksum) throw recovery(); } finally { finalStage.bytes.fill(0); }
@@ -209,18 +239,50 @@ export class WorldActivationService {
       await this.checkpoint(record, "activation-state-installed");
       await stopped(); await verifyGuard(); await verifyInstalled();
       await verifyRestoreTree(currentPath, currentFiles); await verifyRestoreTree(targetPath, targetFiles);
-      if ((await this.library.list(checked.binding, this.states.snapshot(serverId))).activeWorldId !== body.worldId) throw recovery();
+      if (this.historyProtection) {
+        if (this.states.snapshot(serverId)?.levelName !== target.levelName) throw recovery();
+        await this.library.resolve(checked.binding, body.worldId, libraryRevision);
+      } else if ((await this.library.list(checked.binding, this.states.snapshot(serverId))).activeWorldId !== body.worldId) throw recovery();
       await this.checkpoint(record, "activation-final-verified", body.targetContentRevision);
       await stopped(); await verifyInstalled(); await verifyGuard();
       await verifyRestoreTree(currentPath, currentFiles); await verifyRestoreTree(targetPath, targetFiles);
-      const finalLibrary = await this.library.list(checked.binding, this.states.snapshot(serverId));
-      if (this.states.snapshot(serverId)?.levelName !== target.levelName || finalLibrary.activeWorldId !== body.worldId ||
-          finalLibrary.revision !== body.libraryRevision) throw recovery();
-      await this.journal.setState(serverId, record.transactionId, "committed", this.clock.now().toISOString());
+      await checked.historyProof?.recheckProtection();
+      if (this.states.snapshot(serverId)?.levelName !== target.levelName) throw recovery();
+      if (this.historyProtection) await this.library.resolve(checked.binding, body.worldId, libraryRevision);
+      else {
+        const finalLibrary = await this.library.list(checked.binding, this.states.snapshot(serverId));
+        if (finalLibrary.activeWorldId !== body.worldId || finalLibrary.revision !== body.libraryRevision) throw recovery();
+      }
+      const committedSnapshot = await this.journal.setState(serverId, record.transactionId, "committed", this.clock.now().toISOString());
       await this.inject?.("activation-commit-persisted");
+      if (this.historyProtection) {
+        const verifyCompletedPhysical = async () => {
+          await stopped();
+          if (JSON.stringify(await this.journal.get(serverId, record.transactionId)) !== JSON.stringify(committedSnapshot)) throw recovery();
+          await verifyInstalled(); await verifyGuard();
+          await verifyRestoreTree(currentPath, currentFiles); await verifyRestoreTree(targetPath, targetFiles);
+          await checked.historyProof?.recheckProtection();
+          await this.library.resolve(checked.binding, body.currentWorldId, libraryRevision);
+          await this.library.resolve(checked.binding, body.worldId, libraryRevision);
+          if (this.states.snapshot(serverId)?.levelName !== target.levelName) throw recovery();
+          if (JSON.stringify(await this.journal.get(serverId, record.transactionId)) !== JSON.stringify(committedSnapshot)) throw recovery();
+        };
+        const finalScan = await this.journal.scan();
+        if (finalScan.issues.some(issue => !issue.serverId || issue.serverId === serverId)) throw recovery();
+        await verifyCompletedPhysical();
+        const exactRecords = finalScan.records.map(item => item.transactionId === record.transactionId ? committedSnapshot : item);
+        libraryRevision = await this.library.completeActivation(checked.binding, libraryRevision, exactRecords);
+        await this.inject?.("activation-head-completed");
+        await verifyCompletedPhysical();
+        const published = await this.library.list(checked.binding, this.states.snapshot(serverId));
+        if (published.revision !== libraryRevision || published.activeWorldId !== body.worldId) throw recovery();
+      }
       await context.onResult?.({ resourceId: body.worldId, rollbackAvailable: false });
       await this.inject?.("activation-after-commit");
     } catch {
+      if (headReserved) {
+        try { await this.library.invalidateActivation(checked.binding, record); } catch { /* Preserve uncertain publication evidence. */ }
+      }
       try { await this.journal.setState(serverId, record.transactionId, "recovery-required", this.clock.now().toISOString()); } catch { /* Retain original evidence. */ }
       throw recovery();
     } finally { before.bytes.fill(0); after.fill(0); }

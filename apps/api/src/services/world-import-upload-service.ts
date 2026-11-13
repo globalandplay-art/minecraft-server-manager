@@ -12,7 +12,7 @@ import { ServerNotFoundError } from "./server-service.js";
 import { plainRestoreDirectory, restoreCapacity, restoreFilesChecksum, syncRestoreDirectory, writeRestoreJson, missingFile, inventoryRestoreTree } from "./restore-files.js";
 import { stageWorldImportArchive, WORLD_IMPORT_ARCHIVE_LIMITS, allowedWorldImportFile } from "./world-import-archive.js";
 import { readWorldVersion } from "./world-inventory-service.js";
-import type { TransactionJournalStore } from "./transaction-journal.js";
+import type { TransactionJournalRecord, TransactionJournalStore } from "./transaction-journal.js";
 import { systemClock, type Clock } from "../clock.js";
 
 // Reserve the full worst-case upload/extraction budget for each retained directory,
@@ -23,6 +23,9 @@ const unsafe = () => new DomainError(409, "IMPORT_STAGING_UNSAFE", "导入暂存
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 const DAY = 24 * 60 * 60 * 1000;
+const referencesUpload = (record: TransactionJournalRecord, id: string) =>
+  [record.intent.worldImport?.uploadId, record.intent.worldLibraryImport?.uploadId, record.intent.worldReplacement?.uploadId]
+    .some(reference => reference?.toLowerCase() === id.toLowerCase());
 type Lifecycle = { schemaVersion: 1; id: string; serverId: string; directoryIdentity: string; createdAt: string; state: "receiving" | "failed" | "validated" };
 async function directoryIdentity(directory: string): Promise<string> {
   await plainRestoreDirectory(directory);
@@ -60,7 +63,7 @@ export class WorldImportUploadService {
       return inside(path.relative(reference,directory)) || inside(path.relative(directory,reference));
     };
     if ((requireScan && !scan) || scan?.issues.length || scan?.recoveryServerIds.has(serverId) ||
-      scan?.records.some((record) => record.intent.worldImport?.uploadId === id || record.intent.worldLibraryImport?.uploadId === id ||
+      scan?.records.some((record) => referencesUpload(record, id) ||
         (record.intent.serverId === serverId && ["active","recovery-required"].includes(record.state)) ||
         record.checkpoints.some((point) => point.details?.resourceId === id ||
           (point.details?.relativePath !== undefined && referencesDirectory(point.details.relativePath))) ||
@@ -123,9 +126,8 @@ export class WorldImportUploadService {
   private async journalOwner(serverId: string,id: string): Promise<string | undefined> {
     const scan = await this.journal?.scan();
     if (scan?.issues.some((issue) => issue.serverId === serverId)) throw unsafe();
-    const references = scan?.records.filter((record) => record.intent.serverId === serverId &&
-      (record.intent.worldImport?.uploadId === id || record.intent.worldLibraryImport?.uploadId === id)) ?? [];
-    if (references.length > 1) throw unsafe();
+    const references = scan?.records.filter((record) => referencesUpload(record, id)) ?? [];
+    if (references.length > 1 || references.some(record => record.intent.serverId !== serverId)) throw unsafe();
     return references[0]?.intent.operationId;
   }
 

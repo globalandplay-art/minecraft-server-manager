@@ -1,5 +1,16 @@
 # Codex Operating Goal and Model Routing
 
+## Current user-approved acceptance override (2026-10-26)
+
+The user disabled Astra for subsequent LT acceptance and requested GPT-6.1 Sol.
+Use an independent GPT-6.1 Sol High reviewer for every applicable advanced
+safety, transaction/recovery and final acceptance Gate, including Worlds &
+Backups V2. This supersedes conflicting future Astra requirements below, not
+historical records or their attribution. Preserve all Gate content, safety
+invariants, test coverage and time limits. No writer self-signoff; unavailable
+required Sol High means PENDING. No automatic account/model setting changes,
+Git publication or P7 work are authorized by this override.
+
 ## M3-only explicit user exception (2026-10-24)
 
 M3 engineering: GPT-6.1 Sol Medium; complex/security/transaction/concurrency

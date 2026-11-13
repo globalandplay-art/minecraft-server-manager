@@ -8,9 +8,10 @@ import { DomainError } from "./domain-errors.js";
 import type { OperationService } from "./operation-service.js";
 import { readPrivatePropertiesFile } from "./properties-private-file.js";
 import { inventoryRestoreTree, restoreFilesChecksum, verifyRestoreTree } from "./restore-files.js";
-import { assessWorldCompatibility } from "./world-compatibility.js";
+import { assessWorldCompatibility, supportsVanillaWorldLayout } from "./world-compatibility.js";
 import { readWorldMetadata } from "./world-inventory-service.js";
 import type { WorldLibraryStore } from "./world-library-store.js";
+import type { WorldActivationHistoryProof } from "./world-activation-history-protection.js";
 
 const conflict = () => new DomainError(409, "WORLD_REVISION_CONFLICT", "World activation observations changed", "world-activation-plan-changed");
 
@@ -18,14 +19,14 @@ const conflict = () => new DomainError(409, "WORLD_REVISION_CONFLICT", "World ac
 export class WorldActivationPlanService {
   constructor(private readonly registry: AdapterRegistry, private readonly operations: OperationService,
     private readonly library: WorldLibraryStore, private readonly states: Pick<ActiveWorldStateStore, "snapshot">,
-    private readonly verifyInactive: (serverId: string, worldId: string) => Promise<void>) {}
+    private readonly verifyInactive: (serverId: string, worldId: string, libraryRevision: string) => Promise<void | { historyProof: WorldActivationHistoryProof }>) {}
 
   async plan(serverId: string, worldId: string) {
     return this.operations.runReadAdmission(serverId, () => this.inspectUnderLease(serverId, worldId));
   }
 
   /** Internal operation preflight/executor only; caller owns instance admission. */
-  async inspectUnderLease(serverId: string, worldId: string) {
+  async inspectUnderLease(serverId: string, worldId: string, observeHistory?: (proof: WorldActivationHistoryProof | undefined) => void) {
     if (typeof worldId !== "string" || !/^worldv2-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(worldId)) {
       throw new DomainError(400, "VALIDATION_ERROR", "Invalid world identity", "world-activation-invalid-id");
     }
@@ -50,7 +51,7 @@ export class WorldActivationPlanService {
       if (current.levelName !== active.levelName) throw conflict();
       // Imported content must still match the committed installation before any
       // later activation transaction may grant it a mutable-world lifecycle.
-      await this.verifyInactive(serverId, worldId);
+      await this.verifyInactive(serverId, worldId, list.revision);
       const props = await readPrivatePropertiesFile(path.join(binding.rootPath, "server.properties"));
       const propertyRevision = createHash("sha256").update(props.identity).update("\0").update(props.checksum).digest("hex");
       try { if ((parseProperties(props.bytes.toString("utf8")).get("level-name") ?? "world") !== current.levelName) throw conflict(); }
@@ -60,11 +61,11 @@ export class WorldActivationPlanService {
       const currentVersion = await readWorldMetadata(currentPath), targetVersion = await readWorldMetadata(targetPath);
       if (!currentVersion.readable || currentVersion.version !== "26.3" ||
           assessWorldCompatibility(targetVersion, { serverType: "vanilla", version: "26.3", dataVersion: currentVersion.dataVersion }).status !== "compatible" ||
-          targetFiles.some(file => file.path.startsWith("dimensions/"))) {
+          !supportsVanillaWorldLayout(currentFiles, currentVersion) || !supportsVanillaWorldLayout(targetFiles, targetVersion)) {
         throw new DomainError(409, "WORLD_COMPATIBILITY_UNVERIFIED", "World compatibility needs inspection", "world-activation-version-unverified");
       }
       await verifyRestoreTree(currentPath, currentFiles); await verifyRestoreTree(targetPath, targetFiles);
-      await this.verifyInactive(serverId, worldId);
+      const source = await this.verifyInactive(serverId, worldId, list.revision);
       await verifyRestoreTree(currentPath, currentFiles); await verifyRestoreTree(targetPath, targetFiles);
       await stopped();
       const finalProps = await readPrivatePropertiesFile(path.join(binding.rootPath, "server.properties"));
@@ -75,6 +76,9 @@ export class WorldActivationPlanService {
             JSON.stringify(await this.library.resolve(binding, current.worldId, list.revision)) !== JSON.stringify(current) ||
             JSON.stringify(await this.library.resolve(binding, target.worldId, list.revision)) !== JSON.stringify(target)) throw conflict();
       } finally { finalProps.bytes.fill(0); }
+      // Internal synchronous side channel only: no journal/capability data enters
+      // the public plan DTO, and failed plans never publish a reusable proof.
+      observeHistory?.(source?.historyProof);
       return { serverId, worldId, levelName: target.levelName, libraryRevision: list.revision,
         currentWorldId: current.worldId, currentWorldRevision: current.worldRevision, targetWorldRevision: target.worldRevision,
         currentContentRevision: restoreFilesChecksum(currentFiles), targetContentRevision: restoreFilesChecksum(targetFiles),

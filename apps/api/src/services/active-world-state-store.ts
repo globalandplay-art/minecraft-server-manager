@@ -6,6 +6,10 @@ import type { LocalMinecraftServerAdapter } from "../adapters/contract.js";
 import { parseProperties, readBoundedRegularFile, SERVER_PROPERTIES_LIMIT } from "../config/properties.js";
 import { DomainError } from "./domain-errors.js";
 import { syncRestoreDirectory } from "./restore-files.js";
+import { readPrivatePropertiesFile } from "./properties-private-file.js";
+
+export type ProtectedGenerationRecovery = { kind: "protected-pending-generation"; serverId: string; levelName: string; worldId: string;
+  slotChecksum: string; slotIdentity: string; propertiesChecksum: string; propertiesIdentity: string };
 
 export type ActiveWorldState = {
   schemaVersion: 1;
@@ -25,6 +29,7 @@ export class ActiveWorldStateStore {
   readonly #adapters: LocalMinecraftServerAdapter[];
   readonly #states = new Map<string, ActiveWorldState>();
   readonly #recovery = new Set<string>();
+  readonly #protectedGeneration = new Map<string, ProtectedGenerationRecovery>();
 
   constructor(managerRoot: string, adapters: readonly LocalMinecraftServerAdapter[]) {
     this.#directory = path.join(path.resolve(managerRoot), "active-worlds");
@@ -32,6 +37,17 @@ export class ActiveWorldStateStore {
   }
 
   async initialize(restoreWorlds: ReadonlyMap<string, string> = new Map(), importWorlds: ReadonlyMap<string, readonly string[]> = new Map(), archivedWorlds: ReadonlyMap<string, string> = new Map(), archiveServers: ReadonlySet<string> = new Set(), check = () => {}, protectedActiveServers: ReadonlySet<string> = new Set()): Promise<ReadonlySet<string>> {
+    const priorProtected = new Set(this.#protectedGeneration.keys());
+    this.#protectedGeneration.clear();
+    try { return await this.initializeState(restoreWorlds, importWorlds, archivedWorlds, archiveServers, check, protectedActiveServers, priorProtected); }
+    catch (error) {
+      this.#protectedGeneration.clear();
+      for (const adapter of this.#adapters) if (adapter.plan.serverInfo.type === "vanilla") this.#recovery.add(adapter.serverId);
+      throw error;
+    }
+  }
+
+  private async initializeState(restoreWorlds: ReadonlyMap<string, string>, importWorlds: ReadonlyMap<string, readonly string[]>, archivedWorlds: ReadonlyMap<string, string>, archiveServers: ReadonlySet<string>, check: () => void, protectedActiveServers: ReadonlySet<string>, priorProtected: ReadonlySet<string>): Promise<ReadonlySet<string>> {
     check();
     const managerRoot = path.dirname(this.#directory);
     await mkdir(managerRoot, { recursive: true, mode: 0o700 });
@@ -52,6 +68,9 @@ export class ActiveWorldStateStore {
     for (const adapter of this.#adapters) {
       check();
       if (adapter.plan.serverInfo.type !== "vanilla") continue;
+      let protection: ProtectedGenerationRecovery | undefined;
+      const priorUnknown = this.#recovery.has(adapter.serverId) && !priorProtected.has(adapter.serverId);
+      this.#protectedGeneration.delete(adapter.serverId);
       try {
         const props = parseProperties(await readBoundedRegularFile(
           path.join(adapter.plan.rootPath, "server.properties"), SERVER_PROPERTIES_LIMIT, "server.properties"
@@ -82,6 +101,19 @@ export class ActiveWorldStateStore {
           if (!this.#isMissing(error)) throw error;
         }
         if (existing !== null && protectedActiveServers.has(adapter.serverId) && existing.state !== "active") {
+          if (!priorUnknown && existing.state === "pending-generation" && expected.state === "active" && existing.levelName === expected.levelName &&
+              existing.worldId === expected.worldId && Object.keys(existing).length === 5) {
+            const slot = await readPrivatePropertiesFile(file, 16 * 1024);
+            const config = await readPrivatePropertiesFile(path.join(adapter.plan.rootPath, "server.properties"), SERVER_PROPERTIES_LIMIT);
+            try {
+              const text = slot.bytes.toString("utf8"), value = JSON.parse(text);
+              if ((text !== JSON.stringify(value) && text !== JSON.stringify(value) + "\n") || JSON.stringify(value) !== JSON.stringify(existing) ||
+                  parseProperties(config.bytes.toString("utf8")).get("level-name") !== levelName) throw new Error("Protected generation controls changed");
+              protection = { kind: "protected-pending-generation", serverId: adapter.serverId, levelName,
+                worldId: worldIdentity(adapter.serverId, levelName), slotChecksum: slot.checksum, slotIdentity: slot.identity,
+                propertiesChecksum: config.checksum, propertiesIdentity: config.identity };
+            } finally { slot.bytes.fill(0); config.bytes.fill(0); }
+          }
           throw new Error("Historical activation state requires inspection");
         }
         if (existing === null) {
@@ -109,9 +141,17 @@ export class ActiveWorldStateStore {
         check(); this.#states.set(adapter.serverId, existing);
       } catch {
         this.#recovery.add(adapter.serverId);
+        if (protection) this.#protectedGeneration.set(adapter.serverId, protection);
+        else this.#protectedGeneration.delete(adapter.serverId);
       }
     }
     check(); return new Set(this.#recovery);
+  }
+
+  /** Explains one startup gate only; never authorizes recovery or clears it. */
+  protectedGenerationRecovery(serverId: string): ProtectedGenerationRecovery | null {
+    const value = this.#recovery.has(serverId) ? this.#protectedGeneration.get(serverId) : undefined;
+    return value ? structuredClone(value) : null;
   }
 
   /** Fresh instance only. Existing history must use normal startup reconciliation. */
@@ -141,6 +181,7 @@ export class ActiveWorldStateStore {
       const index = this.#adapters.indexOf(adapter);
       if (index >= 0) this.#adapters.splice(index, 1);
       this.#states.delete(adapter.serverId);
+      this.#protectedGeneration.delete(adapter.serverId);
       // Keep any newly written physical evidence; only ordinary restart may reconcile it.
     };
   }
@@ -158,6 +199,7 @@ export class ActiveWorldStateStore {
     const index = this.#adapters.findIndex(row => row.serverId === serverId);
     if (index >= 0) this.#adapters.splice(index, 1);
     this.#states.delete(serverId);
+    this.#protectedGeneration.delete(serverId);
   }
 
   snapshot(serverId: string): ActiveWorldState | null {
@@ -219,6 +261,7 @@ export class ActiveWorldStateStore {
       }
     } catch {
       this.#recovery.add(serverId);
+      this.#protectedGeneration.delete(serverId);
       throw new DomainError(409, "RECOVERY_REQUIRED", "实例需要人工恢复检查", "active-world-commit-failed", true);
     }
   }
@@ -231,7 +274,7 @@ export class ActiveWorldStateStore {
     if ((props.get("level-name") ?? "world") !== levelName || !await this.#worldExists(adapter.plan.rootPath,levelName)) throw new Error("Imported world does not match configuration");
     const state: ActiveWorldState = { schemaVersion:1,serverId,state:"active",levelName,worldId:worldIdentity(serverId,levelName) };
     await this.#write(path.join(this.#directory,`${serverId}.json`),state);
-    this.#states.set(serverId,state); this.#recovery.delete(serverId);
+    this.#states.set(serverId,state); this.#recovery.delete(serverId); this.#protectedGeneration.delete(serverId);
   }
 
   #isState(value: unknown): value is ActiveWorldState {

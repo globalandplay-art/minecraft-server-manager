@@ -24,7 +24,9 @@ import {
   type WorldImportUploadsResponse, type WorldImportDiscardResponse, type WorldImportDiscardRequest,
   worldImportPlanResponseSchema, worldImportRecoveryPlanResponseSchema,
   type WorldImportPlanResponse, type WorldImportRecoveryPlanResponse, type WorldImportRequest, type WorldImportRecoveryRequest,
-  worldLibraryResponseSchema, worldLibraryImportPlanResponseSchema,
+  worldLibraryResponseSchema, worldLibraryImportPlanResponseSchema, worldActivationPlanResponseSchema,
+  type WorldActivationPlanResponse, type WorldActivationApproval,
+  worldReplacementPlanResponseSchema, type WorldReplacementPlanResponse, type WorldReplacementApproval,
   type WorldLibraryResponse, type WorldLibraryImportPlanResponse, type WorldLibraryImportRequest,
   healthResponseSchema,
   overviewResponseSchema,
@@ -37,6 +39,8 @@ import {
   type WorldCreatePlanRequest,
   type WorldCreatePlanResponse,
   type WorldCreateRequest,
+  worldGenerationTargetResponseSchema, worldGenerationFinalizeResponseSchema, worldStoppedRevisionResponseSchema, type WorldStoppedRevisionResponse,
+  type WorldGenerationTarget, type WorldGenerationTargetResponse, type WorldGenerationFinalizeResponse,
   type WorldArchiveRequest, type WorldArchivesResponse, worldArchivesResponseSchema,
   backupsResponseSchema,
   backupExportResponseSchema,
@@ -257,6 +261,21 @@ export const api = {
       { method: 'POST', body: { operationId, confirm: true }, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200 }),
   worldLibrary: (serverId: string, signal?: AbortSignal) =>
     getJson<WorldLibraryResponse>(`/servers/${encodeURIComponent(serverId)}/world-library`, worldLibraryResponseSchema, signal),
+  worldActivationPlan: (serverId: string, worldId: string, signal?: AbortSignal) =>
+    requestJson<WorldActivationPlanResponse>(`/servers/${encodeURIComponent(serverId)}/world-library/activation-plan`, worldActivationPlanResponseSchema,
+      { method: 'POST', body: { worldId }, signal, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
+  activateWorld: (serverId: string, body: WorldActivationApproval, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/world-library/activate`, lifecycleActionResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202, timeoutMs: 120_000 }),
+  worldReplacementPlan: (serverId: string, uploadId: string, signal?: AbortSignal) =>
+    requestJson<WorldReplacementPlanResponse>(`/servers/${encodeURIComponent(serverId)}/world-library/replacement-plan`, worldReplacementPlanResponseSchema,
+      { method: 'POST', body: { uploadId }, signal, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
+  replaceWorld: (serverId: string, body: WorldReplacementApproval, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/world-library/replace`, lifecycleActionResponseSchema,
+      { method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202, timeoutMs: 120_000 }),
+  verifyWorldReplacement: (serverId: string, operationId: string) =>
+    requestJson<OperationResponse>(`/servers/${encodeURIComponent(serverId)}/world-library/replacement-verification`, operationResponseSchema,
+      { method: 'POST', body: { operationId, intent: 'confirm-current-state' }, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
   worldLibraryImportPlan: (serverId: string, body: { uploadId: string; name: string }, signal?: AbortSignal) =>
     requestJson<WorldLibraryImportPlanResponse>(`/servers/${encodeURIComponent(serverId)}/world-library/import-plan`, worldLibraryImportPlanResponseSchema,
       { method: 'POST', body, signal, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000 }),
@@ -397,6 +416,34 @@ export const api = {
   createWorld: (serverId: string, body: WorldCreateRequest, key: string) =>
     requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds`, lifecycleActionResponseSchema, {
       method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202,
+    }),
+  worldGenerationTarget: (serverId: string, signal?: AbortSignal) =>
+    requestJson<WorldGenerationTargetResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/generation-target`, worldGenerationTargetResponseSchema, {
+      method: 'POST', body: {}, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, signal,
+    }),
+  generateWorld: (serverId: string, body: WorldGenerationTarget, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/generate`, lifecycleActionResponseSchema, {
+      method: 'POST', body, headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202,
+    }),
+  // Confirmation is inspection-only; it neither unlocks recovery nor starts Minecraft.
+  finalizeWorldGeneration: (serverId: string, executionOperationId: string) =>
+    requestJson<WorldGenerationFinalizeResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/generation-finalize`, worldGenerationFinalizeResponseSchema, {
+      method: 'POST', body: { executionOperationId }, headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200,
+    }),
+  inspectStoppedWorldRevision: (serverId: string, confirmStopOperationId?: string) =>
+    requestJson<WorldStoppedRevisionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/stopped-revision-inspection`, worldStoppedRevisionResponseSchema, {
+      method: 'POST', body: confirmStopOperationId === undefined ? {} : { confirmStopOperationId },
+      headers: { 'X-Manager-Intent': 'local-ui' }, expectedStatus: 200, timeoutMs: 120_000,
+    }),
+  startFirstManagedWorld: (serverId: string, executionOperationId: string, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/first-managed-start`, lifecycleActionResponseSchema, {
+      method: 'POST', body: { executionOperationId, confirm: true },
+      headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202, timeoutMs: 120_000,
+    }),
+  stopFirstManagedWorld: (serverId: string, startOperationId: string, key: string) =>
+    requestJson<LifecycleActionResponse>(`/servers/${encodeURIComponent(serverId)}/worlds/first-managed-stop`, lifecycleActionResponseSchema, {
+      method: 'POST', body: { startOperationId, confirm: true },
+      headers: { 'X-Manager-Intent': 'local-ui', 'Idempotency-Key': key }, expectedStatus: 202, timeoutMs: 120_000,
     }),
   backupRetention: (serverId: string, signal?: AbortSignal) =>
     getJson<BackupRetentionResponse>(`/servers/${encodeURIComponent(serverId)}/backup-retention`, backupRetentionResponseSchema, signal),

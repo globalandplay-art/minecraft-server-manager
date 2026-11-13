@@ -3,6 +3,7 @@ import type { WorldImportUploadResponse, WorldImportUploadsResponse } from '@mcs
 import { api, errorMessage } from '../api';
 import { WorldImportAction } from './WorldImportAction';
 import { WorldIndependentImport } from './WorldIndependentImport';
+import { WorldReplacement } from './WorldReplacement';
 import { useTranslation } from 'react-i18next';
 import { createWorldFolderArchive, WorldFolderError } from '../worldFolderArchive';
 
@@ -103,6 +104,7 @@ function WorldImportUploadInstance({ serverId }: { serverId: string }) {
         </div>)}</> : null}
     </div>
     <WorldIndependentImport key={`independent-${serverId}`} serverId={serverId} uploadId={usableImport} onLifecycle={refreshUploads} />
+    <WorldReplacement serverId={serverId} uploadId={usableImport} onLifecycle={refreshUploads} />
     <details><summary>{t('worldv2.legacy')}</summary>
       <WorldImportAction key={serverId} serverId={serverId} uploadId={usableImport} onLifecycle={refreshUploads} />
     </details>

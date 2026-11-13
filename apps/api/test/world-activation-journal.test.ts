@@ -27,6 +27,37 @@ async function fixture() {
   return { root, journal, intent };
 }
 describe("activation schema10 evidence (no executor exposed)", () => {
+  it("persists schema11 guard provenance without forging an import and remains recovery gated", async () => {
+    const f = await fixture();
+    const intent = { ...f.intent, worldActivation: { ...f.intent.worldActivation!, sequence: 2, predecessorTransactionId: randomUUID(),
+      sourceImportTransactionId: null, sourceImportChecksum: null,
+      sourceGuard: { transactionId: randomUUID(), guardBackupId: randomUUID(), checksum: f.intent.worldActivation!.targetContentChecksum } } };
+    const record = await f.journal.createIntent(intent);
+    expect(record.schemaVersion).toBe(11);
+    await f.journal.setState(intent.serverId, record.transactionId, "committed", now);
+    const restarted = new TransactionJournalStore(f.root);
+    expect((await restarted.initialize()).records[0]?.intent.worldActivation).toEqual(intent.worldActivation);
+    const operations = new OperationService(new MemoryOperationStore(), { now: () => new Date(now) }, restarted);
+    await operations.initialize();
+    expect(operations.getServerState(intent.serverId).recoveryRequired).toBe(true);
+  });
+  it.each(["dual-source", "wrong-checksum", "first-transition", "same-guard", "self-source", "extra-field", "array-id"])("rejects invalid guard provenance: %s", async problem => {
+    const f = await fixture(), transactionId = randomUUID();
+    const activation = { ...f.intent.worldActivation!, sequence: 2, predecessorTransactionId: randomUUID() as string | null,
+      sourceImportTransactionId: null as string | null, sourceImportChecksum: null as string | null,
+      sourceGuard: { transactionId: randomUUID(), guardBackupId: randomUUID(), checksum: f.intent.worldActivation!.targetContentChecksum } };
+    switch (problem) {
+      case "dual-source": activation.sourceImportTransactionId = randomUUID(); activation.sourceImportChecksum = "a".repeat(64); break;
+      case "wrong-checksum": activation.sourceGuard.checksum = "0".repeat(64); break;
+      case "first-transition": activation.sequence = 1; activation.predecessorTransactionId = null; break;
+      case "same-guard": activation.sourceGuard.guardBackupId = activation.guardBackupId; break;
+      case "self-source": activation.sourceGuard.transactionId = transactionId; break;
+      case "extra-field": Object.assign(activation.sourceGuard, { path: "untrusted" }); break;
+      case "array-id": Object.assign(activation.sourceGuard, { transactionId: [randomUUID()] }); break;
+    }
+    await expect(f.journal.createIntent({ ...f.intent, transactionId, worldActivation: activation })).rejects.toThrow();
+    expect((await f.journal.scan()).records).toHaveLength(0);
+  });
   it("persists exact first activation bindings and keeps unverified committed evidence gated", async () => {
     const f = await fixture(), record = await f.journal.createIntent(f.intent);
     expect(record.schemaVersion).toBe(10);

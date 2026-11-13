@@ -1,5 +1,37 @@
 # 2026-10-25 Worlds V2 identity observation (IN PROGRESS)
 
+## 2026-10-27 first-replacement candidate (default disabled)
+
+Trusted application construction may enable first-transition replacement; main
+does not enable it. Default preview is false and execution routes are absent.
+Enabled preview has executionAvailable=true/unavailableReason=null after the
+same instance/upload lease and revision checks. POST world-library/replace takes
+exactly uploadId, uploadRevision, libraryRevision, currentWorldId,
+currentWorldRevision, currentContentRevision, propertiesRevision, confirmWorldName
+plus UUID Idempotency-Key. Returns202 existing lifecycle operation contract.
+POST world-library/replacement-verification accepts only operationId and fixed
+intent=confirm-current-state, returns200 existing operation response. This only
+confirms complete physical evidence; never replays or repairs a replacement.
+Session/Origin/CSRF and mutation admission after waits apply. No paths/proof/
+skip-backup/allow-stop override. Mixed histories remain unavailable.
+
+## Historical 2026-10-26 read-only replacement preparation
+
+`POST /api/v1/servers/:serverId/world-library/replacement-plan` accepts exactly
+`{uploadId}` with existing local request/session/Origin/CSRF protection. It binds
+the current immutable world identity, current tree/config/catalog revisions and
+validated instance-owned uploaded source; server must already be stopped. No
+world ID allocation, operation creation, upload claim, backup or data write.
+The strict response includes `mode:replace`, `currentWorldId/currentWorldName`,
+`currentWorldRevision/currentContentRevision`, `propertiesRevision`,
+`libraryRevision`, `uploadId/uploadRevision`, source version/count/size, and
+literal `executionAvailable:false`, `serverMustBeStopped:true`,
+`requiresProtectedBackup:true`, `unavailableReason:REPLACEMENT_TRANSACTION_PENDING`.
+There is no `/world-library/replace` mutation endpoint. The preview is an
+observation, not a future execution authorization or compatibility guarantee.
+
+## Earlier identity observation contract
+
 `GET /api/v1/servers/:serverId/world-library` is available for registered local
 Vanilla instances when the Manager has its active-state store and manager root.
 It uses the existing application Session/Origin guards and `Cache-Control:no-store`.
@@ -693,3 +725,87 @@ startup never repeats installation automatically. Source uploads stay referenced
 No automatic stop/start, active-world switch, old backup rebinding or recovery
 replay occurs. Browser folder selection is only bounded ZIP transport through
 the existing world-import upload endpoint; all server validation still applies.
+
+### Pending generated worlds (2026-10-29)
+
+`GET /api/v1/servers/:serverId/world-library` may include an entry with
+`origin: generation` after internal schema6 publication and complete historical
+inspection. Such a catalog remains `inspection-required`, `activeWorldId: null`,
+`mutationsAvailable: false`, `activationAvailable: false`. The entry is pending
+verification, not a startup permission. Missing/corrupt evidence yields the
+existing inspection-required response without trusted items. No arbitrary paths,
+new generation mutation endpoint or recovery bypass is introduced by this update.
+
+### Worlds V2 explicit generation endpoints
+
+Trusted local app construction enables these endpoints through
+worldGenerationPreparation and worldGenerationExecution, with configured
+authentication, operation storage, journal, registered adapters and world library.
+
+- POST /api/v1/servers/:serverId/worlds/generation-target accepts an empty JSON
+  object. Request-bound authorization and current preparation verification
+  produce WorldGenerationTarget. Responses use Cache-Control no-store.
+- POST /api/v1/servers/:serverId/worlds/generate accepts that strict target and
+  a UUID-v4 Idempotency-Key. It returns202 with an operation. The execution
+  revalidates the persisted owner and running receipt before dispatching the
+  existing managed runtime. Replays retain the operation ID.
+- POST /api/v1/servers/:serverId/worlds/generation-finalize accepts exactly
+  one string executionOperationId. It validates the controlled exit, slot,
+  completion, genesis, issuer and initial maturity evidence. The response
+  contains serverId, operationId, worldId, inspectionOnly=true and
+  recoveryRequired=true. Installed maturity confirmation follows the existing
+  publication intent and performs read-confirmation.
+
+All three require the existing local Host, Origin, intent, session and CSRF
+guards. Full body validation runs before AJV conversion for finalization.
+WorldGenerationTarget and WorldGenerationFinalizeResponse schemas define the
+public projection. Ordinary start/write admission remains pending integrated
+catalog/history/active-state and owned-save lifecycle verification.
+The current positive HTTP evidence uses an isolated Fake runtime with real
+Fastify, session/CSRF and JSON operation storage. Real Minecraft acceptance
+and Phase1 Final Gate remain pending.
+
+The same authenticated opt-in composition mounts
+`POST /api/v1/servers/:serverId/worlds/stopped-revision-inspection`. Send `{}`
+with the same local intent, session and CSRF headers. The server selects the
+active slot from its registry and checks the current stopped world against
+the persisted stop chain. It matches the logical world UUID and exact catalog
+revision before and after the physical inspection. A successful `200` is `Cache-Control: no-store` and
+uses the inspection response above with the stop operation ID. Missing or
+changed evidence, an invalid active slot or conflicting recovery returns a
+recovery error. The response does not clear recovery or grant lifecycle access.
+For a schema7 generated world, the inspection also requires the exact sealed
+ordinary start/stop pair and permits only recovery causes linked to that pair
+or its historical generation transaction. Unrelated recovery still blocks it.
+The inspection rereads the maturity publication intent and checks its binding
+to the current catalog object under the inspection lease. Missing or changed
+publication evidence blocks inspection. This check does not establish crash
+durability.
+
+Send `{"confirmStopOperationId":"<stop UUID>"}` to explicitly record the
+inspection. The UUID must match the current stop evidence. The server writes
+an immutable confirmation under the inspection lease, checks the evidence
+again and reads the confirmation back. Repeating the request with identical
+evidence is accepted. A different operation or confirmation returns 409.
+Both forms return an inspection-scoped response with `confirmationRecorded`
+and retain recovery. Read-only inspection rechecks the persisted confirmation
+against the current evidence after restart. A missing confirmation returns
+`false` only if the stop chain still matches. An invalid confirmation or a
+missing stop chain returns 409.
+
+The authenticated generation execution opt-in also mounts
+`POST /api/v1/servers/:serverId/worlds/first-managed-start` with
+`{ "executionOperationId": "<UUID>", "confirm": true }` and
+`POST /api/v1/servers/:serverId/worlds/first-managed-stop` with
+`{ "startOperationId": "<UUID>", "confirm": true }`.
+Both require a UUID `Idempotency-Key`, the existing local intent, session and
+CSRF checks, and return 202 with the operation response and no-store caching.
+Start uses the exact published initial-world baseline; stop requires the
+live witness retained by that Manager. A restart does not reconstruct the
+witness or replay either command. These operations retain recovery-required
+status until separate verification and settlement. Main does not enable the
+generation execution opt-in. Repeated or uncertain operations are rejected.
+When the world library advertises stopped-revision inspection, it also supplies
+`stoppedRevisionInspectionWorldId`. A generated world's inspection target may
+be present while `activeWorldId` is null. The target does not grant activation
+or mutation access.

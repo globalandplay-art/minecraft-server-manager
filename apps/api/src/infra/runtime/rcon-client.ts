@@ -131,9 +131,10 @@ export class RconClient {
   /** Internal dispatch boundary. The caller must persist intent BEFORE entering this
    * method. Authorization is synchronous and runs after authentication, before any
    * command write; it is not a durable journal or endpoint-ownership proof. */
-  async executeGuarded(command: string, authorize: () => undefined): Promise<string> {
+  async executeGuarded(command: string, authorize: () => undefined, verify?: () => Promise<void>): Promise<string> {
     const validated = validateMinecraftCommand(command);
     await this.connect();
+    if (verify) await verify();
     const requestId = this.allocateRequestId();
     const barrierRequestId = this.allocateRequestId();
     const output = await this.sendRequest(

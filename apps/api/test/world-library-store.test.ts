@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import fastify from "fastify";
@@ -30,6 +31,28 @@ async function fixture(serverId = "test-a") {
   return { manager, binding, state, file, store };
 }
 describe("V2 world lineage sidecar", () => {
+  it("rejects same-byte catalog replacement after the guarded physical walk", async () => {
+    const f = await fixture(); await f.store.migrateLegacy(f.binding, f.state);
+    const bytes = await readFile(f.file);
+    const retained = path.join(f.manager, "retained-catalog.json");
+    let replaced = false;
+    const result = await f.store.list(f.binding, f.state, {
+      journal: { scan: async () => ({ records: [], issues: [] }) }, receipts: { list: async () => [] },
+      assertCurrent: () => {
+        if (!replaced) {
+          replaced = true;
+          renameSync(f.file, retained);
+          writeFileSync(f.file, bytes);
+        }
+        return undefined;
+      }
+    });
+    expect(replaced).toBe(true);
+    expect(result).toMatchObject({ state: "inspection-required", revision: null, items: [] });
+    expect(await readFile(f.file)).toEqual(bytes);
+    expect(await readFile(retained)).toEqual(bytes);
+    expect((await new WorldLibraryStore(f.manager, clock).list(f.binding, f.state)).state).toBe("ready");
+  });
   it("persists a random identity across store reconstruction without associating old backups", async () => {
     const f = await fixture();
     const oldBackup = path.join(f.manager, "legacy-manifest.json");
@@ -130,13 +153,23 @@ describe("V2 world lineage sidecar", () => {
   it("serves a strict redacted contract without exposing physical identity or enabling writes", async () => {
     const f = await fixture(); await f.store.migrateLegacy(f.binding, f.state);
     const adapter = { mode: "local", serverId: f.binding.serverId,
+      getRegisteredExecutionIdentity: () => ({ rootIdentity: "a".repeat(64) }),
       plan: { rootPath: f.binding.rootPath, serverInfo: { type: "vanilla" } } } as unknown as LocalMinecraftServerAdapter;
-    const app = fastify(); registerWorldLibraryRoutes(app, f.store, new AdapterRegistry([adapter]), () => f.state, clock, "local");
+    let active = true;
+    const app = fastify();
+    registerWorldLibraryRoutes(app, f.store, new AdapterRegistry([adapter]),
+      () => active ? f.state : { ...f.state, state: "pending-generation" }, clock, "local",
+      undefined, undefined, undefined, async catalog => catalog.items[0]?.worldId);
     try {
       const response = await app.inject({ method: "GET", url: `/api/v1/servers/${f.binding.serverId}/world-library` });
       expect(response.statusCode).toBe(200); expect(Value.Check(worldLibraryResponseSchema, response.json())).toBe(true);
       expect(response.body).not.toContain(f.binding.rootPath); expect(response.body).not.toContain("directoryIdentity");
       expect(response.json().data.mutationsAvailable).toBe(false);
+      expect(response.json().data.stoppedRevisionInspectionWorldId).toBe(response.json().data.items[0].worldId);
+      active = false;
+      const pending = await app.inject({ method: "GET", url: `/api/v1/servers/${f.binding.serverId}/world-library` });
+      expect(pending.statusCode).toBe(200);
+      expect(pending.json().data).not.toHaveProperty("stoppedRevisionInspectionAvailable");
     } finally { await app.close(); }
   });
   it("wires startup observation into the real app and retains session/origin protection", async () => {

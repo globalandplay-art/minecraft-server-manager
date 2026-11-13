@@ -36,6 +36,14 @@ export function orderedActivationHistory(serverId: string, records: readonly Tra
           value.previousWorldId !== previous.intent.worldActivation!.worldId : value.predecessorTransactionId !== null)) throw invalid();
     bind(value.previousWorldId, value.previousName, value.currentDirectoryIdentity);
     bind(value.worldId, value.nextName, value.targetDirectoryIdentity);
+    if (value.sourceGuard) {
+      const source = history.slice(0, index).reverse().find(item => item.intent.worldActivation!.previousWorldId === value.worldId);
+      const guard = source?.intent.worldActivation;
+      if (!source || !guard || value.sourceGuard.transactionId.toLowerCase() !== source.transactionId.toLowerCase() ||
+          value.sourceGuard.guardBackupId.toLowerCase() !== guard.guardBackupId.toLowerCase() ||
+          value.sourceGuard.checksum !== guard.currentContentChecksum || value.targetContentChecksum !== guard.currentContentChecksum ||
+          guard.previousName !== value.nextName || guard.currentDirectoryIdentity !== value.targetDirectoryIdentity) throw invalid();
+    }
   }
   return history;
 }

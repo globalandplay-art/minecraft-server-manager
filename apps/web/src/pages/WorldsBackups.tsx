@@ -6,6 +6,7 @@ import { ApiClientError, api, errorMessage, shouldRetry } from '../api';
 import { EmptyState, ErrorState, PageHeading } from '../components/Ui';
 import { RestoreAction, RestoreHistory } from './RestoreAction';
 import { WorldCreatePlan } from './WorldCreatePlan';
+import { WorldGeneration } from './WorldGeneration';
 import { WorldImportUpload } from './WorldImportUpload';
 import { WorldLibraryList } from './WorldLibraryList';
 import { WorldArchiveAction, WorldArchiveList } from './WorldArchiveAction';
@@ -79,6 +80,7 @@ export function WorldsPage({ server }: { server: Server | undefined }) {
     </section>) : <EmptyState title="未发现可管理的世界" description="后端没有返回可确认的世界目录。" />}
     {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldArchiveAction key={`archive-${server.server.id}`} serverId={server.server.id} world={query.data.data.items.find((world) => world.active)} running={server.status.state === 'running'} allowed={Boolean(server.readiness.worldChanges?.allowed)} /> : null}
     {server?.capabilities.worlds ? <WorldCreatePlan key={server.server.id} serverId={server.server.id} /> : null}
+    {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldGeneration serverId={server.server.id} /> : null}
     {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldLibraryList key={`library-${server.server.id}`} serverId={server.server.id} /> : null}
     {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldImportUpload key={`import-${server.server.id}`} serverId={server.server.id} /> : null}
     {server?.capabilities.worlds && query.data?.meta.mode === 'local' ? <WorldArchiveList serverId={server.server.id} /> : null}
